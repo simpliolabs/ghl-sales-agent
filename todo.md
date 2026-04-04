@@ -57,3 +57,5 @@
 - [x] Auto-calculate lead value from price list when AI knows quantity
 - [x] Redesign Pipeline page as horizontal Kanban board with stage columns, summary stats, and clickable lead cards
 - [x] Add Next Outreach column to Leads page (always visible, color-coded: red=overdue, amber=today, gray=future)
+- [x] BUG: Most leads have no nextFollowUpAt — column should always be prefilled for all leads (bulk-set 1,620 leads + auto-schedule on new contacts)
+- [x] Show research context (extra context from AI research) on lead detail page + leads table Context column

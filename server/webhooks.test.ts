@@ -19,6 +19,7 @@ vi.mock("./ai-brain", () => ({
   shouldHandoffToAgent: vi.fn().mockResolvedValue({ handoff: false, reason: "No handoff needed", resumeAI: false }),
   generateContactNotes: vi.fn().mockResolvedValue("Test notes"),
   estimateOrderValue: vi.fn().mockResolvedValue({ estimatedValue: 500, confidence: "medium", reasoning: "Test" }),
+  generateResearchContext: vi.fn().mockResolvedValue({ summary: "Test business", businessType: "brand", potentialNeeds: ["t-shirts"], notes: "" }),
 }));
 
 vi.mock("./ghl", () => ({
@@ -28,6 +29,7 @@ vi.mock("./ghl", () => ({
   addNote: vi.fn().mockResolvedValue({ id: "note_123" }),
   updateOpportunityValue: vi.fn().mockResolvedValue({}),
   updateOpportunityStage: vi.fn().mockResolvedValue({}),
+  fetchGhlConversationHistory: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("./omnisend", () => ({
@@ -265,5 +267,61 @@ describe("Webhook Router", () => {
       expect(res.status).toBe(200);
       expect(res.body.action).toBe("human_message_logged");
     });
+  });
+});
+
+describe("Research context and auto-scheduling", () => {
+  let app: ReturnType<typeof createTestApp>;
+
+  beforeEach(() => {
+    app = createTestApp();
+    vi.clearAllMocks();
+  });
+
+  it("generates research context for new contacts with business name", async () => {
+    const { generateResearchContext } = await import("./ai-brain");
+    const { updateLeadFields } = await import("./db");
+
+    const res = await request(app).post("/api/webhooks/ghl").send({
+      id: "contact_research_1",
+      firstName: "Test",
+      lastName: "User",
+      companyName: "Research Corp",
+      email: "test@research.com",
+      type: "ContactCreate",
+    });
+
+    expect(res.status).toBe(200);
+    expect(generateResearchContext).toHaveBeenCalled();
+    // Should store research data via updateLeadFields
+    expect(updateLeadFields).toHaveBeenCalledWith(
+      expect.any(Number),
+      expect.objectContaining({
+        researchData: expect.objectContaining({
+          summary: expect.any(String),
+          businessType: expect.any(String),
+        }),
+      })
+    );
+  });
+
+  it("sets default nextFollowUpAt for new contacts", async () => {
+    const { updateLeadFields } = await import("./db");
+
+    const res = await request(app).post("/api/webhooks/ghl").send({
+      id: "contact_schedule_1",
+      firstName: "Schedule",
+      lastName: "Test",
+      type: "ContactCreate",
+    });
+
+    expect(res.status).toBe(200);
+    // Should set nextFollowUpAt (default 30 min)
+    expect(updateLeadFields).toHaveBeenCalledWith(
+      expect.any(Number),
+      expect.objectContaining({
+        nextFollowUpAt: expect.any(Date),
+      })
+    );
   });
 });

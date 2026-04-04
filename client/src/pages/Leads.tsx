@@ -4,11 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Users, Search, RefreshCw, CalendarClock } from "lucide-react";
+import { Users, Search, RefreshCw, CalendarClock, FileSearch } from "lucide-react";
 import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export default function Leads() {
   const { data: leads, isLoading, refetch } = trpc.leads.list.useQuery();
@@ -69,47 +70,74 @@ export default function Leads() {
                       <th className="text-left p-3 font-medium">Stage</th>
                       <th className="text-center p-3 font-medium">Score</th>
                       <th className="text-left p-3 font-medium hidden lg:table-cell">Agent</th>
+                      <th className="text-left p-3 font-medium hidden xl:table-cell">
+                        <span className="flex items-center gap-1">
+                          <FileSearch className="h-3.5 w-3.5" /> Context
+                        </span>
+                      </th>
                       <th className="text-left p-3 font-medium">Next Outreach</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.map((lead) => (
-                      <tr
-                        key={lead.id}
-                        className="border-b hover:bg-muted/30 cursor-pointer transition-colors"
-                        onClick={() => setLocation(`/leads/${lead.id}`)}
-                      >
-                        <td className="p-3 font-medium">{lead.name || "Unknown"}</td>
-                        <td className="p-3 text-muted-foreground hidden sm:table-cell">{lead.businessName || "—"}</td>
-                        <td className="p-3 text-muted-foreground hidden md:table-cell">{lead.email || "—"}</td>
-                        <td className="p-3">
-                          <Badge variant="outline" className="text-xs">{lead.pipelineStage || "New Lead"}</Badge>
-                        </td>
-                        <td className="p-3 text-center">
-                          <span className={`font-mono text-sm font-medium ${(lead.opportunityScore || 0) >= 80 ? "text-orange-600" : (lead.opportunityScore || 0) >= 50 ? "text-yellow-600" : "text-muted-foreground"}`}>
-                            {lead.opportunityScore ?? "—"}
-                          </span>
-                        </td>
-                        <td className="p-3 text-muted-foreground hidden lg:table-cell">{lead.assignedAgent || "—"}</td>
-                        <td className="p-3">
-                          {lead.nextFollowUpAt ? (
-                            <span className={`flex items-center gap-1 text-xs whitespace-nowrap ${
-                              new Date(lead.nextFollowUpAt) <= new Date()
-                                ? "text-red-600 font-semibold"
-                                : new Date(lead.nextFollowUpAt) <= new Date(Date.now() + 86400000)
-                                  ? "text-amber-600 font-medium"
-                                  : "text-muted-foreground"
-                            }`}>
-                              <CalendarClock className="h-3.5 w-3.5 shrink-0" />
-                              {new Date(lead.nextFollowUpAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}{" "}
-                              {new Date(lead.nextFollowUpAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                    {filtered.map((lead) => {
+                      const research = lead.researchData as { summary?: string; businessType?: string } | null;
+                      const contextSnippet = research?.summary
+                        ? (research.summary.length > 60 ? research.summary.substring(0, 57) + "..." : research.summary)
+                        : null;
+
+                      return (
+                        <tr
+                          key={lead.id}
+                          className="border-b hover:bg-muted/30 cursor-pointer transition-colors"
+                          onClick={() => setLocation(`/leads/${lead.id}`)}
+                        >
+                          <td className="p-3 font-medium">{lead.name || "Unknown"}</td>
+                          <td className="p-3 text-muted-foreground hidden sm:table-cell">{lead.businessName || "—"}</td>
+                          <td className="p-3 text-muted-foreground hidden md:table-cell">{lead.email || "—"}</td>
+                          <td className="p-3">
+                            <Badge variant="outline" className="text-xs">{lead.pipelineStage || "New Lead"}</Badge>
+                          </td>
+                          <td className="p-3 text-center">
+                            <span className={`font-mono text-sm font-medium ${(lead.opportunityScore || 0) >= 80 ? "text-orange-600" : (lead.opportunityScore || 0) >= 50 ? "text-yellow-600" : "text-muted-foreground"}`}>
+                              {lead.opportunityScore ?? "—"}
                             </span>
-                          ) : (
-                            <span className="text-xs text-muted-foreground/40">Not scheduled</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="p-3 text-muted-foreground hidden lg:table-cell">{lead.assignedAgent || "—"}</td>
+                          <td className="p-3 hidden xl:table-cell">
+                            {contextSnippet ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="text-xs text-muted-foreground cursor-help">{contextSnippet}</span>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom" className="max-w-xs">
+                                  <p className="text-xs">{research?.summary}</p>
+                                  {research?.businessType && <p className="text-xs mt-1 font-medium">Type: {research.businessType}</p>}
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              <span className="text-xs text-muted-foreground/40">—</span>
+                            )}
+                          </td>
+                          <td className="p-3">
+                            {lead.nextFollowUpAt ? (
+                              <span className={`flex items-center gap-1 text-xs whitespace-nowrap ${
+                                new Date(lead.nextFollowUpAt) <= new Date()
+                                  ? "text-red-600 font-semibold"
+                                  : new Date(lead.nextFollowUpAt) <= new Date(Date.now() + 86400000)
+                                    ? "text-amber-600 font-medium"
+                                    : "text-muted-foreground"
+                              }`}>
+                                <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+                                {new Date(lead.nextFollowUpAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}{" "}
+                                {new Date(lead.nextFollowUpAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground/40">Not scheduled</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

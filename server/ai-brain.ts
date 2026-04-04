@@ -469,6 +469,51 @@ Return JSON with handoff (boolean) and reason (string).`,
   return { ...parsed, resumeAI: false };
 }
 
+export async function generateResearchContext(leadData: {
+  name?: string;
+  businessName?: string;
+  source?: string;
+  website?: string;
+  segment?: string;
+  phone?: string;
+  email?: string;
+}): Promise<{ summary: string; businessType: string; potentialNeeds: string[]; notes: string }> {
+  const response = await invokeLLM({
+    messages: [
+      {
+        role: "system",
+        content: `You are a lead research assistant for a custom printing company (Adorb Custom Tees). Based on available lead data, generate a brief research context that helps sales agents understand the lead at a glance. Be concise and actionable. If data is sparse, make reasonable inferences from the business name and source. Return JSON.`,
+      },
+      {
+        role: "user",
+        content: `Generate research context for this lead:\nName: ${leadData.name || "Unknown"}\nBusiness: ${leadData.businessName || "Unknown"}\nWebsite: ${leadData.website || "N/A"}\nSource: ${leadData.source || "Unknown"}\nSegment: ${leadData.segment || "Unclassified"}\nEmail: ${leadData.email || "N/A"}\nPhone: ${leadData.phone || "N/A"}`,
+      },
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "research_context",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            summary: { type: "string", description: "1-2 sentence summary of who this lead is and what they likely need" },
+            businessType: { type: "string", description: "Type of business/organization" },
+            potentialNeeds: { type: "array", items: { type: "string" }, description: "Likely custom printing needs" },
+            notes: { type: "string", description: "Any other useful context for the sales team" },
+          },
+          required: ["summary", "businessType", "potentialNeeds", "notes"],
+          additionalProperties: false,
+        },
+      },
+    },
+  });
+
+  const content = response.choices?.[0]?.message?.content;
+  if (!content) return { summary: "No research available", businessType: "Unknown", potentialNeeds: [], notes: "" };
+  return JSON.parse(content as string);
+}
+
 export async function classifySegment(businessName: string, website?: string, researchData?: unknown): Promise<string> {
   const response = await invokeLLM({
     messages: [

@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Mail, Phone, Globe, Building2, Brain, MessageSquare, UserCheck, HandMetal, DollarSign, StickyNote } from "lucide-react";
+import { ArrowLeft, Mail, Phone, Globe, Building2, Brain, MessageSquare, UserCheck, HandMetal, DollarSign, StickyNote, FileSearch, CalendarClock } from "lucide-react";
 import { useLocation, useParams } from "wouter";
 import { toast } from "sonner";
 
@@ -42,6 +42,9 @@ export default function LeadDetail() {
   const { lead, history, events, aiState } = data;
   const isHumanTakeover = lead.humanTakeover === 1;
 
+  // Parse research data
+  const research = lead.researchData as { summary?: string; businessType?: string; potentialNeeds?: string[]; notes?: string } | null;
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -62,7 +65,7 @@ export default function LeadDetail() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left: Contact Info + AI State */}
+          {/* Left: Contact Info + AI State + Extra Context */}
           <div className="space-y-4">
             <Card>
               <CardHeader><CardTitle className="text-base">Contact Info</CardTitle></CardHeader>
@@ -77,7 +80,48 @@ export default function LeadDetail() {
                   <p className="text-xs text-muted-foreground">Segment: <span className="font-medium text-foreground">{lead.omnisendSegment || "Unclassified"}</span></p>
                   {lead.assignedAgent ? <p className="text-xs text-muted-foreground">Agent: <span className="font-medium text-foreground">{lead.assignedAgent}</span></p> : null}
                   <p className="text-xs text-muted-foreground">Pipeline Value: <span className="font-medium text-foreground">${(lead as any).pipelineValue || lead.opportunityValue || "0"}</span></p>
+                  {lead.nextFollowUpAt && (
+                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                      <CalendarClock className="h-3 w-3" />
+                      Next Outreach: <span className={`font-medium ${
+                        new Date(lead.nextFollowUpAt) <= new Date() ? "text-red-600" : "text-foreground"
+                      }`}>{new Date(lead.nextFollowUpAt).toLocaleString()}</span>
+                    </p>
+                  )}
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* Extra Context / Research Card */}
+            <Card>
+              <CardHeader><CardTitle className="text-base flex items-center gap-2"><FileSearch className="h-4 w-4" />Extra Context</CardTitle></CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                {research && research.summary ? (
+                  <>
+                    <p className="text-muted-foreground">{research.summary}</p>
+                    {research.businessType && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">Business Type:</span>
+                        <Badge variant="outline" className="text-xs">{research.businessType}</Badge>
+                      </div>
+                    )}
+                    {research.potentialNeeds && research.potentialNeeds.length > 0 && (
+                      <div>
+                        <span className="text-xs text-muted-foreground">Potential Needs:</span>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {research.potentialNeeds.map((need, i) => (
+                            <Badge key={i} variant="secondary" className="text-xs">{need}</Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {research.notes && (
+                      <p className="text-xs text-muted-foreground mt-2 italic">{research.notes}</p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-muted-foreground text-xs">No research context yet. AI will generate this when the lead is first engaged.</p>
+                )}
               </CardContent>
             </Card>
 

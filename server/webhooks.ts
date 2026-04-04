@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { upsertLead, addConversation, addPipelineEvent, getLeadByGhlContactId, updateLeadFields } from "./db";
-import { generateAIResponse, classifySegment, shouldHandoffToAgent, generateContactNotes, estimateOrderValue } from "./ai-brain";
+import { generateAIResponse, classifySegment, shouldHandoffToAgent, generateContactNotes, estimateOrderValue, generateResearchContext } from "./ai-brain";
 import { sendMessage, updateContactCustomField, createTask, addNote, updateOpportunityValue, updateOpportunityStage, fetchGhlConversationHistory } from "./ghl";
 import { pushContactToOmnisend } from "./omnisend";
 import { upsertAiState, getConversationHistory } from "./db";
@@ -270,7 +270,21 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
 
   if (lead && lead.businessName) {
     const segment = await classifySegment(lead.businessName, lead.website || undefined);
-    await updateLeadFields(lead.id, { omnisendSegment: segment });
+    // Generate research context for the lead
+    try {
+      const research = await generateResearchContext({
+        name: lead.name || undefined,
+        businessName: lead.businessName || undefined,
+        source: lead.source || undefined,
+        website: lead.website || undefined,
+        segment,
+        email: lead.email || undefined,
+        phone: lead.phone || undefined,
+      });
+      await updateLeadFields(lead.id, { omnisendSegment: segment, researchData: research });
+    } catch {
+      await updateLeadFields(lead.id, { omnisendSegment: segment });
+    }
 
     if (lead.email) {
       const nameParts = (lead.name || "").split(" ");
@@ -295,6 +309,11 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
       assignedAgent: lead.assignedAgent || null,
       pipelineValue: null,
     });
+
+    // Ensure every new lead has a nextFollowUpAt even if AI outreach fails
+    const defaultFollowUp = new Date();
+    defaultFollowUp.setMinutes(defaultFollowUp.getMinutes() + 30); // 30 min default
+    await updateLeadFields(lead.id, { nextFollowUpAt: defaultFollowUp });
 
     // --- INITIAL AI OUTREACH FOR NEW CONTACTS ---
     // Fetch GHL conversation history to check if there's an existing conversation
