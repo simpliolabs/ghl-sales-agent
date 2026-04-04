@@ -1,6 +1,6 @@
 import { eq, desc, gte, and, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, leads, conversations, aiState, pipelineEvents, agentAssignments, knowledgeFiles, aiTweaks } from "../drizzle/schema";
+import { InsertUser, users, leads, conversations, aiState, pipelineEvents, agentAssignments, knowledgeFiles, aiTweaks, invites } from "../drizzle/schema";
 import type { InsertLead } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -219,6 +219,51 @@ export async function getAiPerformanceStats() {
   const [hot] = await db.select({ count: sql<number>`count(*)` }).from(leads).where(gte(leads.opportunityScore, 80));
   const [total] = await db.select({ count: sql<number>`count(*)` }).from(leads);
   return { totalMessages: totalMsg.count, aiMessages: aiMsg.count, avgScore: Math.round(scoreAvg.avg), hotLeads: hot.count, totalLeads: total.count };
+}
+
+// --- Invites ---
+export async function createInvite(data: { token: string; role: "admin" | "viewer"; createdBy: number; expiresAt: Date; }) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.insert(invites).values(data);
+  return { id: result[0].insertId, ...data };
+}
+
+export async function getInviteByToken(token: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(invites).where(eq(invites.token, token)).limit(1);
+  return result[0] || null;
+}
+
+export async function markInviteUsed(token: string, userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(invites).set({ usedBy: userId, usedAt: new Date() }).where(eq(invites.token, token));
+}
+
+export async function getActiveInvites(createdBy: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(invites).where(eq(invites.createdBy, createdBy)).orderBy(desc(invites.createdAt));
+}
+
+export async function deleteInvite(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(invites).where(eq(invites.id, id));
+}
+
+export async function getAllUsers() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({ id: users.id, name: users.name, email: users.email, role: users.role, lastSignedIn: users.lastSignedIn, createdAt: users.createdAt }).from(users).orderBy(desc(users.createdAt));
+}
+
+export async function updateUserRole(userId: number, role: "user" | "admin" | "viewer") {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ role }).where(eq(users.id, userId));
 }
 
 export async function getRecentAiMessages(limit = 20) {

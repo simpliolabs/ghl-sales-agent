@@ -3,14 +3,25 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import { nanoid } from "nanoid";
 import {
   getAllLeads, getHotLeads, getLeadById, getConversationHistory, getPipelineStats,
   getAiPerformanceStats, getRecentAiMessages, getKnowledgeFiles, addKnowledgeFile,
   deleteKnowledgeFile, updateKnowledgeFile, getActiveTweaks, addAiTweak, archiveTweak,
   getAgentWorkload, getPipelineEvents, getAiState, updateLeadFields, upsertLead,
+  createInvite, getInviteByToken, markInviteUsed, getActiveInvites, deleteInvite,
+  getAllUsers, updateUserRole, getUserByOpenId,
 } from "./db";
+import { ENV } from "./_core/env";
 import { storagePut } from "./storage";
 import { getContacts, getPipelines } from "./ghl";
+
+// Admin-only procedure middleware
+const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (ctx.user?.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: 'Admin access required' });
+  return next({ ctx });
+});
 
 export const appRouter = router({
   system: systemRouter,
@@ -48,9 +59,9 @@ export const appRouter = router({
   ai: router({
     performance: protectedProcedure.query(async () => getAiPerformanceStats()),
     recentMessages: protectedProcedure.query(async () => getRecentAiMessages(30)),
-    tweaks: protectedProcedure.query(async () => getActiveTweaks()),
-    addTweak: protectedProcedure.input(z.object({ instruction: z.string() })).mutation(async ({ input, ctx }) => addAiTweak(input.instruction, ctx.user?.id)),
-    archiveTweak: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => { await archiveTweak(input.id); return { success: true }; }),
+    tweaks: adminProcedure.query(async () => getActiveTweaks()),
+    addTweak: adminProcedure.input(z.object({ instruction: z.string() })).mutation(async ({ input, ctx }) => addAiTweak(input.instruction, ctx.user?.id)),
+    archiveTweak: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => { await archiveTweak(input.id); return { success: true }; }),
   }),
 
   knowledge: router({
@@ -77,8 +88,42 @@ export const appRouter = router({
     workload: protectedProcedure.query(async () => getAgentWorkload()),
   }),
 
+  invites: router({
+    list: adminProcedure.query(async ({ ctx }) => getActiveInvites(ctx.user!.id)),
+    create: adminProcedure.input(z.object({ role: z.enum(["admin", "viewer"]) })).mutation(async ({ input, ctx }) => {
+      const token = nanoid(32);
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      return createInvite({ token, role: input.role, createdBy: ctx.user!.id, expiresAt });
+    }),
+    validate: publicProcedure.input(z.object({ token: z.string() })).query(async ({ input }) => {
+      const invite = await getInviteByToken(input.token);
+      if (!invite) return { valid: false, role: null, expired: false };
+      if (invite.usedAt) return { valid: false, role: null, expired: false };
+      if (new Date(invite.expiresAt) < new Date()) return { valid: false, role: invite.role, expired: true };
+      return { valid: true, role: invite.role, expired: false };
+    }),
+    accept: protectedProcedure.input(z.object({ token: z.string() })).mutation(async ({ input, ctx }) => {
+      const invite = await getInviteByToken(input.token);
+      if (!invite) throw new TRPCError({ code: 'NOT_FOUND', message: 'Invalid invite link' });
+      if (invite.usedAt) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invite already used' });
+      if (new Date(invite.expiresAt) < new Date()) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invite expired' });
+      await updateUserRole(ctx.user!.id, invite.role);
+      await markInviteUsed(input.token, ctx.user!.id);
+      return { success: true, role: invite.role };
+    }),
+    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => { await deleteInvite(input.id); return { success: true }; }),
+  }),
+
+  users: router({
+    list: adminProcedure.query(async () => getAllUsers()),
+    updateRole: adminProcedure.input(z.object({ userId: z.number(), role: z.enum(["admin", "viewer"]) })).mutation(async ({ input }) => {
+      await updateUserRole(input.userId, input.role);
+      return { success: true };
+    }),
+  }),
+
   ghl: router({
-    syncContacts: protectedProcedure.mutation(async () => {
+    syncContacts: adminProcedure.mutation(async () => {
       try {
         const result = await getContacts(100);
         const contacts = result.contacts || [];

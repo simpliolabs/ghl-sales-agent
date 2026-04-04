@@ -22,3 +22,10 @@
 - [x] Webhook URL display with setup instructions on Settings page
 - [x] Smart agent handoff: AI hands off for quotes or manual agent activity, resumes after 24hr inactivity
 - [x] GHL Contact Notes API: AI adds structured notes (estimates, due dates, preferences) to contact record
+- [x] Invite links table in database schema
+- [x] Role-based access: Admin (full) vs Viewer (dashboard/leads/pipeline only)
+- [x] bills@theceocreative.com auto-promoted to admin (via OWNER_OPEN_ID)
+- [x] Generate invite link UI on Settings page (admin only)
+- [x] Invite link acceptance flow (/invite/:token page)
+- [x] Hide Settings and AI Tweaker nav items for Viewers
+- [x] Protect Settings/Tweaker tRPC procedures for admin only

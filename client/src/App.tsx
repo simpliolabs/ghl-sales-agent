@@ -12,6 +12,7 @@ import LeadDetail from "./pages/LeadDetail";
 import AIPerformance from "./pages/AIPerformance";
 import KnowledgeBase from "./pages/KnowledgeBase";
 import Settings from "./pages/Settings";
+import AcceptInvite from "./pages/AcceptInvite";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -25,6 +26,7 @@ function Router() {
       <Route path="/ai-performance" component={AIPerformance} />
       <Route path="/knowledge" component={KnowledgeBase} />
       <Route path="/settings" component={Settings} />
+      <Route path="/invite/:token" component={AcceptInvite} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

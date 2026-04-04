@@ -28,13 +28,13 @@ import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
 
 const menuItems = [
-  { icon: LayoutDashboard, label: "Dashboard", path: "/" },
-  { icon: Flame, label: "Hot Leads", path: "/hot-leads" },
-  { icon: GitBranch, label: "Pipeline", path: "/pipeline" },
-  { icon: Users, label: "All Leads", path: "/leads" },
-  { icon: Brain, label: "AI Performance", path: "/ai-performance" },
-  { icon: FolderOpen, label: "Knowledge Base", path: "/knowledge" },
-  { icon: Settings, label: "Settings", path: "/settings" },
+  { icon: LayoutDashboard, label: "Dashboard", path: "/", adminOnly: false },
+  { icon: Flame, label: "Hot Leads", path: "/hot-leads", adminOnly: false },
+  { icon: GitBranch, label: "Pipeline", path: "/pipeline", adminOnly: false },
+  { icon: Users, label: "All Leads", path: "/leads", adminOnly: false },
+  { icon: Brain, label: "AI Performance", path: "/ai-performance", adminOnly: false },
+  { icon: FolderOpen, label: "Knowledge Base", path: "/knowledge", adminOnly: true },
+  { icon: Settings, label: "Settings", path: "/settings", adminOnly: true },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -185,7 +185,7 @@ function DashboardLayoutContent({
 
           <SidebarContent className="gap-0">
             <SidebarMenu className="px-2 py-1">
-              {menuItems.map(item => {
+              {menuItems.filter(item => !item.adminOnly || user?.role === 'admin').map(item => {
                 const isActive = location === item.path;
                 return (
                   <SidebarMenuItem key={item.path}>

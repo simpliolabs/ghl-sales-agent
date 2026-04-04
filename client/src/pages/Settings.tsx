@@ -5,7 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { Settings as SettingsIcon, Brain, MessageSquare, RefreshCw, Webhook, Copy, Shield } from "lucide-react";
+import { Settings as SettingsIcon, Brain, MessageSquare, RefreshCw, Webhook, Copy, Shield, UserPlus, Users, Trash2, Link } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -22,6 +23,25 @@ export default function Settings() {
   });
 
   const [comment, setComment] = useState("");
+  const [inviteRole, setInviteRole] = useState<"admin" | "viewer">("viewer");
+
+  // Invite management
+  const { data: invitesList, refetch: refetchInvites } = trpc.invites.list.useQuery();
+  const createInvite = trpc.invites.create.useMutation({
+    onSuccess: () => { toast.success("Invite link created"); refetchInvites(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteInvite = trpc.invites.delete.useMutation({
+    onSuccess: () => { toast.success("Invite revoked"); refetchInvites(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  // User management
+  const { data: usersList, refetch: refetchUsers } = trpc.users.list.useQuery();
+  const updateRole = trpc.users.updateRole.useMutation({
+    onSuccess: () => { toast.success("Role updated"); refetchUsers(); },
+    onError: (e) => toast.error(e.message),
+  });
 
   return (
     <DashboardLayout>
@@ -175,6 +195,102 @@ export default function Settings() {
                     <li>Alternatively, use <strong>Workflows</strong> to trigger webhooks on specific events</li>
                   </ol>
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* Team & Invites */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <UserPlus className="h-4 w-4" /> Team Invites
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">Generate invite links for team members. Links expire in 7 days.</p>
+                <div className="flex gap-2">
+                  <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as "admin" | "viewer")}>
+                    <SelectTrigger className="w-32">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="viewer">Viewer</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button onClick={() => createInvite.mutate({ role: inviteRole })} disabled={createInvite.isPending} className="flex-1">
+                    <Link className="h-4 w-4 mr-2" />
+                    {createInvite.isPending ? "Creating..." : "Generate Invite Link"}
+                  </Button>
+                </div>
+                {invitesList && invitesList.length > 0 && (
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                    {invitesList.map((inv) => {
+                      const url = `${window.location.origin}/invite/${inv.token}`;
+                      const isUsed = !!inv.usedAt;
+                      const isExpired = new Date(inv.expiresAt) < new Date();
+                      return (
+                        <div key={inv.id} className={`p-3 rounded-lg border ${isUsed ? 'bg-muted/50 opacity-60' : isExpired ? 'bg-red-50/50 opacity-60' : 'bg-green-50/30'}`}>
+                          <div className="flex items-center justify-between mb-1">
+                            <Badge variant={inv.role === 'admin' ? 'default' : 'secondary'} className="text-xs">{inv.role}</Badge>
+                            <div className="flex items-center gap-1">
+                              {isUsed ? <Badge variant="outline" className="text-xs">Used</Badge> : isExpired ? <Badge variant="destructive" className="text-xs">Expired</Badge> : <Badge variant="outline" className="text-xs text-green-600">Active</Badge>}
+                              {!isUsed && (
+                                <Button variant="ghost" size="sm" onClick={() => deleteInvite.mutate({ id: inv.id })}>
+                                  <Trash2 className="h-3 w-3 text-destructive" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                          {!isUsed && !isExpired && (
+                            <div className="flex items-center gap-2 mt-2">
+                              <code className="text-xs bg-muted px-2 py-1 rounded flex-1 overflow-x-auto">{url}</code>
+                              <Button variant="ghost" size="sm" onClick={() => { navigator.clipboard.writeText(url); toast.success("Copied!"); }}>
+                                <Copy className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          )}
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Created {new Date(inv.createdAt).toLocaleDateString()} · Expires {new Date(inv.expiresAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Team Members */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Users className="h-4 w-4" /> Team Members
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {usersList && usersList.length > 0 ? (
+                  <div className="space-y-2">
+                    {usersList.map((u) => (
+                      <div key={u.id} className="flex items-center justify-between p-3 rounded-lg border">
+                        <div>
+                          <p className="text-sm font-medium">{u.name || "Unnamed"}</p>
+                          <p className="text-xs text-muted-foreground">{u.email || "No email"}</p>
+                        </div>
+                        <Select value={u.role} onValueChange={(v) => updateRole.mutate({ userId: u.id, role: v as "admin" | "viewer" })}>
+                          <SelectTrigger className="w-28">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="admin">Admin</SelectItem>
+                            <SelectItem value="viewer">Viewer</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-4">No team members yet. Generate an invite link above.</p>
+                )}
               </CardContent>
             </Card>
 

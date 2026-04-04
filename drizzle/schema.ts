@@ -6,7 +6,7 @@ export const users = mysqlTable("users", {
   name: text("name"),
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  role: mysqlEnum("role", ["user", "admin", "viewer"]).default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -111,4 +111,17 @@ export type AiState = typeof aiState.$inferSelect;
 export type PipelineEvent = typeof pipelineEvents.$inferSelect;
 export type AgentAssignment = typeof agentAssignments.$inferSelect;
 export type KnowledgeFile = typeof knowledgeFiles.$inferSelect;
+export const invites = mysqlTable("invites", {
+  id: int("id").autoincrement().primaryKey(),
+  token: varchar("token", { length: 64 }).notNull().unique(),
+  role: mysqlEnum("inviteRole", ["admin", "viewer"]).default("viewer").notNull(),
+  createdBy: int("createdBy").notNull(),
+  usedBy: int("usedBy"),
+  usedAt: timestamp("usedAt"),
+  expiresAt: timestamp("expiresAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 export type AiTweak = typeof aiTweaks.$inferSelect;
+export type Invite = typeof invites.$inferSelect;
+export type InsertInvite = typeof invites.$inferInsert;
