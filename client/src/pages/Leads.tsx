@@ -69,7 +69,7 @@ export default function Leads() {
                       <th className="text-left p-3 font-medium">Stage</th>
                       <th className="text-center p-3 font-medium">Score</th>
                       <th className="text-left p-3 font-medium hidden lg:table-cell">Agent</th>
-                      <th className="text-left p-3 font-medium hidden lg:table-cell">Next Engagement</th>
+                      <th className="text-left p-3 font-medium">Next Outreach</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -91,15 +91,21 @@ export default function Leads() {
                           </span>
                         </td>
                         <td className="p-3 text-muted-foreground hidden lg:table-cell">{lead.assignedAgent || "—"}</td>
-                        <td className="p-3 text-muted-foreground hidden lg:table-cell">
+                        <td className="p-3">
                           {lead.nextFollowUpAt ? (
-                            <span className={`flex items-center gap-1 text-xs ${new Date(lead.nextFollowUpAt) <= new Date() ? "text-red-600 font-medium" : "text-muted-foreground"}`}>
-                              <CalendarClock className="h-3.5 w-3.5" />
+                            <span className={`flex items-center gap-1 text-xs whitespace-nowrap ${
+                              new Date(lead.nextFollowUpAt) <= new Date()
+                                ? "text-red-600 font-semibold"
+                                : new Date(lead.nextFollowUpAt) <= new Date(Date.now() + 86400000)
+                                  ? "text-amber-600 font-medium"
+                                  : "text-muted-foreground"
+                            }`}>
+                              <CalendarClock className="h-3.5 w-3.5 shrink-0" />
                               {new Date(lead.nextFollowUpAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}{" "}
                               {new Date(lead.nextFollowUpAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
                             </span>
                           ) : (
-                            <span className="text-xs text-muted-foreground/50">—</span>
+                            <span className="text-xs text-muted-foreground/40">Not scheduled</span>
                           )}
                         </td>
                       </tr>

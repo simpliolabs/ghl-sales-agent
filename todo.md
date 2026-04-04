@@ -55,3 +55,5 @@
 - [x] BUG: Lead value not auto-calculated from pricing during AI engagement — now estimates on every response
 - [x] Auto-synthesize all uploaded content (PDF, images, CSV) and AI instructions on upload via LLM
 - [x] Auto-calculate lead value from price list when AI knows quantity
+- [x] Redesign Pipeline page as horizontal Kanban board with stage columns, summary stats, and clickable lead cards
+- [x] Add Next Outreach column to Leads page (always visible, color-coded: red=overdue, amber=today, gray=future)
