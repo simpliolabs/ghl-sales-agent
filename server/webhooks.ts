@@ -317,9 +317,32 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
         }
       }
 
-      // Only engage if the lead has a phone number (for SMS) or email
-      if (lead.phone || lead.email) {
-        const channel = lead.phone ? "SMS" : "Email";
+      // Detect the inbound channel from GHL history — ALWAYS respond on the same channel they used
+      let detectedChannel = "";
+      if (ghlHistory.length > 0) {
+        const lastInbound = [...ghlHistory].reverse().find(m => m.direction === "inbound");
+        if (lastInbound) {
+          const rawType = (lastInbound.type || "").toLowerCase();
+          if (rawType.includes("fb") || rawType.includes("facebook")) detectedChannel = "FB";
+          else if (rawType.includes("ig") || rawType.includes("instagram")) detectedChannel = "IG";
+          else if (rawType.includes("whatsapp")) detectedChannel = "WhatsApp";
+          else if (rawType.includes("email")) detectedChannel = "Email";
+          else if (rawType.includes("sms") || rawType.includes("message")) detectedChannel = "SMS";
+        }
+      }
+      // Fallback: if no channel detected from history, use source hint or default
+      if (!detectedChannel) {
+        const src = (payload.source as string || "").toLowerCase();
+        if (src.includes("facebook") || src.includes("fb")) detectedChannel = "FB";
+        else if (src.includes("instagram") || src.includes("ig")) detectedChannel = "IG";
+        else if (src.includes("whatsapp")) detectedChannel = "WhatsApp";
+        else if (lead.email && !lead.phone) detectedChannel = "Email";
+        else if (lead.phone) detectedChannel = "SMS";
+        else if (lead.email) detectedChannel = "Email";
+      }
+
+      if (detectedChannel && (lead.phone || lead.email)) {
+        const channel = detectedChannel as "SMS" | "Email" | "WhatsApp" | "FB" | "IG";
         const introMessage = lastInboundMessage
           || `New lead: ${lead.name || "someone"} from ${lead.businessName || "a business"} just signed up. They're interested in custom printing.`;
 
@@ -330,9 +353,15 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
           ghlHistoryStr || undefined
         );
 
-        // Send the AI response
+        // Send the AI response on the SAME channel the lead used
         if (channel === "Email" && lead.email) {
           await sendMessage(contactId, { type: "Email", subject: aiResponse.fromName, html: aiResponse.message, fromName: aiResponse.fromName });
+        } else if (channel === "FB") {
+          await sendMessage(contactId, { type: "FB", message: aiResponse.message });
+        } else if (channel === "IG") {
+          await sendMessage(contactId, { type: "IG", message: aiResponse.message });
+        } else if (channel === "WhatsApp") {
+          await sendMessage(contactId, { type: "WhatsApp", message: aiResponse.message });
         } else if (lead.phone) {
           await sendMessage(contactId, { type: "SMS", message: aiResponse.message });
         }
@@ -347,11 +376,16 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
           senderName: aiResponse.fromName,
         });
 
-        // Update lead with AI scoring
+        // Update lead with AI scoring and next engagement time
+        const nextFollowUp = new Date();
+        const aiSuggestedHours = aiResponse.nextEngagementHours || 24;
+        nextFollowUp.setTime(nextFollowUp.getTime() + aiSuggestedHours * 60 * 60 * 1000);
+
         await updateLeadFields(lead.id, {
           opportunityScore: aiResponse.score,
           omnisendSegment: aiResponse.segment,
           lastMessageAt: new Date(),
+          nextFollowUpAt: nextFollowUp,
         });
 
         await upsertAiState(lead.id, {
@@ -578,8 +612,11 @@ async function handleMessageWebhook(payload: Record<string, unknown>, res: Respo
     } catch { /* best effort */ }
   }
 
-  // Calculate next follow-up based on context
+  // Calculate next follow-up using AI-suggested engagement hours + event dates
   const nextFollowUp = new Date();
+  const aiSuggestedHours = aiResponse.nextEngagementHours || 24;
+  
+  // If there are extracted event dates, use them to override the AI suggestion
   if (aiResponse.extractedDates && aiResponse.extractedDates.length > 0) {
     const earliestDate = new Date(aiResponse.extractedDates[0]);
     if (!isNaN(earliestDate.getTime())) {
@@ -588,14 +625,16 @@ async function handleMessageWebhook(payload: Record<string, unknown>, res: Respo
         nextFollowUp.setDate(nextFollowUp.getDate() + 30);
       } else if (daysUntilEvent > 30) {
         nextFollowUp.setDate(nextFollowUp.getDate() + 14);
-      } else {
+      } else if (daysUntilEvent > 7) {
         nextFollowUp.setDate(nextFollowUp.getDate() + 3);
+      } else {
+        nextFollowUp.setDate(nextFollowUp.getDate() + 1);
       }
     } else {
-      nextFollowUp.setDate(nextFollowUp.getDate() + 3);
+      nextFollowUp.setTime(nextFollowUp.getTime() + aiSuggestedHours * 60 * 60 * 1000);
     }
   } else {
-    nextFollowUp.setDate(nextFollowUp.getDate() + 3);
+    nextFollowUp.setTime(nextFollowUp.getTime() + aiSuggestedHours * 60 * 60 * 1000);
   }
   await updateLeadFields(lead!.id, { nextFollowUpAt: nextFollowUp });
 
