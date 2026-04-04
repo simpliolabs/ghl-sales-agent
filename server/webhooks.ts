@@ -1,10 +1,9 @@
 import { Router, Request, Response } from "express";
 import { upsertLead, addConversation, addPipelineEvent, getLeadByGhlContactId, updateLeadFields } from "./db";
-import { generateAIResponse } from "./ai-brain";
-import { classifySegment } from "./ai-brain";
-import { sendMessage, updateContactCustomField, createTask } from "./ghl";
+import { generateAIResponse, classifySegment, shouldHandoffToAgent, generateContactNotes, estimateOrderValue } from "./ai-brain";
+import { sendMessage, updateContactCustomField, createTask, addNote, updateOpportunityValue } from "./ghl";
 import { pushContactToOmnisend } from "./omnisend";
-import { upsertAiState } from "./db";
+import { upsertAiState, getConversationHistory } from "./db";
 import { addAgentAssignment, getAgentWorkload } from "./db";
 
 const AGENTS = ["Abby Bouwer", "Chris McHendry"];
@@ -82,10 +81,10 @@ export function createWebhookRouter(): Router {
       if (!lead) {
         const newLead = await upsertLead({ ghlContactId: contactId, source: "ghl_message" });
         if (!newLead) { res.status(500).json({ error: "Failed to create lead" }); return; }
-        lead = { ...newLead, id: newLead.id, humanTakeover: 0 } as unknown as typeof lead & { id: number; humanTakeover: number };
+        lead = { ...newLead, id: newLead.id, humanTakeover: 0, lastAgentActivityAt: null } as unknown as typeof lead & { id: number; humanTakeover: number; lastAgentActivityAt: Date | null };
       }
 
-      // Store the inbound message
+      // Store the message
       await addConversation({
         leadId: lead!.id,
         channel,
@@ -97,42 +96,131 @@ export function createWebhookRouter(): Router {
 
       await updateLeadFields(lead!.id, { lastMessageAt: new Date() });
 
-      // If human has taken over, don't auto-respond
-      if (lead!.humanTakeover) { res.json({ success: true, action: "human_takeover" }); return; }
-
-      // If outbound (human sent), mark as human takeover temporarily
+      // If outbound from a human agent, mark agent activity and don't auto-respond
       if (direction === "outbound") {
-        await updateLeadFields(lead!.id, { humanTakeover: 1 });
+        await updateLeadFields(lead!.id, {
+          humanTakeover: 1,
+          lastAgentActivityAt: new Date(),
+        });
         res.json({ success: true, action: "human_message_logged" });
         return;
       }
 
-      // Generate AI response
+      // --- SMART HANDOFF LOGIC ---
+      // Calculate hours since last agent activity
+      let lastAgentHoursAgo: number | null = null;
+      if (lead!.lastAgentActivityAt) {
+        const agentTime = new Date(lead!.lastAgentActivityAt).getTime();
+        lastAgentHoursAgo = (Date.now() - agentTime) / (1000 * 60 * 60);
+      }
+
+      // Get conversation history for context
+      const convHistory = await getConversationHistory(lead!.id, 20);
+      const historyStr = convHistory.map(c => `[${c.senderType}/${c.channel}] ${c.messageBody}`).join("\n");
+
+      // Check if we should hand off or resume
+      const handoffDecision = await shouldHandoffToAgent(historyStr, lastAgentHoursAgo);
+
+      if (handoffDecision.handoff && !handoffDecision.resumeAI) {
+        // Stay handed off — notify agent via task
+        if (lead!.assignedAgent) {
+          try {
+            await createTask(contactId, {
+              title: `New message from ${lead!.name || "lead"} — you're managing this conversation`,
+              body: `${lead!.name || "Lead"} replied: "${messageBody.substring(0, 200)}"\n\nReason AI is not responding: ${handoffDecision.reason}`,
+            });
+          } catch { /* best effort */ }
+        }
+        res.json({ success: true, action: "handed_off_to_agent" });
+        return;
+      }
+
+      // If resuming after 24hr agent inactivity, clear handoff flag
+      if (handoffDecision.resumeAI) {
+        await updateLeadFields(lead!.id, { humanTakeover: 0 });
+      }
+
+      // If still in human takeover and not resuming, don't respond
+      if (lead!.humanTakeover && !handoffDecision.resumeAI) {
+        res.json({ success: true, action: "human_takeover_active" });
+        return;
+      }
+
+      // --- AI RESPONSE ---
       const aiResponse = await generateAIResponse(lead!.id, messageBody, channel);
 
-      // Send via GHL
+      // Check if AI wants to hand off (e.g., lead asking for firm quote)
+      const aiHandoff = await shouldHandoffToAgent(
+        historyStr + `\n[lead/${channel}] ${messageBody}`,
+        null
+      );
+
+      if (aiHandoff.handoff) {
+        // Hand off: generate notes for agent, estimate value, create task
+        const leadInfo = `${lead!.name || "Unknown"} - ${lead!.businessName || "Unknown"} - ${lead!.email || "N/A"}`;
+        
+        const [notes, valueEstimate] = await Promise.all([
+          generateContactNotes(leadInfo, historyStr + `\n[lead/${channel}] ${messageBody}`),
+          estimateOrderValue(historyStr + `\n[lead/${channel}] ${messageBody}`, leadInfo),
+        ]);
+
+        // Add notes to GHL contact
+        try {
+          await addNote(contactId, `🤖 AI Handoff Notes:\n${notes}`);
+        } catch { /* best effort */ }
+
+        // Update pipeline value if estimated
+        if (valueEstimate.estimatedValue > 0 && payload.opportunityId) {
+          try {
+            await updateOpportunityValue(payload.opportunityId, valueEstimate.estimatedValue);
+          } catch { /* best effort */ }
+        }
+
+        // Update lead with estimated value
+        await updateLeadFields(lead!.id, {
+          humanTakeover: 1,
+          lastAgentActivityAt: new Date(),
+          pipelineValue: valueEstimate.estimatedValue,
+        });
+
+        // Create task for agent
+        if (lead!.assignedAgent) {
+          try {
+            await createTask(contactId, {
+              title: `🔥 Quote needed: ${lead!.name || lead!.businessName || "Lead"} — Est. $${valueEstimate.estimatedValue}`,
+              body: `Lead needs a firm quote. AI has handed off.\n\nReason: ${aiHandoff.reason}\n\n${notes}\n\nEstimated Value: $${valueEstimate.estimatedValue} (${valueEstimate.confidence} confidence)\n${valueEstimate.reasoning}`,
+            });
+          } catch { /* best effort */ }
+        }
+
+        // Send a handoff message to the lead
+        const handoffMsg = aiResponse.message; // AI already knows to redirect to agent for quotes
+        if (channel === "Email") {
+          await sendMessage(contactId, { type: "Email", subject: aiResponse.fromName, html: handoffMsg, fromName: aiResponse.fromName });
+        } else {
+          await sendMessage(contactId, { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: handoffMsg });
+        }
+
+        await addConversation({
+          leadId: lead!.id, channel, direction: "outbound", messageBody: handoffMsg,
+          senderType: "ai", senderName: aiResponse.fromName,
+        });
+
+        res.json({ success: true, action: "ai_responded_and_handed_off" });
+        return;
+      }
+
+      // --- NORMAL AI RESPONSE ---
       if (channel === "Email") {
-        await sendMessage(contactId, {
-          type: "Email",
-          subject: aiResponse.fromName,
-          html: aiResponse.message,
-          fromName: aiResponse.fromName,
-        });
+        await sendMessage(contactId, { type: "Email", subject: aiResponse.fromName, html: aiResponse.message, fromName: aiResponse.fromName });
       } else {
-        await sendMessage(contactId, {
-          type: channel as "SMS" | "WhatsApp" | "FB" | "IG",
-          message: aiResponse.message,
-        });
+        await sendMessage(contactId, { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message });
       }
 
       // Store outbound AI message
       await addConversation({
-        leadId: lead!.id,
-        channel,
-        direction: "outbound",
-        messageBody: aiResponse.message,
-        senderType: "ai",
-        senderName: aiResponse.fromName,
+        leadId: lead!.id, channel, direction: "outbound", messageBody: aiResponse.message,
+        senderType: "ai", senderName: aiResponse.fromName,
       });
 
       // Update AI state
@@ -140,7 +228,7 @@ export function createWebhookRouter(): Router {
         lastAngleUsed: aiResponse.angle,
         lastFrameworkUsed: aiResponse.framework,
         extractedDates: aiResponse.extractedDates as unknown as undefined,
-        messageCount: undefined, // will be incremented
+        messageCount: undefined,
       });
 
       // Update lead score and segment
@@ -156,9 +244,47 @@ export function createWebhookRouter(): Router {
         ]);
       } catch { /* custom field may not exist yet */ }
 
-      // Calculate next follow-up
+      // --- GENERATE NOTES periodically (every 5 messages) ---
+      const totalMsgs = convHistory.length;
+      if (totalMsgs > 0 && totalMsgs % 5 === 0) {
+        try {
+          const leadInfo = `${lead!.name || "Unknown"} - ${lead!.businessName || "Unknown"}`;
+          const notes = await generateContactNotes(leadInfo, historyStr);
+          await addNote(contactId, `🤖 AI Summary (${new Date().toLocaleDateString()}):\n${notes}`);
+        } catch { /* best effort */ }
+      }
+
+      // --- ESTIMATE VALUE periodically ---
+      if (totalMsgs > 2 && totalMsgs % 4 === 0) {
+        try {
+          const leadInfo = `${lead!.name || "Unknown"} - ${lead!.businessName || "Unknown"}`;
+          const valueEstimate = await estimateOrderValue(historyStr, leadInfo);
+          if (valueEstimate.estimatedValue > 0) {
+            await updateLeadFields(lead!.id, { pipelineValue: valueEstimate.estimatedValue });
+          }
+        } catch { /* best effort */ }
+      }
+
+      // Calculate next follow-up based on context
       const nextFollowUp = new Date();
-      nextFollowUp.setDate(nextFollowUp.getDate() + 3);
+      if (aiResponse.extractedDates && aiResponse.extractedDates.length > 0) {
+        // If dates extracted, schedule follow-up relative to earliest date
+        const earliestDate = new Date(aiResponse.extractedDates[0]);
+        if (!isNaN(earliestDate.getTime())) {
+          const daysUntilEvent = Math.floor((earliestDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+          if (daysUntilEvent > 60) {
+            nextFollowUp.setDate(nextFollowUp.getDate() + 30); // Check in 30 days
+          } else if (daysUntilEvent > 30) {
+            nextFollowUp.setDate(nextFollowUp.getDate() + 14); // Check in 2 weeks
+          } else {
+            nextFollowUp.setDate(nextFollowUp.getDate() + 3); // Urgent — 3 days
+          }
+        } else {
+          nextFollowUp.setDate(nextFollowUp.getDate() + 3);
+        }
+      } else {
+        nextFollowUp.setDate(nextFollowUp.getDate() + 3);
+      }
       await updateLeadFields(lead!.id, { nextFollowUpAt: nextFollowUp });
 
       res.json({ success: true, action: "ai_responded" });
@@ -175,6 +301,7 @@ export function createWebhookRouter(): Router {
       const contactId = payload.contactId;
       const fromStage = payload.previousStage || payload.fromStage;
       const toStage = payload.currentStage || payload.toStage || payload.stageName;
+      const monetaryValue = payload.monetaryValue || payload.value;
 
       if (!contactId) { res.status(400).json({ error: "Missing contact ID" }); return; }
 
@@ -188,7 +315,12 @@ export function createWebhookRouter(): Router {
         triggeredBy: "webhook",
       });
 
-      await updateLeadFields(lead.id, { pipelineStage: toStage });
+      // Sync pipeline value from GHL if manually set by agent
+      const updateFields: Record<string, unknown> = { pipelineStage: toStage };
+      if (monetaryValue !== undefined && monetaryValue !== null) {
+        updateFields.pipelineValue = Number(monetaryValue);
+      }
+      await updateLeadFields(lead.id, updateFields);
 
       // Create task for assigned agent on stage transitions
       if (lead.assignedAgent && toStage) {

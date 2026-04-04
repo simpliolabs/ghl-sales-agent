@@ -113,6 +113,13 @@ export async function updateOpportunityStage(opportunityId: string, stageId: str
   return data;
 }
 
+export async function updateOpportunityValue(opportunityId: string, monetaryValue: number) {
+  const { data } = await ghlClient.put(`/opportunities/${opportunityId}`, {
+    monetaryValue,
+  });
+  return data;
+}
+
 export async function getPipelines() {
   const { data } = await ghlClient.get("/opportunities/pipelines", {
     params: { locationId: ENV.ghlLocationId },
@@ -138,4 +145,9 @@ export async function addNote(contactId: string, body: string) {
     body,
   });
   return data;
+}
+
+export async function getNotes(contactId: string) {
+  const { data } = await ghlClient.get(`/contacts/${contactId}/notes`);
+  return data.notes || [];
 }

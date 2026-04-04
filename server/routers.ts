@@ -7,7 +7,7 @@ import {
   getAllLeads, getHotLeads, getLeadById, getConversationHistory, getPipelineStats,
   getAiPerformanceStats, getRecentAiMessages, getKnowledgeFiles, addKnowledgeFile,
   deleteKnowledgeFile, updateKnowledgeFile, getActiveTweaks, addAiTweak, archiveTweak,
-  getAgentWorkload, getPipelineEvents, getAiState, updateLeadFields,
+  getAgentWorkload, getPipelineEvents, getAiState, updateLeadFields, upsertLead,
 } from "./db";
 import { storagePut } from "./storage";
 import { getContacts, getPipelines } from "./ghl";
@@ -79,8 +79,24 @@ export const appRouter = router({
 
   ghl: router({
     syncContacts: protectedProcedure.mutation(async () => {
-      try { const result = await getContacts(100); return { contacts: result.contacts?.length || 0, meta: result.meta }; }
-      catch (err) { return { contacts: 0, error: String(err) }; }
+      try {
+        const result = await getContacts(100);
+        const contacts = result.contacts || [];
+        let synced = 0;
+        for (const c of contacts) {
+          await upsertLead({
+            ghlContactId: c.id,
+            name: [c.firstName, c.lastName].filter(Boolean).join(" ") || null,
+            email: c.email || null,
+            phone: c.phone || null,
+            businessName: c.companyName || null,
+            website: c.website || null,
+            source: c.source || null,
+          });
+          synced++;
+        }
+        return { contacts: synced, meta: result.meta };
+      } catch (err) { return { contacts: 0, error: String(err) }; }
     }),
   }),
 });

@@ -36,6 +36,7 @@ vi.mock("./db", () => ({
   getPipelineEvents: vi.fn().mockResolvedValue([]),
   getAiState: vi.fn().mockResolvedValue({ id: 1, leadId: 1, lastAngleUsed: "bottleneck_diagnosis", lastFrameworkUsed: "PAS", messageCount: 5, objectionsRaised: "price too high", interestSignals: "asked about turnaround", nextFollowUpAt: new Date(), nextBestCta: "offer quick-win", reactivateAt: null }),
   updateLeadFields: vi.fn().mockResolvedValue(undefined),
+  upsertLead: vi.fn().mockResolvedValue({ id: 1 }),
 }));
 
 // Mock GHL

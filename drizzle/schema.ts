@@ -32,6 +32,8 @@ export const leads = mysqlTable("leads", {
   nextFollowUpAt: timestamp("nextFollowUpAt"),
   contextDates: json("contextDates"),
   humanTakeover: tinyint("humanTakeover").default(0),
+  lastAgentActivityAt: timestamp("lastAgentActivityAt"),
+  pipelineValue: int("pipelineValue").default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Mail, Phone, Globe, Building2, Brain, MessageSquare, UserCheck, HandMetal } from "lucide-react";
+import { ArrowLeft, Mail, Phone, Globe, Building2, Brain, MessageSquare, UserCheck, HandMetal, DollarSign, StickyNote } from "lucide-react";
 import { useLocation, useParams } from "wouter";
 import { toast } from "sonner";
 
@@ -76,6 +76,7 @@ export default function LeadDetail() {
                   <p className="text-xs text-muted-foreground">Source: <span className="font-medium text-foreground">{lead.source || "Unknown"}</span></p>
                   <p className="text-xs text-muted-foreground">Segment: <span className="font-medium text-foreground">{lead.omnisendSegment || "Unclassified"}</span></p>
                   {lead.assignedAgent ? <p className="text-xs text-muted-foreground">Agent: <span className="font-medium text-foreground">{lead.assignedAgent}</span></p> : null}
+                  <p className="text-xs text-muted-foreground">Pipeline Value: <span className="font-medium text-foreground">${(lead as any).pipelineValue || lead.opportunityValue || "0"}</span></p>
                 </div>
               </CardContent>
             </Card>

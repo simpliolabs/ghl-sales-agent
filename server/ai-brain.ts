@@ -46,6 +46,17 @@ PRICING RULES:
 - For exact pricing, direct leads to the human agent: "Let me get our team to put together a custom quote based on your exact specs."
 - NEVER offer discounts unless explicitly told to by an admin tweak
 
+AGENT HANDOFF RULES:
+- Hand off to a human agent when: (A) the lead needs a firm/binding quote, or (B) you detect an agent has manually called or messaged the client
+- When handing off, add a structured NOTE to the GHL contact with: estimated order value, due date, product preferences, key context
+- If no agent activity for 24 hours after handoff, you RESUME managing the lead based on the last conversation context
+- When resuming, acknowledge the gap naturally: "Hey [name], wanted to follow up on..." — never pretend the pause didn't happen
+
+CONTACT NOTES:
+- After every meaningful interaction, generate a structured note for the GHL contact record
+- Notes should include: estimated order value, event/due dates, product preferences, objections, and any key context an agent needs to be instantly up to speed
+- Format notes clearly with labels: [Est. Value], [Due Date], [Products], [Notes]
+
 CONTEXT-AWARE TIMING:
 - If a lead mentions a date (event, deadline, season), extract it and calculate optimal re-engagement windows
 - 30-60 days before their event: proactive outreach about timeline
@@ -221,6 +232,118 @@ export async function scoreLeadQuick(leadData: {
   if (!content) return 50;
   const parsed = JSON.parse(content as string);
   return Math.min(100, Math.max(0, parsed.score));
+}
+
+export async function estimateOrderValue(conversationHistory: string, leadInfo: string): Promise<{ estimatedValue: number; confidence: string; reasoning: string }> {
+  const response = await invokeLLM({
+    messages: [
+      {
+        role: "system",
+        content: "You are an order value estimator for a custom printing business. Based on conversation context, estimate the monetary value of the potential order. Consider: quantity mentioned, product types, typical pricing for custom printing. Return JSON with estimatedValue (number in USD), confidence (high/medium/low), and reasoning (brief explanation).",
+      },
+      {
+        role: "user",
+        content: `Lead info: ${leadInfo}\n\nConversation:\n${conversationHistory}`,
+      },
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "order_estimate",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            estimatedValue: { type: "number" },
+            confidence: { type: "string" },
+            reasoning: { type: "string" },
+          },
+          required: ["estimatedValue", "confidence", "reasoning"],
+          additionalProperties: false,
+        },
+      },
+    },
+  });
+
+  const content = response.choices?.[0]?.message?.content;
+  if (!content) return { estimatedValue: 0, confidence: "low", reasoning: "Unable to estimate" };
+  return JSON.parse(content as string);
+}
+
+export async function generateContactNotes(leadInfo: string, conversationHistory: string): Promise<string> {
+  const response = await invokeLLM({
+    messages: [
+      {
+        role: "system",
+        content: `You generate structured notes for a CRM contact record at a custom printing company. The notes help sales agents quickly understand the lead's situation. Format:
+
+[Est. Value] $X,XXX (confidence: high/medium/low)
+[Due Date] MM/DD/YYYY - Event/deadline description
+[Products] List of products discussed
+[Quantity] Estimated quantities
+[Preferences] Any specific preferences (colors, designs, printing method)
+[Objections] Any objections or concerns raised
+[Key Context] Important details the agent should know
+[Next Step] What should happen next
+
+Only include sections that have relevant information. Be concise.`,
+      },
+      {
+        role: "user",
+        content: `Lead: ${leadInfo}\n\nConversation:\n${conversationHistory}`,
+      },
+    ],
+  });
+
+  const content = response.choices?.[0]?.message?.content;
+  return (content as string) || "No notes generated";
+}
+
+export async function shouldHandoffToAgent(conversationHistory: string, lastAgentActivityHoursAgo: number | null): Promise<{ handoff: boolean; reason: string; resumeAI: boolean }> {
+  // If agent was active within 24 hours, stay handed off
+  if (lastAgentActivityHoursAgo !== null && lastAgentActivityHoursAgo < 24) {
+    return { handoff: true, reason: "Agent active within 24 hours", resumeAI: false };
+  }
+
+  // If agent was active but more than 24 hours ago, AI resumes
+  if (lastAgentActivityHoursAgo !== null && lastAgentActivityHoursAgo >= 24) {
+    return { handoff: false, reason: "No agent activity for 24+ hours, AI resuming", resumeAI: true };
+  }
+
+  // Check conversation for handoff triggers
+  const response = await invokeLLM({
+    messages: [
+      {
+        role: "system",
+        content: "Analyze this conversation and determine if the AI should hand off to a human agent. Hand off ONLY if: (A) the lead is asking for a firm/binding quote with specific quantities and needs exact pricing, or (B) an agent has manually messaged the client (look for messages not from AI). Return JSON with handoff (boolean) and reason (string).",
+      },
+      {
+        role: "user",
+        content: conversationHistory,
+      },
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "handoff_decision",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            handoff: { type: "boolean" },
+            reason: { type: "string" },
+          },
+          required: ["handoff", "reason"],
+          additionalProperties: false,
+        },
+      },
+    },
+  });
+
+  const content = response.choices?.[0]?.message?.content;
+  if (!content) return { handoff: false, reason: "Unable to determine", resumeAI: false };
+  const parsed = JSON.parse(content as string);
+  return { ...parsed, resumeAI: false };
 }
 
 export async function classifySegment(businessName: string, website?: string, researchData?: unknown): Promise<string> {

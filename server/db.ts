@@ -146,7 +146,7 @@ export async function getPipelineEvents(leadId: number) {
 export async function getPipelineStats() {
   const db = await getDb();
   if (!db) return [];
-  return db.select({ stage: leads.pipelineStage, count: sql<number>`count(*)`, totalValue: sql<string>`COALESCE(SUM(CAST(${leads.opportunityValue} AS DECIMAL(10,2))), 0)` }).from(leads).groupBy(leads.pipelineStage);
+  return db.select({ stage: leads.pipelineStage, count: sql<number>`count(*)`, totalValue: sql<string>`COALESCE(SUM(${leads.pipelineValue}), 0)` }).from(leads).groupBy(leads.pipelineStage);
 }
 
 // --- Agent Assignments ---

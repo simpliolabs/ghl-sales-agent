@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { Settings as SettingsIcon, Brain, MessageSquare, RefreshCw } from "lucide-react";
+import { Settings as SettingsIcon, Brain, MessageSquare, RefreshCw, Webhook, Copy, Shield } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -127,6 +127,86 @@ export default function Settings() {
                   <RefreshCw className={`h-4 w-4 mr-2 ${syncMutation.isPending ? "animate-spin" : ""}`} />
                   {syncMutation.isPending ? "Syncing..." : "Sync Contacts from GHL"}
                 </Button>
+              </CardContent>
+            </Card>
+
+            {/* Webhook Setup Instructions */}
+            <Card className="border-blue-200 bg-blue-50/30">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Webhook className="h-4 w-4" /> Webhook Setup
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  To connect GHL to this system, paste these webhook URLs in your GHL settings.
+                </p>
+                <div className="space-y-3">
+                  {[
+                    { label: "Contact Created/Updated", path: "/api/webhooks/ghl/contact" },
+                    { label: "Inbound/Outbound Message", path: "/api/webhooks/ghl/message" },
+                    { label: "Pipeline Stage Change", path: "/api/webhooks/ghl/pipeline" },
+                  ].map((wh) => {
+                    const url = `${window.location.origin}${wh.path}`;
+                    return (
+                      <div key={wh.path} className="rounded-lg border bg-white p-3">
+                        <p className="text-xs font-medium text-muted-foreground mb-1">{wh.label}</p>
+                        <div className="flex items-center gap-2">
+                          <code className="text-xs bg-muted px-2 py-1 rounded flex-1 overflow-x-auto">{url}</code>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => { navigator.clipboard.writeText(url); toast.success("Copied!"); }}
+                          >
+                            <Copy className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="rounded-lg border bg-white p-3">
+                  <p className="text-xs font-semibold mb-2">How to set up in GHL:</p>
+                  <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+                    <li>Go to <strong>Settings → Webhooks</strong> in your GHL sub-account</li>
+                    <li>Click <strong>"Add Webhook"</strong></li>
+                    <li>Paste the Contact webhook URL and select <strong>Contact Create/Update</strong> events</li>
+                    <li>Repeat for Message and Pipeline webhooks with their respective events</li>
+                    <li>Alternatively, use <strong>Workflows</strong> to trigger webhooks on specific events</li>
+                  </ol>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Agent Handoff Info */}
+            <Card className="border-amber-200 bg-amber-50/30">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Shield className="h-4 w-4" /> Agent Handoff Rules
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-sm space-y-2">
+                  <p className="text-muted-foreground">The AI brain automatically manages handoffs between itself and human agents:</p>
+                  <div className="rounded-lg border bg-white p-3 space-y-2">
+                    <div className="flex items-start gap-2">
+                      <Badge variant="outline" className="mt-0.5 shrink-0">A</Badge>
+                      <p className="text-xs">AI hands off when a lead needs a <strong>firm quote</strong> with specific quantities and pricing</p>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Badge variant="outline" className="mt-0.5 shrink-0">B</Badge>
+                      <p className="text-xs">AI hands off when it detects an <strong>agent manually called or messaged</strong> the client</p>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Badge variant="outline" className="mt-0.5 shrink-0">C</Badge>
+                      <p className="text-xs">AI <strong>resumes after 24 hours</strong> of no agent activity, picking up from the last conversation context</p>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Badge variant="outline" className="mt-0.5 shrink-0">D</Badge>
+                      <p className="text-xs">On handoff, AI adds <strong>structured notes</strong> to the GHL contact (est. value, due date, preferences, key context)</p>
+                    </div>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </div>

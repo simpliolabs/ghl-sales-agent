@@ -18,3 +18,7 @@
 - [x] Light theme dashboard layout with sidebar navigation
 - [x] Mobile-friendly responsive design
 - [x] Vitest tests (17 tests passing)
+- [x] Pipeline value: manual agent sync from GHL + LLM-estimated order value
+- [x] Webhook URL display with setup instructions on Settings page
+- [x] Smart agent handoff: AI hands off for quotes or manual agent activity, resumes after 24hr inactivity
+- [x] GHL Contact Notes API: AI adds structured notes (estimates, due dates, preferences) to contact record
