@@ -36,3 +36,9 @@
 - [x] AI customer notifications at each pipeline stage
 - [x] AI post-delivery review request automation
 - [x] AI + Human cooperation for stage transitions
+- [x] Bulk import existing GHL contacts into Adorb Outreach system (1,619 contacts, 1,593 with opportunities)
+- [x] Get GHL API key with proper read scopes (contacts, opportunities, pipelines)
+- [ ] Trigger AI engagement for all imported historical leads
+- [x] Add Next Engagement Date/Time column to Leads table in dashboard
+- [x] Run small test batch AI engagement on 5 leads across different stages
+- [x] Fix GHL SMS 422 error (channel type normalization: InboundMessage → SMS)

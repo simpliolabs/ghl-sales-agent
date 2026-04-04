@@ -300,11 +300,24 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
   res.json({ success: true });
 }
 
+// --- CHANNEL NORMALIZATION ---
+function normalizeChannel(raw: string): string {
+  const lower = raw.toLowerCase();
+  if (lower.includes("email")) return "Email";
+  if (lower.includes("whatsapp")) return "WhatsApp";
+  if (lower.includes("fb") || lower.includes("facebook")) return "FB";
+  if (lower.includes("ig") || lower.includes("instagram")) return "IG";
+  // "SMS", "InboundMessage", "OutboundMessage", "TYPE_SMS", etc. → SMS
+  return "SMS";
+}
+
 // --- MESSAGE HANDLER ---
 async function handleMessageWebhook(payload: Record<string, unknown>, res: Response) {
   const contactId = payload.contactId as string;
   const messageBody = (payload.body || payload.message) as string;
-  const channel = (payload.type || payload.messageType || "SMS") as string;
+  const rawChannel = (payload.messageType || payload.type || "SMS") as string;
+  // Normalize channel: GHL webhooks may send type like "InboundMessage", "OutboundMessage" etc.
+  const channel = normalizeChannel(rawChannel);
   const direction = (payload.direction || "inbound") as string;
 
   if (!contactId || !messageBody) { res.status(400).json({ error: "Missing data" }); return; }
