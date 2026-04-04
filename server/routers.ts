@@ -75,7 +75,37 @@ export const appRouter = router({
       return addKnowledgeFile({ fileName: input.fileName, fileType: input.fileType, fileUrl: url, contentText: input.contentText || "" });
     }),
     addGoogleSheet: protectedProcedure.input(z.object({ name: z.string(), url: z.string() })).mutation(async ({ input }) => {
-      return addKnowledgeFile({ fileName: input.name, fileType: "google_sheet", googleSheetUrl: input.url, contentText: "" });
+      // Auto-fetch content from Google Sheet on add
+      let contentText = "";
+      try {
+        const sheetId = input.url.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1];
+        if (sheetId) {
+          const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
+          const resp = await fetch(csvUrl);
+          if (resp.ok) {
+            const csv = await resp.text();
+            // Convert CSV to readable text for AI
+            const lines = csv.split("\n").filter(l => l.trim()).map(l => l.replace(/,+$/g, ""));
+            contentText = lines.join("\n");
+          }
+        }
+      } catch (e) { /* silent — sheet may not be public */ }
+      return addKnowledgeFile({ fileName: input.name, fileType: "google_sheet", googleSheetUrl: input.url, contentText });
+    }),
+    syncGoogleSheet: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      const files = await getKnowledgeFiles();
+      const file = files.find(f => f.id === input.id);
+      if (!file || !file.googleSheetUrl) throw new Error("Not a Google Sheet");
+      const sheetId = file.googleSheetUrl.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1];
+      if (!sheetId) throw new Error("Invalid Google Sheet URL");
+      const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
+      const resp = await fetch(csvUrl);
+      if (!resp.ok) throw new Error("Failed to fetch sheet — make sure it's shared publicly");
+      const csv = await resp.text();
+      const lines = csv.split("\n").filter(l => l.trim()).map(l => l.replace(/,+$/g, ""));
+      const contentText = lines.join("\n");
+      await updateKnowledgeFile(input.id, { contentText, lastSyncedAt: new Date() });
+      return { success: true, contentLength: contentText.length };
     }),
     updateContent: protectedProcedure.input(z.object({ id: z.number(), contentText: z.string() })).mutation(async ({ input }) => {
       await updateKnowledgeFile(input.id, { contentText: input.contentText, lastSyncedAt: new Date() });

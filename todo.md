@@ -49,3 +49,5 @@
 - [x] Build urgency funnel for channel escalation based on contact lifetime in funnel
 - [x] Deep-learn Adorb products/services from adorbcustomtees.com, print.adorbcustomtees.com, floridadtffactory.com
 - [x] Rewrite first-response to be short, personal, Dan Martell/Hormozi style with company intro + reviews
+- [x] Verify price list uploaded to Knowledge Base and AI synthesized it
+- [x] Add pricing estimate rule: quantities under 80 can get AI estimate within 25% margin
