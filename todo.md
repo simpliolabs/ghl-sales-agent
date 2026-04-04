@@ -29,3 +29,10 @@
 - [x] Invite link acceptance flow (/invite/:token page)
 - [x] Hide Settings and AI Tweaker nav items for Viewers
 - [x] Protect Settings/Tweaker tRPC procedures for admin only
+- [x] Complete Webhook & Pipeline Automation Setup Guide document
+- [x] Full pipeline stage automation (all stages with team assignments)
+- [x] César Vásquez assignment for design/proof tasks
+- [x] Cindy Muchnick assignment for production/shipping tasks
+- [x] AI customer notifications at each pipeline stage
+- [x] AI post-delivery review request automation
+- [x] AI + Human cooperation for stage transitions

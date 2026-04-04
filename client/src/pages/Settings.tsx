@@ -159,41 +159,60 @@ export default function Settings() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  To connect GHL to this system, paste these webhook URLs in your GHL settings.
+                  Connect GHL to this system using <strong>Workflows</strong>. All events use a single unified webhook URL.
                 </p>
-                <div className="space-y-3">
-                  {[
-                    { label: "Contact Created/Updated", path: "/api/webhooks/ghl/contact" },
-                    { label: "Inbound/Outbound Message", path: "/api/webhooks/ghl/message" },
-                    { label: "Pipeline Stage Change", path: "/api/webhooks/ghl/pipeline" },
-                  ].map((wh) => {
-                    const url = `${window.location.origin}${wh.path}`;
-                    return (
-                      <div key={wh.path} className="rounded-lg border bg-white p-3">
-                        <p className="text-xs font-medium text-muted-foreground mb-1">{wh.label}</p>
-                        <div className="flex items-center gap-2">
-                          <code className="text-xs bg-muted px-2 py-1 rounded flex-1 overflow-x-auto">{url}</code>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => { navigator.clipboard.writeText(url); toast.success("Copied!"); }}
-                          >
-                            <Copy className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="rounded-lg border bg-white p-3">
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Unified Webhook URL (use for all workflows)</p>
+                  <div className="flex items-center gap-2">
+                    <code className="text-xs bg-muted px-2 py-1 rounded flex-1 overflow-x-auto">{`${window.location.origin}/api/webhooks/ghl`}</code>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/api/webhooks/ghl`); toast.success("Copied!"); }}
+                    >
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="rounded-lg border bg-white p-3">
+                  <p className="text-xs font-semibold mb-2">Create these 5 Workflows in GHL:</p>
+                  <div className="text-xs text-muted-foreground space-y-2">
+                    <div className="flex items-start gap-2">
+                      <Badge variant="outline" className="mt-0.5 shrink-0 text-[10px]">1</Badge>
+                      <div><strong>New Contact Created</strong> — Trigger: Contact Created → Webhook action → POST to URL above</div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Badge variant="outline" className="mt-0.5 shrink-0 text-[10px]">2</Badge>
+                      <div><strong>Inbound Message Received</strong> — Trigger: Customer Replied → Webhook action → POST to URL above</div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Badge variant="outline" className="mt-0.5 shrink-0 text-[10px]">3</Badge>
+                      <div><strong>Pipeline Stage Changed</strong> — Trigger: Pipeline Stage Changed → Webhook action → POST to URL above</div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Badge variant="outline" className="mt-0.5 shrink-0 text-[10px]">4</Badge>
+                      <div><strong>Opportunity Value Updated</strong> — Trigger: Opportunity Changed → Webhook action → POST to URL above</div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Badge variant="outline" className="mt-0.5 shrink-0 text-[10px]">5</Badge>
+                      <div><strong>Task Completed</strong> — Trigger: Task Completed → Webhook action → POST to URL above</div>
+                    </div>
+                  </div>
                 </div>
                 <div className="rounded-lg border bg-white p-3">
                   <p className="text-xs font-semibold mb-2">How to set up in GHL:</p>
                   <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
-                    <li>Go to <strong>Settings → Webhooks</strong> in your GHL sub-account</li>
-                    <li>Click <strong>"Add Webhook"</strong></li>
-                    <li>Paste the Contact webhook URL and select <strong>Contact Create/Update</strong> events</li>
-                    <li>Repeat for Message and Pipeline webhooks with their respective events</li>
-                    <li>Alternatively, use <strong>Workflows</strong> to trigger webhooks on specific events</li>
+                    <li>Go to <strong>Automation → Workflows</strong> in your GHL sub-account</li>
+                    <li>Click <strong>"Create Workflow"</strong> → Start from scratch</li>
+                    <li>Add a <strong>Trigger</strong> (e.g., Contact Created, Customer Replied, etc.)</li>
+                    <li>Add an <strong>Action → Webhook</strong></li>
+                    <li>Set method to <strong>POST</strong>, paste the URL above</li>
+                    <li>Save and <strong>Publish</strong> the workflow</li>
+                    <li>Repeat for all 5 workflows listed above</li>
                   </ol>
+                </div>
+                <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3">
+                  <p className="text-xs"><strong>Pipeline Automation:</strong> When stages change, the system automatically assigns tasks to the right team member (César for proofs, Cindy for production/shipping) and sends customer notifications.</p>
                 </div>
               </CardContent>
             </Card>
