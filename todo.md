@@ -42,3 +42,6 @@
 - [x] Add Next Engagement Date/Time column to Leads table in dashboard
 - [x] Run small test batch AI engagement on 5 leads across different stages
 - [x] Fix GHL SMS 422 error (channel type normalization: InboundMessage → SMS)
+- [x] BUG: AI engages leads without checking prior GHL conversation history (Ron Belvin)
+- [x] BUG: New leads (Garvey Mclean, Mujahid Muhammad) not engaged at all
+- [x] BUG: Marcus Sims received raw "Test message from Adorb" — was a manual API test during debugging (cannot unsend)

@@ -72,7 +72,7 @@ Choose the most effective "From Name" based on context:
 
 TONE: Concise, specific, credible, helpful, commercially aware. Write like a calm, high-agency SaaS operator. Be friendly-casual but professional.`;
 
-export async function generateAIResponse(leadId: number, incomingMessage: string, channel: string): Promise<{
+export async function generateAIResponse(leadId: number, incomingMessage: string, channel: string, externalHistory?: string): Promise<{
   message: string;
   fromName: string;
   framework: string;
@@ -131,7 +131,7 @@ AI STATE:
 - Sentiment trend: ${state?.sentimentTrend || "neutral"}
 
 CONVERSATION HISTORY:
-${historyStr || "No previous messages"}
+${externalHistory ? externalHistory + "\n" + historyStr : historyStr || "No previous messages"}
 
 KNOWLEDGE BASE:
 ${kbContent || "No knowledge base uploaded yet"}

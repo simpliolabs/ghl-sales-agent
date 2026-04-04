@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { upsertLead, addConversation, addPipelineEvent, getLeadByGhlContactId, updateLeadFields } from "./db";
 import { generateAIResponse, classifySegment, shouldHandoffToAgent, generateContactNotes, estimateOrderValue } from "./ai-brain";
-import { sendMessage, updateContactCustomField, createTask, addNote, updateOpportunityValue, updateOpportunityStage } from "./ghl";
+import { sendMessage, updateContactCustomField, createTask, addNote, updateOpportunityValue, updateOpportunityStage, fetchGhlConversationHistory } from "./ghl";
 import { pushContactToOmnisend } from "./omnisend";
 import { upsertAiState, getConversationHistory } from "./db";
 import { addAgentAssignment, getAgentWorkload } from "./db";
@@ -295,6 +295,76 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
       assignedAgent: lead.assignedAgent || null,
       pipelineValue: null,
     });
+
+    // --- INITIAL AI OUTREACH FOR NEW CONTACTS ---
+    // Fetch GHL conversation history to check if there's an existing conversation
+    // (e.g., form submission, chatbot interaction) and use it as context
+    try {
+      const ghlHistory = await fetchGhlConversationHistory(contactId);
+      let ghlHistoryStr = "";
+      let lastInboundMessage = "";
+
+      if (ghlHistory.length > 0) {
+        ghlHistoryStr = ghlHistory
+          .filter(m => m.body && m.body.trim())
+          .map(m => `[${m.direction === "outbound" ? "agent" : "lead"}/${m.type}] ${m.body}`)
+          .join("\n");
+
+        // Find the last inbound message from the lead (form submission, chat, etc.)
+        const inboundMsgs = ghlHistory.filter(m => m.direction === "inbound" && m.body?.trim());
+        if (inboundMsgs.length > 0) {
+          lastInboundMessage = inboundMsgs[inboundMsgs.length - 1].body;
+        }
+      }
+
+      // Only engage if the lead has a phone number (for SMS) or email
+      if (lead.phone || lead.email) {
+        const channel = lead.phone ? "SMS" : "Email";
+        const introMessage = lastInboundMessage
+          || `New lead: ${lead.name || "someone"} from ${lead.businessName || "a business"} just signed up. They're interested in custom printing.`;
+
+        const aiResponse = await generateAIResponse(
+          lead.id,
+          introMessage,
+          channel,
+          ghlHistoryStr || undefined
+        );
+
+        // Send the AI response
+        if (channel === "Email" && lead.email) {
+          await sendMessage(contactId, { type: "Email", subject: aiResponse.fromName, html: aiResponse.message, fromName: aiResponse.fromName });
+        } else if (lead.phone) {
+          await sendMessage(contactId, { type: "SMS", message: aiResponse.message });
+        }
+
+        // Store the conversation
+        await addConversation({
+          leadId: lead.id,
+          channel,
+          direction: "outbound",
+          messageBody: aiResponse.message,
+          senderType: "ai",
+          senderName: aiResponse.fromName,
+        });
+
+        // Update lead with AI scoring
+        await updateLeadFields(lead.id, {
+          opportunityScore: aiResponse.score,
+          omnisendSegment: aiResponse.segment,
+          lastMessageAt: new Date(),
+        });
+
+        await upsertAiState(lead.id, {
+          lastAngleUsed: aiResponse.angle,
+          lastFrameworkUsed: aiResponse.framework,
+          extractedDates: aiResponse.extractedDates as unknown as undefined,
+          messageCount: 1,
+        });
+      }
+    } catch (err) {
+      console.error("[Webhook] Initial AI outreach error (non-fatal):", err);
+      // Non-fatal — contact is still saved even if AI outreach fails
+    }
   }
 
   res.json({ success: true });
@@ -358,8 +428,25 @@ async function handleMessageWebhook(payload: Record<string, unknown>, res: Respo
     lastAgentHoursAgo = (Date.now() - agentTime) / (1000 * 60 * 60);
   }
 
+  // Fetch BOTH local and GHL conversation history for full context
   const convHistory = await getConversationHistory(lead!.id, 20);
-  const historyStr = convHistory.map(c => `[${c.senderType}/${c.channel}] ${c.messageBody}`).join("\n");
+  let historyStr = convHistory.map(c => `[${c.senderType}/${c.channel}] ${c.messageBody}`).join("\n");
+
+  // If local history is thin, pull from GHL to get prior outreach context
+  if (convHistory.length < 3) {
+    try {
+      const ghlHistory = await fetchGhlConversationHistory(contactId);
+      if (ghlHistory.length > 0) {
+        const ghlHistoryStr = ghlHistory
+          .filter(m => m.body && m.body.trim())
+          .map(m => `[${m.direction === "outbound" ? "agent" : "lead"}/${m.type}] ${m.body}`)
+          .join("\n");
+        if (ghlHistoryStr) {
+          historyStr = `--- Prior GHL conversation history ---\n${ghlHistoryStr}\n--- Recent messages ---\n${historyStr}`;
+        }
+      }
+    } catch { /* best effort — continue with local history only */ }
+  }
 
   const handoffDecision = await shouldHandoffToAgent(historyStr, lastAgentHoursAgo);
 
@@ -386,8 +473,8 @@ async function handleMessageWebhook(payload: Record<string, unknown>, res: Respo
     return;
   }
 
-  // --- AI RESPONSE ---
-  const aiResponse = await generateAIResponse(lead!.id, messageBody, channel);
+  // --- AI RESPONSE (with GHL history context) ---
+  const aiResponse = await generateAIResponse(lead!.id, messageBody, channel, historyStr);
 
   // Check if AI wants to hand off (e.g., lead asking for firm quote)
   const aiHandoff = await shouldHandoffToAgent(

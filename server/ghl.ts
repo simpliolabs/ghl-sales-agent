@@ -75,6 +75,33 @@ export async function getContactConversations(contactId: string) {
   return data.conversations || [];
 }
 
+// --- Fetch full conversation history from GHL ---
+export async function fetchGhlConversationHistory(contactId: string): Promise<Array<{ direction: string; type: string; body: string; dateAdded: string }>> {
+  try {
+    const conversations = await getContactConversations(contactId);
+    const allMessages: Array<{ direction: string; type: string; body: string; dateAdded: string }> = [];
+    for (const conv of conversations) {
+      try {
+        const msgs = await getConversationMessages(conv.id);
+        const messageList = Array.isArray(msgs) ? msgs : (msgs?.messages || []);
+        for (const m of messageList) {
+          allMessages.push({
+            direction: m.direction || "unknown",
+            type: m.type || "unknown",
+            body: m.body || m.message || "",
+            dateAdded: m.dateAdded || "",
+          });
+        }
+      } catch { /* skip conversation if messages can't be fetched */ }
+    }
+    // Sort by date ascending
+    allMessages.sort((a, b) => new Date(a.dateAdded).getTime() - new Date(b.dateAdded).getTime());
+    return allMessages;
+  } catch {
+    return [];
+  }
+}
+
 // --- Tasks ---
 export async function createTask(contactId: string, opts: {
   title: string;
