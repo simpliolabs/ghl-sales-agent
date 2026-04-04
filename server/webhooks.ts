@@ -394,6 +394,16 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
           extractedDates: aiResponse.extractedDates as unknown as undefined,
           messageCount: 1,
         });
+
+        // Estimate order value from initial conversation context
+        try {
+          const leadInfo = `${lead.name || "Unknown"} - ${lead.businessName || "Unknown"} - Stage: ${lead.pipelineStage}`;
+          const convForValue = ghlHistory.length > 0 ? ghlHistory.map(m => `[${m.direction}/${m.type}] ${m.body}`).join("\n") + `\n[ai/${channel}] ${aiResponse.message}` : `[ai/${channel}] ${aiResponse.message}`;
+          const valueEstimate = await estimateOrderValue(convForValue, leadInfo);
+          if (valueEstimate.estimatedValue > 0) {
+            await updateLeadFields(lead.id, { pipelineValue: valueEstimate.estimatedValue });
+          }
+        } catch { /* best effort */ }
       }
     } catch (err) {
       console.error("[Webhook] Initial AI outreach error (non-fatal):", err);
@@ -601,16 +611,19 @@ async function handleMessageWebhook(payload: Record<string, unknown>, res: Respo
     } catch { /* best effort */ }
   }
 
-  // Estimate value periodically
-  if (totalMsgs > 2 && totalMsgs % 4 === 0) {
-    try {
-      const leadInfo = `${lead!.name || "Unknown"} - ${lead!.businessName || "Unknown"}`;
-      const valueEstimate = await estimateOrderValue(historyStr, leadInfo);
-      if (valueEstimate.estimatedValue > 0) {
-        await updateLeadFields(lead!.id, { pipelineValue: valueEstimate.estimatedValue });
+  // Estimate order value after EVERY AI response when pricing context exists
+  try {
+    const fullConvForValue = historyStr + `\n[ai/${channel}] ${aiResponse.message}`;
+    const leadInfo = `${lead!.name || "Unknown"} - ${lead!.businessName || "Unknown"} - Stage: ${lead!.pipelineStage}`;
+    const valueEstimate = await estimateOrderValue(fullConvForValue, leadInfo);
+    if (valueEstimate.estimatedValue > 0) {
+      await updateLeadFields(lead!.id, { pipelineValue: valueEstimate.estimatedValue });
+      // Also update GHL opportunity value if we have an opportunity ID
+      if (payload.opportunityId) {
+        try { await updateOpportunityValue(payload.opportunityId as string, valueEstimate.estimatedValue); } catch { /* best effort */ }
       }
-    } catch { /* best effort */ }
-  }
+    }
+  } catch { /* best effort */ }
 
   // Calculate next follow-up using AI-suggested engagement hours + event dates
   const nextFollowUp = new Date();

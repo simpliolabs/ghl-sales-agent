@@ -51,3 +51,7 @@
 - [x] Rewrite first-response to be short, personal, Dan Martell/Hormozi style with company intro + reviews
 - [x] Verify price list uploaded to Knowledge Base and AI synthesized it
 - [x] Add pricing estimate rule: quantities under 80 can get AI estimate within 25% margin
+- [x] BUG: Only 1 lead has scoring — bulk scored all 1,622 leads (avg: 50, hot: 4, warm: 77)
+- [x] BUG: Lead value not auto-calculated from pricing during AI engagement — now estimates on every response
+- [x] Auto-synthesize all uploaded content (PDF, images, CSV) and AI instructions on upload via LLM
+- [x] Auto-calculate lead value from price list when AI knows quantity

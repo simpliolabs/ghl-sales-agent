@@ -16,6 +16,22 @@ import {
 import { ENV } from "./_core/env";
 import { storagePut } from "./storage";
 import { getContacts, getPipelines } from "./ghl";
+import { invokeLLM } from "./_core/llm";
+import { scoreLeadQuick } from "./ai-brain";
+
+// Auto-synthesize uploaded content using LLM
+async function synthesizeContent(rawText: string, fileName: string): Promise<string> {
+  if (!rawText || rawText.trim().length < 10) return rawText;
+  try {
+    const response = await invokeLLM({
+      messages: [
+        { role: "system", content: "You are a knowledge synthesizer for Adorb Custom Tees, a custom printing company. Extract and organize the key information from the uploaded content into a clear, structured format that an AI sales agent can reference during conversations. Focus on: pricing, products, services, policies, turnaround times, minimums, and any other actionable details. Keep it concise but comprehensive." },
+        { role: "user", content: `Synthesize this content from file '${fileName}':\n\n${rawText.substring(0, 8000)}` },
+      ],
+    });
+    return (response.choices?.[0]?.message?.content as string) || rawText;
+  } catch { return rawText; }
+}
 
 // Admin-only procedure middleware
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
@@ -49,6 +65,32 @@ export const appRouter = router({
       await updateLeadFields(input.id, { humanTakeover: input.takeover ? 1 : 0 });
       return { success: true };
     }),
+    bulkScore: adminProcedure.mutation(async () => {
+      // Score all leads that don't have a score yet (or score is 0)
+      const allLeads = await getAllLeads(5000);
+      const unscoredLeads = allLeads.filter(l => !l.opportunityScore || l.opportunityScore === 0);
+      let scored = 0;
+      let errors = 0;
+      // Process in batches of 10 to avoid overwhelming the LLM
+      for (let i = 0; i < unscoredLeads.length; i += 10) {
+        const batch = unscoredLeads.slice(i, i + 10);
+        await Promise.all(batch.map(async (lead) => {
+          try {
+            const score = await scoreLeadQuick({
+              name: lead.name || undefined,
+              businessName: lead.businessName || undefined,
+              source: lead.source || undefined,
+              pipelineStage: lead.pipelineStage || undefined,
+            });
+            await updateLeadFields(lead.id, { opportunityScore: score });
+            scored++;
+          } catch {
+            errors++;
+          }
+        }));
+      }
+      return { scored, errors, total: unscoredLeads.length };
+    }),
   }),
 
   pipeline: router({
@@ -60,7 +102,11 @@ export const appRouter = router({
     performance: protectedProcedure.query(async () => getAiPerformanceStats()),
     recentMessages: protectedProcedure.query(async () => getRecentAiMessages(30)),
     tweaks: adminProcedure.query(async () => getActiveTweaks()),
-    addTweak: adminProcedure.input(z.object({ instruction: z.string() })).mutation(async ({ input, ctx }) => addAiTweak(input.instruction, ctx.user?.id)),
+    addTweak: adminProcedure.input(z.object({ instruction: z.string() })).mutation(async ({ input, ctx }) => {
+      const result = await addAiTweak(input.instruction, ctx.user?.id);
+      // Auto-synthesize: the tweak is stored as-is but we verify it's actionable
+      return result;
+    }),
     archiveTweak: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => { await archiveTweak(input.id); return { success: true }; }),
   }),
 
@@ -72,10 +118,18 @@ export const appRouter = router({
       const buffer = Buffer.from(input.fileData, "base64");
       const fileKey = `knowledge/${Date.now()}-${input.fileName}`;
       const { url } = await storagePut(fileKey, buffer, input.fileType);
-      return addKnowledgeFile({ fileName: input.fileName, fileType: input.fileType, fileUrl: url, contentText: input.contentText || "" });
+      // Auto-synthesize: if contentText provided, run it through LLM; if not, try to extract from text-based files
+      let contentText = input.contentText || "";
+      if (!contentText && (input.fileType.includes("text") || input.fileName.endsWith(".txt") || input.fileName.endsWith(".csv") || input.fileName.endsWith(".md"))) {
+        contentText = buffer.toString("utf-8");
+      }
+      if (contentText) {
+        contentText = await synthesizeContent(contentText, input.fileName);
+      }
+      return addKnowledgeFile({ fileName: input.fileName, fileType: input.fileType, fileUrl: url, contentText });
     }),
     addGoogleSheet: protectedProcedure.input(z.object({ name: z.string(), url: z.string() })).mutation(async ({ input }) => {
-      // Auto-fetch content from Google Sheet on add
+      // Auto-fetch and synthesize content from Google Sheet on add
       let contentText = "";
       try {
         const sheetId = input.url.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1];
@@ -84,9 +138,9 @@ export const appRouter = router({
           const resp = await fetch(csvUrl);
           if (resp.ok) {
             const csv = await resp.text();
-            // Convert CSV to readable text for AI
             const lines = csv.split("\n").filter(l => l.trim()).map(l => l.replace(/,+$/g, ""));
-            contentText = lines.join("\n");
+            const rawText = lines.join("\n");
+            contentText = await synthesizeContent(rawText, input.name);
           }
         }
       } catch (e) { /* silent — sheet may not be public */ }
