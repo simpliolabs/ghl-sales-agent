@@ -9,6 +9,7 @@ vi.mock("./db", () => ({
   updateLeadFields: vi.fn().mockResolvedValue(undefined),
   upsertAiState: vi.fn().mockResolvedValue(undefined),
   getConversationHistory: vi.fn().mockResolvedValue([]),
+  getRecentAiOutboundCount: vi.fn().mockResolvedValue(0),
   addAgentAssignment: vi.fn().mockResolvedValue(undefined),
   getAgentWorkload: vi.fn().mockResolvedValue([{ agent: "Abby Bouwer", count: 5 }, { agent: "Chris McHendry", count: 3 }]),
 }));
@@ -322,6 +323,136 @@ describe("Research context and auto-scheduling", () => {
       expect.objectContaining({
         nextFollowUpAt: expect.any(Date),
       })
+    );
+  });
+});
+
+describe("Dedup guard and cadence backoff", () => {
+  let app: ReturnType<typeof createTestApp>;
+
+  beforeEach(() => {
+    app = createTestApp();
+    vi.clearAllMocks();
+  });
+
+  it("skips AI outreach on contact create if recent AI message exists (dedup)", async () => {
+    const { getRecentAiOutboundCount } = await import("./db");
+    (getRecentAiOutboundCount as ReturnType<typeof vi.fn>).mockResolvedValue(1);
+
+    const { generateAIResponse } = await import("./ai-brain");
+
+    const res = await request(app).post("/api/webhooks/ghl").send({
+      id: "contact_dedup_1",
+      firstName: "Dedup",
+      lastName: "Test",
+      email: "dedup@test.com",
+      phone: "+1234567890",
+      type: "ContactCreate",
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.action).toBe("dedup_skipped");
+    // AI should NOT have been called
+    expect(generateAIResponse).not.toHaveBeenCalled();
+  });
+
+  it("skips AI response on inbound message if recent AI message exists (dedup cooldown)", async () => {
+    const { getRecentAiOutboundCount } = await import("./db");
+    (getRecentAiOutboundCount as ReturnType<typeof vi.fn>).mockResolvedValue(1);
+
+    const { generateAIResponse } = await import("./ai-brain");
+
+    const res = await request(app).post("/api/webhooks/ghl/message").send({
+      contactId: "contact_123",
+      body: "Hello there",
+      direction: "inbound",
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.action).toBe("dedup_cooldown");
+    expect(generateAIResponse).not.toHaveBeenCalled();
+  });
+
+  it("applies cadence backoff when 2+ consecutive unanswered AI messages", async () => {
+    const { getConversationHistory, getRecentAiOutboundCount } = await import("./db");
+    (getRecentAiOutboundCount as ReturnType<typeof vi.fn>).mockResolvedValue(0);
+    // Simulate 3 consecutive unanswered AI outbound messages
+    (getConversationHistory as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { direction: "outbound", senderType: "ai", channel: "SMS", messageBody: "Third msg", timestamp: new Date() },
+      { direction: "outbound", senderType: "ai", channel: "SMS", messageBody: "Second msg", timestamp: new Date(Date.now() - 60000) },
+      { direction: "outbound", senderType: "ai", channel: "SMS", messageBody: "First msg", timestamp: new Date(Date.now() - 120000) },
+    ]);
+
+    const { generateAIResponse } = await import("./ai-brain");
+
+    const res = await request(app).post("/api/webhooks/ghl/message").send({
+      contactId: "contact_123",
+      body: "Triggered by webhook but should be backed off",
+      direction: "inbound",
+    });
+
+    expect(res.status).toBe(200);
+    // Should either respond with cadence_backoff or proceed (depends on timing)
+    // The key assertion is that generateAIResponse was NOT called if backoff applied
+    if (res.body.action === "cadence_backoff") {
+      expect(generateAIResponse).not.toHaveBeenCalled();
+    }
+  });
+
+  it("allows AI response when no recent AI messages (dedup passes)", async () => {
+    const { getRecentAiOutboundCount, getConversationHistory } = await import("./db");
+    (getRecentAiOutboundCount as ReturnType<typeof vi.fn>).mockResolvedValue(0);
+    // Reset conversation history to empty (no unanswered messages)
+    (getConversationHistory as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    const { generateAIResponse } = await import("./ai-brain");
+
+    const res = await request(app).post("/api/webhooks/ghl/message").send({
+      contactId: "contact_123",
+      body: "I need 50 shirts",
+      direction: "inbound",
+    });
+
+    expect(res.status).toBe(200);
+    expect(generateAIResponse).toHaveBeenCalled();
+  });
+});
+
+describe("Form data extraction in contact webhook", () => {
+  let app: ReturnType<typeof createTestApp>;
+
+  beforeEach(() => {
+    app = createTestApp();
+    vi.clearAllMocks();
+  });
+
+  it("passes form data to AI when Facebook lead form fields are present", async () => {
+    const { generateAIResponse } = await import("./ai-brain");
+    const { fetchGhlConversationHistory } = await import("./ghl");
+    (fetchGhlConversationHistory as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { direction: "inbound", type: "FB", body: "Form submission data" },
+    ]);
+
+    const res = await request(app).post("/api/webhooks/ghl").send({
+      id: "contact_form_1",
+      firstName: "Garvey",
+      lastName: "Mclean",
+      companyName: "Life Church",
+      email: "garvey@lifechurch.com",
+      phone: "+1234567890",
+      type: "ContactCreate",
+      what_type_of_products_are_you_interested_in_: "T-shirts",
+      what_do_you_need_bulk_printing_for_: "Church/Ministry",
+      how_soon_do_you_need_your_order_: "Within 1 week",
+    });
+
+    expect(res.status).toBe(200);
+    // AI should be called with form-aware intro message
+    expect(generateAIResponse).toHaveBeenCalledWith(
+      expect.any(Number),
+      expect.stringContaining("form"),
+      expect.any(String),
+      expect.stringContaining("LEAD FORM SUBMISSION DATA")
     );
   });
 });

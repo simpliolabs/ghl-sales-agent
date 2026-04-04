@@ -114,6 +114,21 @@ export async function getConversationHistory(leadId: number, limit = 50) {
   return db.select().from(conversations).where(eq(conversations.leadId, leadId)).orderBy(desc(conversations.timestamp)).limit(limit);
 }
 
+// --- Dedup: count recent AI outbound messages within a time window ---
+export async function getRecentAiOutboundCount(leadId: number, withinMinutes: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const cutoff = new Date(Date.now() - withinMinutes * 60 * 1000);
+  const result = await db.select({ count: sql<number>`count(*)` }).from(conversations)
+    .where(and(
+      eq(conversations.leadId, leadId),
+      eq(conversations.direction, "outbound"),
+      eq(conversations.senderType, "ai"),
+      gte(conversations.timestamp, cutoff)
+    ));
+  return result[0]?.count || 0;
+}
+
 // --- AI State ---
 export async function upsertAiState(leadId: number, state: Partial<typeof aiState.$inferInsert>) {
   const db = await getDb();

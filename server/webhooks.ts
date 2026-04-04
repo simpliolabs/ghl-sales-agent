@@ -3,7 +3,7 @@ import { upsertLead, addConversation, addPipelineEvent, getLeadByGhlContactId, u
 import { generateAIResponse, classifySegment, shouldHandoffToAgent, generateContactNotes, estimateOrderValue, generateResearchContext } from "./ai-brain";
 import { sendMessage, updateContactCustomField, createTask, addNote, updateOpportunityValue, updateOpportunityStage, fetchGhlConversationHistory } from "./ghl";
 import { pushContactToOmnisend } from "./omnisend";
-import { upsertAiState, getConversationHistory } from "./db";
+import { upsertAiState, getConversationHistory, getRecentAiOutboundCount } from "./db";
 import { addAgentAssignment, getAgentWorkload } from "./db";
 
 // --- TEAM ROSTER ---
@@ -316,27 +316,65 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
     await updateLeadFields(lead.id, { nextFollowUpAt: defaultFollowUp });
 
     // --- INITIAL AI OUTREACH FOR NEW CONTACTS ---
-    // Fetch GHL conversation history to check if there's an existing conversation
-    // (e.g., form submission, chatbot interaction) and use it as context
     try {
-      const ghlHistory = await fetchGhlConversationHistory(contactId);
-      let ghlHistoryStr = "";
-      let lastInboundMessage = "";
-
-      if (ghlHistory.length > 0) {
-        ghlHistoryStr = ghlHistory
-          .filter(m => m.body && m.body.trim())
-          .map(m => `[${m.direction === "outbound" ? "agent" : "lead"}/${m.type}] ${m.body}`)
-          .join("\n");
-
-        // Find the last inbound message from the lead (form submission, chat, etc.)
-        const inboundMsgs = ghlHistory.filter(m => m.direction === "inbound" && m.body?.trim());
-        if (inboundMsgs.length > 0) {
-          lastInboundMessage = inboundMsgs[inboundMsgs.length - 1].body;
-        }
+      // DEDUP GUARD: Skip if we already sent an AI message to this lead in the last 15 minutes
+      const recentAiCount = await getRecentAiOutboundCount(lead.id, 15);
+      if (recentAiCount > 0) {
+        console.log(`[Webhook] Skipping AI outreach for lead ${lead.id} — ${recentAiCount} AI message(s) sent in last 15 min`);
+        res.json({ success: true, action: "dedup_skipped" });
+        return;
       }
 
-      // Detect the inbound channel from GHL history — ALWAYS respond on the same channel they used
+      const ghlHistory = await fetchGhlConversationHistory(contactId);
+      let ghlHistoryStr = "";
+
+      // --- EXTRACT FORM DATA FROM PAYLOAD ---
+      // GHL webhook payloads for Facebook lead forms include custom fields
+      const formFields = extractFormData(payload);
+      let formContextStr = "";
+      if (formFields.length > 0) {
+        formContextStr = "\n--- LEAD FORM SUBMISSION DATA (acknowledge this in your response) ---\n" +
+          formFields.map(f => `${f.label}: ${f.value}`).join("\n") +
+          "\n--- END FORM DATA ---";
+      }
+
+      if (ghlHistory.length > 0) {
+        // Filter out GHL auto-responses and form data pseudo-messages
+        // Only include REAL conversation messages, not workflow auto-replies
+        const outboundFromOthers = ghlHistory.filter(m => 
+          m.direction === "outbound" && m.body?.trim()
+        );
+        
+        // If GHL already sent outbound messages (from workflows), note them
+        // so the AI knows not to repeat the same intro
+        const priorOutboundContext = outboundFromOthers.length > 0
+          ? "\n--- MESSAGES ALREADY SENT BY OTHER SYSTEMS (do NOT repeat similar content) ---\n" +
+            outboundFromOthers.map(m => `[auto-response] ${m.body}`).join("\n") +
+            "\n--- END PRIOR MESSAGES ---"
+          : "";
+
+        // Only include genuine inbound messages (not form data echoes)
+        const genuineInbound = ghlHistory.filter(m => {
+          if (m.direction !== "inbound" || !m.body?.trim()) return false;
+          // Filter out messages that look like form data dumps
+          const body = m.body.toLowerCase();
+          if (body.includes("full name:") && body.includes("phone number:")) return false;
+          if (body.includes("what type of products") && body.includes("how soon")) return false;
+          return true;
+        });
+
+        const allContextParts = [];
+        if (genuineInbound.length > 0) {
+          allContextParts.push(genuineInbound.map(m => `[lead/${m.type}] ${m.body}`).join("\n"));
+        }
+        if (priorOutboundContext) allContextParts.push(priorOutboundContext);
+        if (formContextStr) allContextParts.push(formContextStr);
+        ghlHistoryStr = allContextParts.join("\n");
+      } else if (formContextStr) {
+        ghlHistoryStr = formContextStr;
+      }
+
+      // Detect the inbound channel from GHL history
       let detectedChannel = "";
       if (ghlHistory.length > 0) {
         const lastInbound = [...ghlHistory].reverse().find(m => m.direction === "inbound");
@@ -362,8 +400,17 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
 
       if (detectedChannel && (lead.phone || lead.email)) {
         const channel = detectedChannel as "SMS" | "Email" | "WhatsApp" | "FB" | "IG";
-        const introMessage = lastInboundMessage
-          || `New lead: ${lead.name || "someone"} from ${lead.businessName || "a business"} just signed up. They're interested in custom printing.`;
+        // Build a structured intro that acknowledges what the lead already told us
+        let introMessage: string;
+        if (formFields.length > 0) {
+          // Use form data as structured context — the lead already told us what they want
+          const productType = formFields.find(f => f.label.toLowerCase().includes("product"))?.value || "custom printing";
+          const purpose = formFields.find(f => f.label.toLowerCase().includes("need") || f.label.toLowerCase().includes("for"))?.value || "";
+          const timeline = formFields.find(f => f.label.toLowerCase().includes("soon") || f.label.toLowerCase().includes("when"))?.value || "";
+          introMessage = `New lead from form: ${lead.name || "someone"} from ${lead.businessName || "a business"} wants ${productType}${purpose ? " for " + purpose : ""}${timeline ? ". Timeline: " + timeline : ""}. IMPORTANT: They already told us what they need via the form — acknowledge their specific request, don't ask discovery questions they already answered.`;
+        } else {
+          introMessage = `New lead: ${lead.name || "someone"} from ${lead.businessName || "a business"} just signed up. They're interested in custom printing.`;
+        }
 
         const aiResponse = await generateAIResponse(
           lead.id,
@@ -433,6 +480,53 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
   res.json({ success: true });
 }
 
+// --- FORM DATA EXTRACTION ---
+// Extract structured form fields from GHL webhook payloads (Facebook lead forms, etc.)
+function extractFormData(payload: Record<string, unknown>): Array<{ label: string; value: string }> {
+  const fields: Array<{ label: string; value: string }> = [];
+  
+  // Known GHL form field keys from Facebook lead forms
+  const formFieldMappings: Record<string, string> = {
+    "what_type_of_products_are_you_interested_in_": "Product Type",
+    "what_do_you_need_bulk_printing_for_": "Purpose",
+    "how_soon_do_you_need_your_order_": "Timeline",
+    "company_name": "Company",
+    "companyName": "Company",
+    "full_name": "Full Name",
+    "quantity": "Quantity",
+  };
+
+  // Check top-level payload fields
+  for (const [key, label] of Object.entries(formFieldMappings)) {
+    const val = payload[key];
+    if (val && typeof val === "string" && val.trim()) {
+      fields.push({ label, value: val.trim() });
+    }
+  }
+
+  // Check nested customFields or customField arrays
+  const customFields = (payload.customFields || payload.customField) as Record<string, unknown>[] | Record<string, unknown> | undefined;
+  if (Array.isArray(customFields)) {
+    for (const cf of customFields) {
+      const key = (cf.id || cf.key || cf.field_key || "") as string;
+      const val = (cf.value || cf.field_value || "") as string;
+      if (key && val && typeof val === "string" && val.trim()) {
+        const label = formFieldMappings[key] || key.replace(/_/g, " ").replace(/\?/g, "");
+        fields.push({ label, value: val.trim() });
+      }
+    }
+  } else if (customFields && typeof customFields === "object") {
+    for (const [key, val] of Object.entries(customFields)) {
+      if (val && typeof val === "string" && val.trim()) {
+        const label = formFieldMappings[key] || key.replace(/_/g, " ").replace(/\?/g, "");
+        fields.push({ label, value: val.trim() });
+      }
+    }
+  }
+
+  return fields;
+}
+
 // --- CHANNEL NORMALIZATION ---
 function normalizeChannel(raw: string): string {
   const lower = raw.toLowerCase();
@@ -454,6 +548,13 @@ async function handleMessageWebhook(payload: Record<string, unknown>, res: Respo
   const direction = (payload.direction || "inbound") as string;
 
   if (!contactId || !messageBody) { res.status(400).json({ error: "Missing data" }); return; }
+
+  // DEDUP: Skip outbound echoes from our own AI messages
+  // GHL sends webhooks for messages WE sent — detect and skip them
+  if (direction === "outbound") {
+    // Check if this is an echo of our own AI message (already stored)
+    // We'll still log it but won't trigger AI response
+  }
 
   let lead = await getLeadByGhlContactId(contactId);
   if (!lead) {
@@ -534,6 +635,43 @@ async function handleMessageWebhook(payload: Record<string, unknown>, res: Respo
   if (lead!.humanTakeover && !handoffDecision.resumeAI) {
     res.json({ success: true, action: "human_takeover_active" });
     return;
+  }
+
+  // --- DEDUP GUARD: Don't respond if we already sent an AI message in the last 5 minutes ---
+  const recentAiMsgCount = await getRecentAiOutboundCount(lead!.id, 5);
+  if (recentAiMsgCount > 0) {
+    console.log(`[Webhook] Skipping AI response for lead ${lead!.id} — ${recentAiMsgCount} AI message(s) sent in last 5 min`);
+    res.json({ success: true, action: "dedup_cooldown" });
+    return;
+  }
+
+  // --- CADENCE BACKOFF: Count consecutive unanswered outbound messages ---
+  // If we've sent multiple messages without a reply, increase the gap
+  const recentConvs = convHistory.slice().reverse(); // oldest first
+  let consecutiveUnanswered = 0;
+  for (let i = recentConvs.length - 1; i >= 0; i--) {
+    if (recentConvs[i].direction === "outbound" && recentConvs[i].senderType === "ai") {
+      consecutiveUnanswered++;
+    } else if (recentConvs[i].direction === "inbound") {
+      break; // found a reply, stop counting
+    }
+  }
+  // If 2+ unanswered AI messages, enforce minimum gap before next outbound
+  if (consecutiveUnanswered >= 2) {
+    const minGapMinutes = consecutiveUnanswered >= 4 ? 1440 : consecutiveUnanswered >= 3 ? 240 : 60; // 4+: 24h, 3: 4h, 2: 1h
+    const lastAiOutbound = recentConvs.filter(c => c.direction === "outbound" && c.senderType === "ai").pop();
+    if (lastAiOutbound) {
+      const lastSentAt = new Date(lastAiOutbound.timestamp).getTime();
+      const minutesSinceLastSend = (Date.now() - lastSentAt) / (1000 * 60);
+      if (minutesSinceLastSend < minGapMinutes) {
+        console.log(`[Webhook] Cadence backoff for lead ${lead!.id} — ${consecutiveUnanswered} unanswered msgs, need ${minGapMinutes}min gap, only ${Math.round(minutesSinceLastSend)}min elapsed`);
+        // Schedule the follow-up for later instead of responding now
+        const backoffFollowUp = new Date(Date.now() + (minGapMinutes - minutesSinceLastSend) * 60 * 1000);
+        await updateLeadFields(lead!.id, { nextFollowUpAt: backoffFollowUp });
+        res.json({ success: true, action: "cadence_backoff" });
+        return;
+      }
+    }
   }
 
   // --- AI RESPONSE (with GHL history context) ---

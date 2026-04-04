@@ -59,3 +59,9 @@
 - [x] Add Next Outreach column to Leads page (always visible, color-coded: red=overdue, amber=today, gray=future)
 - [x] BUG: Most leads have no nextFollowUpAt — column should always be prefilled for all leads (bulk-set 1,620 leads + auto-schedule on new contacts)
 - [x] Show research context (extra context from AI research) on lead detail page + leads table Context column
+- [x] BUG: Garvey Mclean received 4 messages without response — cadence should back off after no reply (added dedup guard + cadence backoff)
+- [x] BUG: Lead #1620 conversation history in Adorb doesn't match what's in GHL (GHL workflow collision + form data ghost messages)
+- [x] BUG: Ghost inbound messages — Facebook lead form data misclassified as conversation messages in DB (added form data filter)
+- [x] BUG: No cadence backoff — system sends multiple messages in minutes without waiting for reply (2 unanswered: 1h gap, 3: 4h, 4+: 24h)
+- [x] BUG: Repetitive AI openers — every message starts with "Hey [name]! Chris here from Adorb" (added anti-repetition rules + prior outbound awareness) 
+- [x] BUG: AI doesn't acknowledge lead's stated request from form data (product, quantity, timeline) (added form data extraction + structured intro)
