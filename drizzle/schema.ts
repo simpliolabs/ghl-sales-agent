@@ -34,6 +34,26 @@ export const leads = mysqlTable("leads", {
   humanTakeover: tinyint("humanTakeover").default(0),
   lastAgentActivityAt: timestamp("lastAgentActivityAt"),
   pipelineValue: int("pipelineValue").default(0),
+  // Context-aware scheduling fields
+  cadencePosition: int("cadencePosition").default(0), // 0=fresh, 1-6=silence cadence steps
+  reactivationCount: int("reactivationCount").default(0), // how many quarterly reactivation cycles
+  lastReactivationAt: timestamp("lastReactivationAt"),
+  lastSeasonalPushAt: timestamp("lastSeasonalPushAt"),
+  seasonalSegment: varchar("seasonalSegment", { length: 64 }), // which seasonal campaign last applied
+  // Score decay tracking
+  lastScoreDecayAt: timestamp("lastScoreDecayAt"),
+  baseScore: int("baseScore").default(50), // score before decay
+  // Override tracking
+  overrideBy: varchar("overrideBy", { length: 128 }), // who overrode the schedule
+  overrideAt: timestamp("overrideAt"),
+  overrideReason: text("overrideReason"), // why they overrode
+  // Brain council metadata
+  lastQcScore: int("lastQcScore"),
+  lastStrategyReasoning: text("lastStrategyReasoning"),
+  lastResearchSummary: text("lastResearchSummary"),
+  // Channel preference
+  preferredChannel: varchar("preferredChannel", { length: 32 }),
+  lastOutboundChannel: varchar("lastOutboundChannel", { length: 32 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -62,6 +82,11 @@ export const aiState = mysqlTable("ai_state", {
   messageCount: int("messageCount").default(0),
   lastFrameworkUsed: varchar("lastFrameworkUsed", { length: 32 }),
   sentimentTrend: varchar("sentimentTrend", { length: 16 }),
+  // Brain council tracking
+  lastQcScore: int("lastQcScore"),
+  lastStrategyApproach: varchar("lastStrategyApproach", { length: 32 }),
+  lastResearchSummary: text("lastResearchSummary"),
+  consecutiveRejects: int("consecutiveRejects").default(0), // QC rejections in a row
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 

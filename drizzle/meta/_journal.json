@@ -29,6 +29,13 @@
       "when": 1775321418198,
       "tag": "0003_fuzzy_wolf_cub",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1775342674918,
+      "tag": "0004_natural_harry_osborn",
+      "breakpoints": true
     }
   ]
 }

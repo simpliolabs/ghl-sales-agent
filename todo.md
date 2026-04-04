@@ -65,3 +65,10 @@
 - [x] BUG: No cadence backoff — system sends multiple messages in minutes without waiting for reply (2 unanswered: 1h gap, 3: 4h, 4+: 24h)
 - [x] BUG: Repetitive AI openers — every message starts with "Hey [name]! Chris here from Adorb" (added anti-repetition rules + prior outbound awareness) 
 - [x] BUG: AI doesn't acknowledge lead's stated request from form data (product, quantity, timeline) (added form data extraction + structured intro)
+- [x] Mandatory GHL history fetch for any contact older than 3 days before AI engagement (webhook + backfill)
+- [x] Bulk backfill: pull GHL conversation history for all existing 3+ day old contacts and store as context (script running)
+- [x] SYSTEM: Multi-brain architecture — Strategist brain (decides approach/channel/timing), Composer brain (writes the message), QC brain (reviews before sending)
+- [x] SYSTEM: Real online research pipeline — web search, social media, company website scraping for lead enrichment (LinkedIn + Data API + LLM synthesis)
+- [x] SYSTEM: Skill library integration — pull proven frameworks from Claw/OpenClaw into AI brain knowledge (Hormozi outreach, campaign orchestrator, sentiment scorer)
+- [x] SYSTEM: Context-aware scheduling engine — implement approved PRD v1.1 (signal hierarchy, perpetual reactivation, seasonal campaigns, score decay)
+- [x] Wire all 4 systems into the webhook flow so every engagement goes through strategist → composer → QC → send

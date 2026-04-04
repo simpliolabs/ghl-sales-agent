@@ -37,6 +37,20 @@ vi.mock("./omnisend", () => ({
   pushContactToOmnisend: vi.fn().mockResolvedValue({}),
 }));
 
+vi.mock("./scheduling-engine", () => ({
+  calculateNextFollowUp: vi.fn().mockResolvedValue({ nextFollowUpAt: new Date(Date.now() + 24 * 60 * 60 * 1000), cadencePosition: 1, channel: "SMS", reason: "Test schedule" }),
+  checkRateLimits: vi.fn().mockResolvedValue({ allowed: true, reason: "OK" }),
+  checkLeadRateLimit: vi.fn().mockResolvedValue(true),
+}));
+
+vi.mock("./brain-council", () => ({
+  runBrainCouncil: vi.fn().mockResolvedValue({ message: "Hello from Brain Council!", fromName: "Adorb Custom Tees", framework: "PAS", angle: "intro", extractedDates: [], score: 50, segment: "other", nextEngagementHours: 24, qcScore: 85, strategyReasoning: "Test strategy" }),
+}));
+
+vi.mock("./lead-researcher", () => ({
+  researchLead: vi.fn().mockResolvedValue({ summary: "Test research", businessType: "brand", potentialNeeds: ["t-shirts"], notes: "" }),
+}));
+
 import { createWebhookRouter } from "./webhooks";
 import express from "express";
 import request from "supertest";
@@ -280,7 +294,7 @@ describe("Research context and auto-scheduling", () => {
   });
 
   it("generates research context for new contacts with business name", async () => {
-    const { generateResearchContext } = await import("./ai-brain");
+    const { researchLead } = await import("./lead-researcher");
     const { updateLeadFields } = await import("./db");
 
     const res = await request(app).post("/api/webhooks/ghl").send({
@@ -293,7 +307,7 @@ describe("Research context and auto-scheduling", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(generateResearchContext).toHaveBeenCalled();
+    expect(researchLead).toHaveBeenCalled();
     // Should store research data via updateLeadFields
     expect(updateLeadFields).toHaveBeenCalledWith(
       expect.any(Number),
@@ -339,7 +353,7 @@ describe("Dedup guard and cadence backoff", () => {
     const { getRecentAiOutboundCount } = await import("./db");
     (getRecentAiOutboundCount as ReturnType<typeof vi.fn>).mockResolvedValue(1);
 
-    const { generateAIResponse } = await import("./ai-brain");
+    const { runBrainCouncil } = await import("./brain-council");
 
     const res = await request(app).post("/api/webhooks/ghl").send({
       id: "contact_dedup_1",
@@ -353,14 +367,14 @@ describe("Dedup guard and cadence backoff", () => {
     expect(res.status).toBe(200);
     expect(res.body.action).toBe("dedup_skipped");
     // AI should NOT have been called
-    expect(generateAIResponse).not.toHaveBeenCalled();
+    expect(runBrainCouncil).not.toHaveBeenCalled();
   });
 
   it("skips AI response on inbound message if recent AI message exists (dedup cooldown)", async () => {
     const { getRecentAiOutboundCount } = await import("./db");
     (getRecentAiOutboundCount as ReturnType<typeof vi.fn>).mockResolvedValue(1);
 
-    const { generateAIResponse } = await import("./ai-brain");
+    const { runBrainCouncil } = await import("./brain-council");
 
     const res = await request(app).post("/api/webhooks/ghl/message").send({
       contactId: "contact_123",
@@ -370,7 +384,7 @@ describe("Dedup guard and cadence backoff", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.action).toBe("dedup_cooldown");
-    expect(generateAIResponse).not.toHaveBeenCalled();
+    expect(runBrainCouncil).not.toHaveBeenCalled();
   });
 
   it("applies cadence backoff when 2+ consecutive unanswered AI messages", async () => {
@@ -383,7 +397,7 @@ describe("Dedup guard and cadence backoff", () => {
       { direction: "outbound", senderType: "ai", channel: "SMS", messageBody: "First msg", timestamp: new Date(Date.now() - 120000) },
     ]);
 
-    const { generateAIResponse } = await import("./ai-brain");
+    const { runBrainCouncil } = await import("./brain-council");
 
     const res = await request(app).post("/api/webhooks/ghl/message").send({
       contactId: "contact_123",
@@ -393,9 +407,9 @@ describe("Dedup guard and cadence backoff", () => {
 
     expect(res.status).toBe(200);
     // Should either respond with cadence_backoff or proceed (depends on timing)
-    // The key assertion is that generateAIResponse was NOT called if backoff applied
+    // The key assertion is that runBrainCouncil was NOT called if backoff applied
     if (res.body.action === "cadence_backoff") {
-      expect(generateAIResponse).not.toHaveBeenCalled();
+      expect(runBrainCouncil).not.toHaveBeenCalled();
     }
   });
 
@@ -405,7 +419,7 @@ describe("Dedup guard and cadence backoff", () => {
     // Reset conversation history to empty (no unanswered messages)
     (getConversationHistory as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
-    const { generateAIResponse } = await import("./ai-brain");
+    const { runBrainCouncil } = await import("./brain-council");
 
     const res = await request(app).post("/api/webhooks/ghl/message").send({
       contactId: "contact_123",
@@ -414,7 +428,7 @@ describe("Dedup guard and cadence backoff", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(generateAIResponse).toHaveBeenCalled();
+    expect(runBrainCouncil).toHaveBeenCalled();
   });
 });
 
@@ -427,7 +441,7 @@ describe("Form data extraction in contact webhook", () => {
   });
 
   it("passes form data to AI when Facebook lead form fields are present", async () => {
-    const { generateAIResponse } = await import("./ai-brain");
+    const { runBrainCouncil } = await import("./brain-council");
     const { fetchGhlConversationHistory } = await import("./ghl");
     (fetchGhlConversationHistory as ReturnType<typeof vi.fn>).mockResolvedValue([
       { direction: "inbound", type: "FB", body: "Form submission data" },
@@ -447,12 +461,15 @@ describe("Form data extraction in contact webhook", () => {
     });
 
     expect(res.status).toBe(200);
-    // AI should be called with form-aware intro message
-    expect(generateAIResponse).toHaveBeenCalledWith(
-      expect.any(Number),
-      expect.stringContaining("form"),
-      expect.any(String),
-      expect.stringContaining("LEAD FORM SUBMISSION DATA")
+    // Brain Council should be called with form data
+    expect(runBrainCouncil).toHaveBeenCalledWith(
+      expect.objectContaining({
+        leadId: expect.any(Number),
+        incomingMessage: expect.stringContaining("form"),
+        formData: expect.arrayContaining([
+          expect.objectContaining({ label: expect.any(String), value: expect.any(String) }),
+        ]),
+      })
     );
   });
 });

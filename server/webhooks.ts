@@ -1,6 +1,9 @@
 import { Router, Request, Response } from "express";
 import { upsertLead, addConversation, addPipelineEvent, getLeadByGhlContactId, updateLeadFields } from "./db";
-import { generateAIResponse, classifySegment, shouldHandoffToAgent, generateContactNotes, estimateOrderValue, generateResearchContext } from "./ai-brain";
+import { classifySegment, shouldHandoffToAgent, generateContactNotes, estimateOrderValue } from "./ai-brain";
+import { researchLead } from "./lead-researcher";
+import { runBrainCouncil } from "./brain-council";
+import { calculateNextFollowUp, checkRateLimits, checkLeadRateLimit } from "./scheduling-engine";
 import { sendMessage, updateContactCustomField, createTask, addNote, updateOpportunityValue, updateOpportunityStage, fetchGhlConversationHistory } from "./ghl";
 import { pushContactToOmnisend } from "./omnisend";
 import { upsertAiState, getConversationHistory, getRecentAiOutboundCount } from "./db";
@@ -121,12 +124,11 @@ async function handleStageAutomation(stage: string, lead: { id: number; ghlConta
     }
 
     case STAGES.PROOF_SENT: {
-      // Schedule proof follow-up in 2 days if no response
-      const followUp = new Date();
-      followUp.setDate(followUp.getDate() + 2);
-      await updateLeadFields(lead.id, { nextFollowUpAt: followUp });
+      // Use scheduling engine for proof follow-up
+      const proofSchedule = await calculateNextFollowUp({ leadId: lead.id, triggerEvent: "stage_change", stageTransition: "Proof Sent" });
+      await updateLeadFields(lead.id, { nextFollowUpAt: proofSchedule.nextFollowUpAt, cadencePosition: proofSchedule.cadencePosition });
       try {
-        await addNote(contactId, `🤖 Proof sent to customer. Follow-up scheduled for ${followUp.toLocaleDateString()} if no response.`);
+        await addNote(contactId, `🤖 Proof sent to customer. Follow-up scheduled for ${proofSchedule.nextFollowUpAt.toLocaleDateString()} if no response. [${proofSchedule.reason}]`);
       } catch { /* best effort */ }
       break;
     }
@@ -154,20 +156,18 @@ async function handleStageAutomation(stage: string, lead: { id: number; ghlConta
         });
         await addNote(contactId, `🤖 Order ready. Shipping/pickup assigned to ${PRODUCTION_MANAGER}.`);
       } catch { /* best effort */ }
-      // Schedule pickup follow-up in 1 day
-      const pickupFollowUp = new Date();
-      pickupFollowUp.setDate(pickupFollowUp.getDate() + 1);
-      await updateLeadFields(lead.id, { nextFollowUpAt: pickupFollowUp });
+      // Use scheduling engine for pickup follow-up
+      const readySchedule = await calculateNextFollowUp({ leadId: lead.id, triggerEvent: "stage_change", stageTransition: "Ready" });
+      await updateLeadFields(lead.id, { nextFollowUpAt: readySchedule.nextFollowUpAt, cadencePosition: readySchedule.cadencePosition });
       break;
     }
 
     case STAGES.DELIVERED: {
-      // Schedule post-delivery review request (3 days) and reorder outreach (30 days)
-      const reviewDate = new Date();
-      reviewDate.setDate(reviewDate.getDate() + 3);
-      await updateLeadFields(lead.id, { nextFollowUpAt: reviewDate });
+      // Use scheduling engine for post-delivery follow-up
+      const deliveredSchedule = await calculateNextFollowUp({ leadId: lead.id, triggerEvent: "stage_change", stageTransition: "Delivered" });
+      await updateLeadFields(lead.id, { nextFollowUpAt: deliveredSchedule.nextFollowUpAt, cadencePosition: deliveredSchedule.cadencePosition });
       try {
-        await addNote(contactId, `🤖 Order delivered. Review request scheduled for ${reviewDate.toLocaleDateString()}. Reorder outreach in 30 days.`);
+        await addNote(contactId, `🤖 Order delivered. ${deliveredSchedule.reason}`);
       } catch { /* best effort */ }
       break;
     }
@@ -270,19 +270,19 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
 
   if (lead && lead.businessName) {
     const segment = await classifySegment(lead.businessName, lead.website || undefined);
-    // Generate research context for the lead
+    // Generate REAL research context using online sources (LinkedIn + LLM synthesis)
     try {
-      const research = await generateResearchContext({
+      const research = await researchLead({
         name: lead.name || undefined,
         businessName: lead.businessName || undefined,
         source: lead.source || undefined,
         website: lead.website || undefined,
         segment,
         email: lead.email || undefined,
-        phone: lead.phone || undefined,
       });
       await updateLeadFields(lead.id, { omnisendSegment: segment, researchData: research });
-    } catch {
+    } catch (err) {
+      console.error("[Webhook] Research failed for lead", lead.id, err);
       await updateLeadFields(lead.id, { omnisendSegment: segment });
     }
 
@@ -310,13 +310,28 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
       pipelineValue: null,
     });
 
-    // Ensure every new lead has a nextFollowUpAt even if AI outreach fails
-    const defaultFollowUp = new Date();
-    defaultFollowUp.setMinutes(defaultFollowUp.getMinutes() + 30); // 30 min default
-    await updateLeadFields(lead.id, { nextFollowUpAt: defaultFollowUp });
+    // Use scheduling engine for initial follow-up timing
+    const initialSchedule = await calculateNextFollowUp({ leadId: lead.id, triggerEvent: "new_lead" });
+    await updateLeadFields(lead.id, { nextFollowUpAt: initialSchedule.nextFollowUpAt, cadencePosition: initialSchedule.cadencePosition });
 
     // --- INITIAL AI OUTREACH FOR NEW CONTACTS ---
     try {
+      // GLOBAL RATE LIMIT CHECK
+      const rateCheck = await checkRateLimits();
+      if (!rateCheck.allowed) {
+        console.log(`[Webhook] Rate limit hit for lead ${lead.id}: ${rateCheck.reason}`);
+        res.json({ success: true, action: "rate_limited" });
+        return;
+      }
+
+      // PER-LEAD RATE LIMIT CHECK
+      const leadAllowed = await checkLeadRateLimit(lead.id);
+      if (!leadAllowed) {
+        console.log(`[Webhook] Per-lead rate limit for lead ${lead.id} — already contacted in last 24h`);
+        res.json({ success: true, action: "lead_rate_limited" });
+        return;
+      }
+
       // DEDUP GUARD: Skip if we already sent an AI message to this lead in the last 15 minutes
       const recentAiCount = await getRecentAiOutboundCount(lead.id, 15);
       if (recentAiCount > 0) {
@@ -327,6 +342,32 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
 
       const ghlHistory = await fetchGhlConversationHistory(contactId);
       let ghlHistoryStr = "";
+
+      // MANDATORY CONTEXT SYNC: For contacts older than 3 days, store GHL messages locally
+      const contactCreated = lead.createdAt ? new Date(lead.createdAt).getTime() : Date.now();
+      const contactAgeDays = (Date.now() - contactCreated) / (1000 * 60 * 60 * 24);
+      if (contactAgeDays >= 3 && ghlHistory.length > 0) {
+        // Check if we already have local conversations
+        const existingConvs = await getConversationHistory(lead.id, 1);
+        if (existingConvs.length === 0) {
+          let syncedCount = 0;
+          for (const m of ghlHistory) {
+            if (!m.body?.trim()) continue;
+            // Skip form data pseudo-messages
+            const bodyLower = m.body.toLowerCase();
+            if (bodyLower.includes("full name:") && bodyLower.includes("phone number:")) continue;
+            await addConversation({
+              leadId: lead.id,
+              channel: normalizeChannel(m.type || "SMS"),
+              direction: m.direction === "outbound" ? "outbound" : "inbound",
+              messageBody: m.body,
+              senderType: m.direction === "outbound" ? "human" : "lead",
+            });
+            syncedCount++;
+          }
+          console.log(`[Webhook] Synced ${syncedCount} GHL messages for lead ${lead.id} (${contactAgeDays.toFixed(0)} days old) before AI engagement`);
+        }
+      }
 
       // --- EXTRACT FORM DATA FROM PAYLOAD ---
       // GHL webhook payloads for Facebook lead forms include custom fields
@@ -412,12 +453,14 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
           introMessage = `New lead: ${lead.name || "someone"} from ${lead.businessName || "a business"} just signed up. They're interested in custom printing.`;
         }
 
-        const aiResponse = await generateAIResponse(
-          lead.id,
-          introMessage,
+        const aiResponse = await runBrainCouncil({
+          leadId: lead.id,
+          incomingMessage: introMessage,
           channel,
-          ghlHistoryStr || undefined
-        );
+          externalHistory: ghlHistoryStr || undefined,
+          formData: formFields.length > 0 ? formFields : undefined,
+        });
+        console.log(`[Webhook] Brain Council for lead ${lead.id}: QC=${aiResponse.qcScore}, strategy=${aiResponse.strategyReasoning.substring(0, 80)}`);
 
         // Send the AI response on the SAME channel the lead used
         if (channel === "Email" && lead.email) {
@@ -442,16 +485,21 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
           senderName: aiResponse.fromName,
         });
 
-        // Update lead with AI scoring and next engagement time
-        const nextFollowUp = new Date();
-        const aiSuggestedHours = aiResponse.nextEngagementHours || 24;
-        nextFollowUp.setTime(nextFollowUp.getTime() + aiSuggestedHours * 60 * 60 * 1000);
+        // Use scheduling engine for next follow-up after AI response
+        const contactSchedule = await calculateNextFollowUp({
+          leadId: lead.id,
+          aiSuggestedHours: aiResponse.nextEngagementHours,
+          triggerEvent: "ai_response",
+        });
 
         await updateLeadFields(lead.id, {
           opportunityScore: aiResponse.score,
           omnisendSegment: aiResponse.segment,
           lastMessageAt: new Date(),
-          nextFollowUpAt: nextFollowUp,
+          nextFollowUpAt: contactSchedule.nextFollowUpAt,
+          cadencePosition: contactSchedule.cadencePosition,
+          preferredChannel: contactSchedule.channel,
+          lastOutboundChannel: channel,
         });
 
         await upsertAiState(lead.id, {
@@ -596,20 +644,50 @@ async function handleMessageWebhook(payload: Record<string, unknown>, res: Respo
   const convHistory = await getConversationHistory(lead!.id, 20);
   let historyStr = convHistory.map(c => `[${c.senderType}/${c.channel}] ${c.messageBody}`).join("\n");
 
-  // If local history is thin, pull from GHL to get prior outreach context
-  if (convHistory.length < 3) {
+  // MANDATORY CONTEXT: For contacts older than 3 days, ALWAYS pull GHL history
+  // This ensures the AI has full conversation context before engaging older leads
+  const leadCreated = lead!.createdAt ? new Date(lead!.createdAt).getTime() : Date.now();
+  const leadAgeDays = (Date.now() - leadCreated) / (1000 * 60 * 60 * 24);
+  const needsGhlSync = leadAgeDays >= 3 || convHistory.length < 3;
+
+  if (needsGhlSync) {
     try {
       const ghlHistory = await fetchGhlConversationHistory(contactId);
       if (ghlHistory.length > 0) {
+        // Store GHL messages locally if we don't have them yet
+        if (convHistory.length === 0) {
+          for (const m of ghlHistory) {
+            if (!m.body?.trim()) continue;
+            const isFormData = m.body.toLowerCase().includes("full name:") && m.body.toLowerCase().includes("phone number:");
+            if (isFormData) continue; // Skip form data pseudo-messages
+            await addConversation({
+              leadId: lead!.id,
+              channel: normalizeChannel(m.type || "SMS"),
+              direction: m.direction === "outbound" ? "outbound" : "inbound",
+              messageBody: m.body,
+              senderType: m.direction === "outbound" ? "human" : "lead",
+            });
+          }
+          console.log(`[Webhook] Synced ${ghlHistory.filter(m => m.body?.trim()).length} GHL messages for lead ${lead!.id} (${leadAgeDays.toFixed(0)} days old)`);
+        }
+
         const ghlHistoryStr = ghlHistory
           .filter(m => m.body && m.body.trim())
           .map(m => `[${m.direction === "outbound" ? "agent" : "lead"}/${m.type}] ${m.body}`)
           .join("\n");
         if (ghlHistoryStr) {
-          historyStr = `--- Prior GHL conversation history ---\n${ghlHistoryStr}\n--- Recent messages ---\n${historyStr}`;
+          historyStr = `--- Full GHL conversation history (${ghlHistory.length} messages) ---\n${ghlHistoryStr}\n--- Recent local messages ---\n${historyStr}`;
         }
+      } else if (leadAgeDays >= 3) {
+        // No GHL history for a 3+ day old contact — flag it
+        historyStr = `--- WARNING: No conversation history found in GHL for this ${leadAgeDays.toFixed(0)}-day-old contact ---\n${historyStr}`;
       }
-    } catch { /* best effort — continue with local history only */ }
+    } catch (err) {
+      console.error(`[Webhook] Failed to fetch GHL history for lead ${lead!.id}:`, err);
+      if (leadAgeDays >= 3) {
+        historyStr = `--- WARNING: Could not fetch GHL history for this ${leadAgeDays.toFixed(0)}-day-old contact ---\n${historyStr}`;
+      }
+    }
   }
 
   const handoffDecision = await shouldHandoffToAgent(historyStr, lastAgentHoursAgo);
@@ -634,6 +712,17 @@ async function handleMessageWebhook(payload: Record<string, unknown>, res: Respo
 
   if (lead!.humanTakeover && !handoffDecision.resumeAI) {
     res.json({ success: true, action: "human_takeover_active" });
+    return;
+  }
+
+  // --- GLOBAL RATE LIMIT CHECK ---
+  const msgRateCheck = await checkRateLimits();
+  if (!msgRateCheck.allowed) {
+    console.log(`[Webhook] Rate limit hit for lead ${lead!.id}: ${msgRateCheck.reason}`);
+    // Schedule for later instead of dropping
+    const laterSchedule = await calculateNextFollowUp({ leadId: lead!.id, triggerEvent: "ai_response" });
+    await updateLeadFields(lead!.id, { nextFollowUpAt: laterSchedule.nextFollowUpAt });
+    res.json({ success: true, action: "rate_limited" });
     return;
   }
 
@@ -674,8 +763,14 @@ async function handleMessageWebhook(payload: Record<string, unknown>, res: Respo
     }
   }
 
-  // --- AI RESPONSE (with GHL history context) ---
-  const aiResponse = await generateAIResponse(lead!.id, messageBody, channel, historyStr);
+  // --- AI RESPONSE via BRAIN COUNCIL (Strategist → Researcher → Composer → QC) ---
+  const aiResponse = await runBrainCouncil({
+    leadId: lead!.id,
+    incomingMessage: messageBody,
+    channel,
+    externalHistory: historyStr,
+  });
+  console.log(`[Webhook] Brain Council for lead ${lead!.id}: QC=${aiResponse.qcScore}, strategy=${aiResponse.strategyReasoning.substring(0, 80)}`);
 
   // Check if AI wants to hand off (e.g., lead asking for firm quote)
   const aiHandoff = await shouldHandoffToAgent(
@@ -782,31 +877,19 @@ async function handleMessageWebhook(payload: Record<string, unknown>, res: Respo
     }
   } catch { /* best effort */ }
 
-  // Calculate next follow-up using AI-suggested engagement hours + event dates
-  const nextFollowUp = new Date();
-  const aiSuggestedHours = aiResponse.nextEngagementHours || 24;
-  
-  // If there are extracted event dates, use them to override the AI suggestion
-  if (aiResponse.extractedDates && aiResponse.extractedDates.length > 0) {
-    const earliestDate = new Date(aiResponse.extractedDates[0]);
-    if (!isNaN(earliestDate.getTime())) {
-      const daysUntilEvent = Math.floor((earliestDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-      if (daysUntilEvent > 60) {
-        nextFollowUp.setDate(nextFollowUp.getDate() + 30);
-      } else if (daysUntilEvent > 30) {
-        nextFollowUp.setDate(nextFollowUp.getDate() + 14);
-      } else if (daysUntilEvent > 7) {
-        nextFollowUp.setDate(nextFollowUp.getDate() + 3);
-      } else {
-        nextFollowUp.setDate(nextFollowUp.getDate() + 1);
-      }
-    } else {
-      nextFollowUp.setTime(nextFollowUp.getTime() + aiSuggestedHours * 60 * 60 * 1000);
-    }
-  } else {
-    nextFollowUp.setTime(nextFollowUp.getTime() + aiSuggestedHours * 60 * 60 * 1000);
-  }
-  await updateLeadFields(lead!.id, { nextFollowUpAt: nextFollowUp });
+  // Calculate next follow-up using the Context-Aware Scheduling Engine
+  const scheduleResult = await calculateNextFollowUp({
+    leadId: lead!.id,
+    aiSuggestedHours: aiResponse.nextEngagementHours,
+    triggerEvent: "ai_response",
+  });
+  await updateLeadFields(lead!.id, {
+    nextFollowUpAt: scheduleResult.nextFollowUpAt,
+    cadencePosition: scheduleResult.cadencePosition,
+    preferredChannel: scheduleResult.channel,
+    lastOutboundChannel: channel,
+  });
+  console.log(`[Webhook] Scheduling engine for lead ${lead!.id}: ${scheduleResult.reason}`);
 
   res.json({ success: true, action: "ai_responded" });
 }
@@ -837,6 +920,19 @@ async function handlePipelineWebhook(payload: Record<string, unknown>, res: Resp
     updateFields.pipelineValue = Number(monetaryValue);
   }
   await updateLeadFields(lead.id, updateFields);
+
+  // Use scheduling engine for pipeline stage transitions
+  const pipelineSchedule = await calculateNextFollowUp({
+    leadId: lead.id,
+    triggerEvent: "stage_change",
+    stageTransition: toStage,
+  });
+  await updateLeadFields(lead.id, {
+    nextFollowUpAt: pipelineSchedule.nextFollowUpAt,
+    cadencePosition: pipelineSchedule.cadencePosition,
+    preferredChannel: pipelineSchedule.channel,
+  });
+  console.log(`[Webhook] Pipeline schedule for lead ${lead.id} → ${toStage}: ${pipelineSchedule.reason}`);
 
   // --- EXECUTE STAGE-SPECIFIC AUTOMATION ---
   await handleStageAutomation(toStage, {
