@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { createWebhookRouter } from "../webhooks";
+import { recalculateStaleSchedules } from "../scheduling-engine";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -62,6 +63,30 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+
+    // --- CRON: Recalculate stale schedules every hour ---
+    // Handles: score decay, seasonal campaign eligibility, past-due follow-ups
+    const RECALC_INTERVAL = 60 * 60 * 1000; // 1 hour
+    setTimeout(async () => {
+      try {
+        console.log(`[Cron] Running initial stale schedule recalculation...`);
+        const result = await recalculateStaleSchedules();
+        console.log(`[Cron] Initial recalc: ${result.updated} updated, ${result.decayed} decayed, ${result.seasonal} seasonal`);
+      } catch (err) {
+        console.error(`[Cron] Initial recalc error:`, err);
+      }
+    }, 30_000); // First run 30 seconds after startup
+
+    setInterval(async () => {
+      try {
+        console.log(`[Cron] Running hourly stale schedule recalculation...`);
+        const result = await recalculateStaleSchedules();
+        console.log(`[Cron] Hourly recalc: ${result.updated} updated, ${result.decayed} decayed, ${result.seasonal} seasonal`);
+      } catch (err) {
+        console.error(`[Cron] Hourly recalc error:`, err);
+      }
+    }, RECALC_INTERVAL);
+    console.log(`[Cron] Stale schedule recalculation scheduled every ${RECALC_INTERVAL / 60000} minutes`);
   });
 }
 

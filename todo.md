@@ -72,3 +72,7 @@
 - [x] SYSTEM: Skill library integration — pull proven frameworks from Claw/OpenClaw into AI brain knowledge (Hormozi outreach, campaign orchestrator, sentiment scorer)
 - [x] SYSTEM: Context-aware scheduling engine — implement approved PRD v1.1 (signal hierarchy, perpetual reactivation, seasonal campaigns, score decay)
 - [x] Wire all 4 systems into the webhook flow so every engagement goes through strategist → composer → QC → send
+- [x] FIX GAP: Add real web search API to lead researcher (Google Places API for business lookup + LinkedIn Data API + email domain analysis)
+- [x] FIX GAP: Define actual Hormozi 4-step framework content in brain council (Core Four + ACA Method + Indirect Selling + Prospecting Formulas from $100M Leads)
+- [x] FIX GAP: Wire agent override reason into AI brain context during engagement (reschedule endpoint + override fields read by Strategist brain)
+- [x] FIX GAP: Set up cron job for recalculateStaleSchedules + score decay (hourly interval on server startup)

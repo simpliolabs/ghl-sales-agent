@@ -32,7 +32,7 @@ export interface StrategyDecision {
   approach: "first_contact" | "follow_up" | "reactivation" | "post_delivery" | "seasonal" | "value_add";
   channel: string;
   angle: string;
-  framework: "PAS" | "BAB" | "AIDA" | "HORMOZI_4STEP" | "SOCIAL_PROOF" | "CASE_STUDY";
+  framework: "PAS" | "BAB" | "AIDA" | "HORMOZI_ACA" | "HORMOZI_INDIRECT" | "SOCIAL_PROOF" | "CASE_STUDY";
   personalizationTier: 1 | 2 | 3;
   toneDirective: string;
   maxLength: number; // max chars for the message
@@ -159,13 +159,50 @@ Your job is to DECIDE the approach — you do NOT write the message. You analyze
 
 === FRAMEWORKS YOU KNOW ===
 
-COLD OUTREACH SEQUENCE (Hormozi/Martell):
-- Research-first: Never send a message without context
-- Day 0: First contact on their inbound channel only
-- Day 7: Follow-up #1 with new value/angle
-- Day 14: Follow-up #2 or try different channel
-- Day 21: Break-up message (leave with class)
-- Personalization Tiers: Tier 1 (full custom), Tier 2 (template + personal opener), Tier 3 (minimal custom)
+HORMOZI CORE FOUR + ACA METHOD (from $100M Leads by Alex Hormozi):
+
+The Core Four Prospecting Techniques:
+1. Warm Outreach — reach people who already know you (fastest path to qualified leads)
+2. Cold Outreach — reach strangers (numbers game, Rule of 100: contact 100 people/day)
+3. Free Content — share valuable content (substance, not fluff)
+4. Paid Ads — test small, proceed with caution
+
+The ACA Method (Acknowledge, Compliment, Ask):
+- A (Acknowledge): Reference something SPECIFIC about the lead. "Cool, my dad is also an accountant."
+- C (Compliment): Sincere, subtle compliment related to the fact. "You must be very detail-oriented."
+- A (Ask): Question that transitions to what you're selling. "Does sitting all day prevent you from exercising?"
+
+ACA for Follow-ups:
+- Acknowledge: "I know you mentioned you were busy when we last spoke..."
+- Compliment: "...which makes sense because successful business owners like you always are."
+- Ask: "Have you had a chance to think about [previous topic], or should I follow up next month?"
+
+Hormozi Indirect Selling:
+- NEVER say "buy my products"
+- Instead: "Do you know anyone who is facing [problem] and looking to achieve [results] within [time]?"
+- If they're interested, they'll self-identify. If they know someone, you gain social proof.
+
+Hormozi Prospecting Message Formulas:
+- Phone/Voicemail: "Hi [name], it's [your name]. I'm calling in reference to [competitor]. Please call back." (curiosity-driven)
+- Email subject: Use curiosity hooks ("I'm watching you"), provide specific value observation, suggest 15-min call
+- Social DM: "Are you still looking to [activity]?" — the "still" creates urgency
+
+Hormozi Cold Outreach Cadence:
+- Day 0: First contact on their inbound channel only (research-first, never blind)
+- Day 7: Follow-up #1 with new value/angle (different hook, same channel)
+- Day 14: Follow-up #2 or try different channel (escalate)
+- Day 21: Break-up message (leave with class, indirect ask)
+
+Dan Martell Customer Engagement:
+- Engagement deeply rooted in conversation, not pitching
+- Dynamic reactivation based on specific customer needs
+- Reactivate 30-60 days before specific event dates mentioned by customer
+- Value-first approach: lead with insight, not with ask
+
+Personalization Tiers:
+- Tier 1 (full custom): Research their Google reviews, reference specific details, ACA method
+- Tier 2 (template + personal opener): Segment-specific template with name + business personalization
+- Tier 3 (minimal custom): Name + source acknowledgment only
 
 CAMPAIGN ORCHESTRATOR PATTERN:
 - Auto-terminate sequence when lead replies
@@ -217,7 +254,8 @@ ENGAGEMENT STATE:
 - Objections: ${JSON.stringify(state?.objectionsRaised || [])}
 - Interest signals: ${JSON.stringify(state?.interestSignals || [])}
 - Extracted dates: ${JSON.stringify(state?.extractedDates || [])}
-${input.overrideReason ? `- Admin override reason: ${input.overrideReason}` : ""}
+${input.overrideReason ? `- Admin override reason (from input): ${input.overrideReason}` : ""}
+${lead.overrideReason ? `- Last admin override: ${lead.overrideReason} (by ${lead.overrideBy || "admin"} at ${lead.overrideAt ? new Date(lead.overrideAt).toLocaleString() : "unknown"})` : ""}
 
 FORM DATA (if any):
 ${input.formData?.map(f => `- ${f.label}: ${f.value}`).join("\n") || "None"}
@@ -246,7 +284,7 @@ Produce your strategic directive now.`;
             approach: { type: "string", description: "first_contact|follow_up|reactivation|post_delivery|seasonal|value_add" },
             channel: { type: "string", description: "SMS|Email|FB|IG|WhatsApp" },
             angle: { type: "string", description: "The specific angle/hook to use" },
-            framework: { type: "string", description: "PAS|BAB|AIDA|HORMOZI_4STEP|SOCIAL_PROOF|CASE_STUDY" },
+            framework: { type: "string", description: "PAS|BAB|AIDA|HORMOZI_ACA|HORMOZI_INDIRECT|SOCIAL_PROOF|CASE_STUDY" },
             personalizationTier: { type: "number", description: "1=full custom, 2=template+personal opener, 3=minimal" },
             toneDirective: { type: "string", description: "Specific tone instructions for the composer" },
             maxLength: { type: "number", description: "Max characters for the message" },

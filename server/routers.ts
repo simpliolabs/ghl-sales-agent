@@ -65,6 +65,21 @@ export const appRouter = router({
       await updateLeadFields(input.id, { humanTakeover: input.takeover ? 1 : 0 });
       return { success: true };
     }),
+    reschedule: adminProcedure.input(z.object({
+      id: z.number(),
+      nextFollowUpAt: z.string(), // ISO date string
+      reason: z.string().min(1, "Override reason is required"),
+    })).mutation(async ({ input, ctx }) => {
+      const newDate = new Date(input.nextFollowUpAt);
+      if (isNaN(newDate.getTime())) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid date' });
+      await updateLeadFields(input.id, {
+        nextFollowUpAt: newDate,
+        overrideBy: ctx.user?.name || ctx.user?.openId || 'admin',
+        overrideAt: new Date(),
+        overrideReason: input.reason,
+      });
+      return { success: true, scheduledAt: newDate.toISOString() };
+    }),
     bulkScore: adminProcedure.mutation(async () => {
       // Score all leads that don't have a score yet (or score is 0)
       const allLeads = await getAllLeads(5000);
