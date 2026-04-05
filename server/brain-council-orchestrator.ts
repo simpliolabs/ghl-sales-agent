@@ -72,6 +72,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
       fromName: context.lead.assignedAgent || "Abby Bouwer",
       framework: "SAFE_FALLBACK",
       angle: "circuit_breaker",
+      channel: input.channel, // circuit breaker — use input channel as fallback
       extractedDates: [],
       score: 0,
       segment: context.lead.omnisendSegment || "other",
@@ -202,6 +203,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
       subject: composed.subject || undefined,
       framework: "SAFE_FALLBACK",
       angle: strategy.angle,
+      channel: strategy.channel, // Strategist's chosen channel even on block
       extractedDates: [],
       score: 0,
       segment: context.lead.omnisendSegment || "other",
@@ -278,6 +280,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     subject: composed.subject || undefined,
     framework: strategy.framework,
     angle: strategy.angle,
+    channel: strategy.channel, // Strategist's autonomous channel decision
     extractedDates,
     score: priorityScore,
     segment,

@@ -56,6 +56,7 @@ export interface BrainCouncilOutput {
   subject?: string;
   framework: string;
   angle: string;
+  channel: string; // Strategist's chosen channel — callers should use this for sending
   extractedDates: string[];
   score: number;
   segment: string;

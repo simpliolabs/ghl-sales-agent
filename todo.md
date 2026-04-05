@@ -133,3 +133,4 @@
 - [x] BUG: Follow-up trigger sends SMS to 4-month dormant leads instead of crafted re-activation email — added dormancy detection (30/90/180 day tiers) + email-first channel forcing
 - [x] FIX: Strategist brain now has full dormancy re-activation rules — Win-Back framework, email-first, curiosity-driven subjects, no stale conversation continuation
 - [x] FIX: Follow-up trigger forces Email channel for dormant leads with email on file, injects dormancy context so Brain Council crafts proper re-activation
+- [x] FIX: Removed hardcoded channel forcing — Brain Council now autonomously decides channel. Orchestrator surfaces strategy.channel in output. Follow-up trigger passes hint + dormancy context, uses aiResponse.channel for sending.
