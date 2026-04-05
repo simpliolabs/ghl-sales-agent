@@ -20,6 +20,7 @@ import { getContacts, getPipelines } from "./ghl";
 import { invokeLLM } from "./_core/llm";
 import { scoreLeadQuick } from "./ai-brain";
 import { getPatternAnalysis, backfillOutcomes } from "./outcome-engine";
+import { processOverdueFollowUps } from "./follow-up-trigger";
 
 // Auto-synthesize uploaded content using LLM
 async function synthesizeContent(rawText: string, fileName: string): Promise<string> {
@@ -138,6 +139,10 @@ export const appRouter = router({
     triggerBackfill: adminProcedure.mutation(async () => {
       const created = await backfillOutcomes();
       return { created };
+    }),
+    triggerFollowUps: adminProcedure.mutation(async () => {
+      const result = await processOverdueFollowUps();
+      return result;
     }),
   }),
 

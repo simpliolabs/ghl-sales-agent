@@ -116,7 +116,7 @@
 - [ ] REFACTOR: Extract shared types/interfaces into shared/types.ts
 - [ ] BUILD: Follow-up engine as first-class module with tier-based cadence
 - [x] BUILD: Self-learning infrastructure (outcome tracking, pattern analysis, prompt injection)
-- [ ] BUILD: Bulk agent assignment for 1,618 unassigned leads
+- [x] BUILD: Bulk agent assignment for 1,618 unassigned leads
 - [ ] BUILD: Bulk GHL data enrichment for all leads
 - [x] SELF-LEARN: Schema + DB helpers for outcome tracking (message_outcomes table linking audit → reply/conversion/sentiment)
 - [x] SELF-LEARN: Outcome detection engine — detect replies, conversions, sentiment shifts per AI message
@@ -125,3 +125,7 @@
 - [x] SELF-LEARN: Wire outcome tracking into webhook message flow (auto-attribute replies to prior AI messages)
 - [x] SELF-LEARN: Dashboard UI — learning insights page showing what's working and what's not
 - [x] SELF-LEARN: Tests for outcome tracking + pattern analysis
+- [x] ACTIVATE: Bulk assign agents to all 1,618 unassigned leads (round-robin Abby/Chris — 809 each)
+- [x] ACTIVATE: Wire follow-up cron trigger so overdue leads get auto-engaged via Brain Council (10min cycle, max 10/batch, cadence backoff, rate limits)
+- [x] ACTIVATE: Tier 1 — engage 4 hot leads (score 80+) set to NOW (Garvey Mclean 88, Robbin Johnson 85, Spany Mburunyeme 80, Judy Winters Fenton 80)
+- [x] ACTIVATE: Tier 2 — engage 40 quote_sent leads staggered over next 2 hours (3 min apart)

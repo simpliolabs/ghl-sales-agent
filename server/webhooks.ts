@@ -18,6 +18,7 @@ import { handlePipelineWebhook } from "./webhook-pipeline";
 import { handleTaskWebhook } from "./webhook-task";
 import { retroactiveCorrectionScan } from "./auto-correction";
 import { backfillOutcomes } from "./outcome-engine";
+import { processOverdueFollowUps } from "./follow-up-trigger";
 
 export function createWebhookRouter(): Router {
   const router = Router();
@@ -51,6 +52,26 @@ export function createWebhookRouter(): Router {
       console.error('[Learn/Timer] Initial backfill error:', err);
     }
   }, 60 * 1000);
+
+  // --- FOLLOW-UP TRIGGER: Process overdue leads every 10 minutes ---
+  setInterval(async () => {
+    try {
+      const result = await processOverdueFollowUps();
+      if (result.processed > 0) console.log(`[FollowUp/Timer] ${result.sent} sent, ${result.skipped} skipped, ${result.errors} errors`);
+    } catch (err) {
+      console.error('[FollowUp/Timer] Error:', err);
+    }
+  }, 10 * 60 * 1000);
+
+  // Run initial follow-up check 90s after startup
+  setTimeout(async () => {
+    try {
+      const result = await processOverdueFollowUps();
+      console.log(`[FollowUp/Timer] Initial run: ${result.sent} sent, ${result.skipped} skipped, ${result.errors} errors`);
+    } catch (err) {
+      console.error('[FollowUp/Timer] Initial run error:', err);
+    }
+  }, 90 * 1000);
 
   // --- WEBHOOK HEALTH CHECK ---
   router.get("/api/webhooks/health", (_req: Request, res: Response) => {
