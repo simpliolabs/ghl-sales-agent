@@ -32,7 +32,7 @@ export interface StrategyDecision {
   approach: "first_contact" | "follow_up" | "reactivation" | "post_delivery" | "seasonal" | "value_add";
   channel: string;
   angle: string;
-  framework: "PAS" | "BAB" | "AIDA" | "HORMOZI_ACA" | "HORMOZI_INDIRECT" | "SOCIAL_PROOF" | "CASE_STUDY";
+  framework: "PAS" | "BAB" | "AIDA" | "HORMOZI_ACA" | "HORMOZI_INDIRECT" | "SOCIAL_PROOF" | "CASE_STUDY" | "SOAP_OPERA" | "EMB_WELCOME" | "EMB_WINBACK" | "EMB_POST_PURCHASE" | "EMB_COLD";
   personalizationTier: 1 | 2 | 3;
   toneDirective: string;
   maxLength: number; // max chars for the message
@@ -212,6 +212,51 @@ CAMPAIGN ORCHESTRATOR PATTERN:
 SENTIMENT PRIORITY SCORING:
 - priority = 100 * (0.40*urgency + 0.30*intent + 0.20*recency + 0.10*sentiment_risk)
 - P1 (>=75): immediate action | P2 (50-74): scheduled follow-up | P3 (<50): nurture
+
+EMAIL MARKETING BIBLE — STRATEGY FRAMEWORKS (Source: EMB V1.0, 908 sources):
+
+Email ROI: $36-42 per $1 spent (3,600%). SMS: $20-25. Social: $2-5. Email wins.
+
+Automation Flow Priority (by revenue impact per setup hour):
+1. Welcome series → 2. Abandoned cart → 3. Browse abandonment → 4. Post-purchase → 5. Win-back → 6. Cross-sell/upsell
+
+Welcome Series (4-6 emails, 1-2 weeks):
+- Email 1 (immediate): Deliver promise + ask for reply + one segmentation question
+- Email 2 (Day 2): Brand story
+- Email 3 (Day 4): Social proof
+- Email 4 (Day 7): Best content using segmentation data
+- Email 5 (Day 10): Soft sell
+- Email 6 (Day 14): Set expectations
+
+Win-Back (target 60-90 day inactive):
+1. "We miss you" → 2. Value offer → 3. Breakup email (highest reply rate) → 4. Confirmation + re-subscribe
+
+Engagement-Based Sending Tiers:
+- Tier 1: Clicked last 30 days → every campaign
+- Tier 2: Clicked last 60 days → 75% of sends
+- Tier 3: Clicked last 90 days → best content only
+- Tier 4: No engagement 90-180 days → re-engagement flow only
+- Tier 5: 180+ days → sunset flow
+
+Cold Email Infrastructure (from EMB Chapter 13):
+- NEVER send cold email from primary domain. Use separate domains.
+- Limit: 10-30 emails per inbox per day. Warm 2-4 weeks minimum.
+- Optimal length: 50-125 words.
+- Interest-based CTAs: 2-3x more replies than meeting requests.
+- Follow-up: 4 emails over 2-3 weeks. Each MUST add new value.
+- Breakup email = 2-3x reply rate of mid-sequence.
+
+Segmentation (from EMB Chapter 3):
+- Personalisation hierarchy: Behavioural > Lifecycle > Dynamic content > Send-time > Location > Name
+- RFM: Recency (last 30d active, 31-90d warm, 91-180d cooling, 180+ cold)
+- Waterfall priority: Abandoned cart → Post-purchase → Browse abandonment → Win-back → Promotional
+
+Deliverability (from EMB Chapter 7):
+- Authentication: SPF + DKIM + DMARC all required since Feb 2024
+- Domain reputation > IP reputation for Gmail (120-day window)
+- Personal sender name > brand name (+3.81% opens)
+- Complaint rate must stay under 0.1%
+- Only ~60% of "delivered" emails reach visible inbox
 
 === WHAT KILLS OUTREACH (NEVER DO) ===
 - "I'd love to pick your brain"
@@ -440,6 +485,55 @@ You receive a STRATEGY DIRECTIVE and RESEARCH BRIEF, and you write the actual me
 - Reference their prior conversation if it exists
 - Sound like a continuation, not a cold pitch
 
+=== EMAIL MARKETING BIBLE — COPYWRITING FRAMEWORKS ===
+(Source: EMB V1.0, George Hartley, 908 sources, 65K words)
+
+Subject Lines:
+- 64% decide to open based on subject line. Under 25 chars = highest opens.
+- Personalisation: +14% opens. First-person CTA > second-person (25-35% lift).
+- "Start my free trial" > "Sign up" (90% lift in CTAs).
+
+Body Copy Frameworks (use the one assigned by Strategist):
+- AIDA: Attention → Interest → Desire → Action. Best for promotional.
+- PAS: Problem → Agitate → Solution. Best for cold email, B2B.
+- BAB: Before → After → Bridge. Best for case studies.
+- Soap Opera Sequence: Multi-email narrative. 70%+ open rates deep in sequence.
+- 1-3-1 Newsletter: One big story + three shorter items + one CTA.
+
+Body Copy Rules:
+- Inverted pyramid: key message first. Short paragraphs. Write, then cut 30%.
+- 3:1 ratio: three value emails per one promotional.
+- Buttons > text links (+27% CTR). Single CTA: +42% clicks vs multiple.
+- Place CTA above fold AND below main content (+35% total clicks).
+
+Cold Email Rules (from EMB Chapter 13):
+- Optimal length: 50-125 words. Personalised opening → problem/observation → value prop → soft CTA.
+- Interest-based CTAs get 2-3x more replies than meeting requests.
+- Each follow-up MUST add new value. Breakup email = 2-3x reply rate of mid-sequence.
+- NEVER: "I hope this email finds you well", "I'd love to pick your brain", "Just following up"
+
+Personalisation Levels (from EMB):
+- Hyper-personalised (5+ min research): 15-25% reply rate
+- Semi-personalised (1-2 min): 8-15% reply rate
+- Segmented (template/segment): 3-8% reply rate
+
+Win-Back Email Sequence (from EMB Chapter 4):
+- Target: 60-90 day inactive. Sequence: 3-4 emails over 2-3 weeks.
+- Email 1: "We miss you" + what they're missing
+- Email 2: Value offer (content, not discount)
+- Email 3: Breakup email ("Should we remove you?") — highest reply rate
+- Email 4: Final confirmation + easy re-subscribe
+
+Post-Purchase Sequence (from EMB Chapter 4):
+- Day 7-10: Satisfaction check → Day 14: Review request → Day 21-30: Cross-sell → Day 25-30: Replenishment
+
+Email Benchmarks (from EMB Appendix):
+- Welcome emails: 50-60% open, 5-8% CTR
+- Abandoned cart: 40-50% open, 5-10% CTR
+- Promotional: 15-20% open, 2-3% CTR
+- Win-back: 10-15% open, 1-2% CTR
+- Cold email: target 3-5% positive reply rate
+
 === PRICING RULES ===
 - Under 80 pieces: provide ballpark estimate with 25% variance
 - 80+ pieces: provide range + offer custom quote
@@ -590,6 +684,17 @@ You are the LAST LINE OF DEFENSE before a message goes to a real customer. Your 
     - No binding pricing commitments
     - No inappropriate content
     - No sensitive information leaked
+
+11. EMAIL-SPECIFIC CHECK (0-10, only for email channel):
+    (Source: Email Marketing Bible V1.0, 908 sources)
+    - Subject line under 25 chars? Personalised? First-person CTA?
+    - Body length 50-125 words for cold email, 3-5 sentences for follow-up?
+    - Single CTA placed early? Interest-based CTA, not meeting request?
+    - No "Hope this finds you well", "Just following up", "Touching base"?
+    - Each follow-up adds NEW value vs prior emails?
+    - Personal sender name used (not brand name)?
+    - Complaint-safe: nothing that could trigger spam complaints?
+    - For win-back: follows EMB sequence (miss you → value → breakup)?
 
 === VERDICT ===
 - Score >= 70: APPROVED — send as-is

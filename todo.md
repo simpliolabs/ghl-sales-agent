@@ -76,3 +76,5 @@
 - [x] FIX GAP: Define actual Hormozi 4-step framework content in brain council (Core Four + ACA Method + Indirect Selling + Prospecting Formulas from $100M Leads)
 - [x] FIX GAP: Wire agent override reason into AI brain context during engagement (reschedule endpoint + override fields read by Strategist brain)
 - [x] FIX GAP: Set up cron job for recalculateStaleSchedules + score decay (hourly interval on server startup)
+- [x] Integrate Email Marketing Bible skill from GitHub (CosmoBlk/email-marketing-bible) — 473-line skill integrated into Strategist (email sequences), Composer (copywriting formulas), QC (email-specific checks)
+- [x] Verify GHL webhooks are firing — YES, webhooks fire but sendMessage returns 422/400. Fixed API version header from 2021-07-28 → 2021-04-15 + added error logging

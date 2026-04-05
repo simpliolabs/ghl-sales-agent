@@ -7,7 +7,7 @@ const ghlClient = axios.create({
   baseURL: GHL_BASE,
   headers: {
     Authorization: `Bearer ${ENV.ghlApiKey}`,
-    Version: "2021-07-28",
+    Version: "2021-04-15",
     "Content-Type": "application/json",
   },
 });
@@ -54,13 +54,26 @@ export async function sendMessage(contactId: string, opts: {
   if (opts.type === "Email") {
     payload.subject = opts.subject || "";
     payload.html = opts.html || opts.message || "";
+    payload.message = opts.message || "";
     payload.emailFrom = "print@adorbcustomtees.com";
     if (opts.fromName) payload.emailFrom = `${opts.fromName} <print@adorbcustomtees.com>`;
   } else {
     payload.message = opts.message || "";
   }
-  const { data } = await ghlClient.post(`/conversations/messages`, payload);
-  return data;
+  // GHL API requires conversationId OR contactId, and we use contactId
+  // Log the outbound attempt for debugging
+  console.log(`[GHL] Sending ${opts.type} to contact ${contactId}: ${(opts.message || "").substring(0, 80)}...`);
+  try {
+    const { data } = await ghlClient.post(`/conversations/messages`, payload);
+    console.log(`[GHL] Message sent successfully: ${data.messageId || "no-id"}`);
+    return data;
+  } catch (err: any) {
+    const errData = err?.response?.data;
+    const errStatus = err?.response?.status;
+    console.error(`[GHL] sendMessage FAILED (${errStatus}):`, JSON.stringify(errData));
+    console.error(`[GHL] Payload was:`, JSON.stringify(payload));
+    throw err;
+  }
 }
 
 export async function getConversationMessages(conversationId: string) {
