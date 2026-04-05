@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users, leads, conversations, aiState, pipelineEvents, agentAssignments, knowledgeFiles, aiTweaks, invites, webhookLogs, brainCouncilAudit } from "../drizzle/schema";
 import type { InsertLead } from "../drizzle/schema";
 import { ENV } from './_core/env';
+import { cached, conversationCache, contextCache, generalCache, patternCache } from './cache';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -105,13 +106,17 @@ export async function addConversation(data: { leadId: number; channel?: string; 
   const db = await getDb();
   if (!db) return null;
   const result = await db.insert(conversations).values(data);
+  // Invalidate conversation cache for this lead
+  conversationCache.invalidatePrefix(`conv`);
   return { id: result[0].insertId, ...data };
 }
 
 export async function getConversationHistory(leadId: number, limit = 50) {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(conversations).where(eq(conversations.leadId, leadId)).orderBy(desc(conversations.timestamp)).limit(limit);
+  return cached(conversationCache, `convH:${leadId}:${limit}`, async () => {
+    const db = await getDb();
+    if (!db) return [];
+    return db.select().from(conversations).where(eq(conversations.leadId, leadId)).orderBy(desc(conversations.timestamp)).limit(limit);
+  });
 }
 
 // --- Dedup: count recent AI outbound messages within a time window ---
@@ -136,13 +141,18 @@ export async function upsertAiState(leadId: number, state: Partial<typeof aiStat
   const existing = await db.select().from(aiState).where(eq(aiState.leadId, leadId)).limit(1);
   if (existing.length > 0) { await db.update(aiState).set(state).where(eq(aiState.leadId, leadId)); }
   else { await db.insert(aiState).values({ leadId, ...state }); }
+  // Invalidate AI state cache for this lead
+  contextCache.invalidate(`aiState:${leadId}`);
+  contextCache.invalidate(`state:${leadId}`);
 }
 
 export async function getAiState(leadId: number) {
-  const db = await getDb();
-  if (!db) return null;
-  const result = await db.select().from(aiState).where(eq(aiState.leadId, leadId)).limit(1);
-  return result[0] || null;
+  return cached(contextCache, `aiState:${leadId}`, async () => {
+    const db = await getDb();
+    if (!db) return null;
+    const result = await db.select().from(aiState).where(eq(aiState.leadId, leadId)).limit(1);
+    return result[0] || null;
+  });
 }
 
 // --- Pipeline Events ---
@@ -159,9 +169,11 @@ export async function getPipelineEvents(leadId: number) {
 }
 
 export async function getPipelineStats() {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select({ stage: leads.pipelineStage, count: sql<number>`count(*)`, totalValue: sql<string>`COALESCE(SUM(${leads.pipelineValue}), 0)` }).from(leads).groupBy(leads.pipelineStage);
+  return cached(generalCache, `pipeline:stats`, async () => {
+    const db = await getDb();
+    if (!db) return [];
+    return db.select({ stage: leads.pipelineStage, count: sql<number>`count(*)`, totalValue: sql<string>`COALESCE(SUM(${leads.pipelineValue}), 0)` }).from(leads).groupBy(leads.pipelineStage);
+  }, 3 * 60 * 1000);
 }
 
 // --- Agent Assignments ---
@@ -173,9 +185,11 @@ export async function addAgentAssignment(data: { leadId: number; agentName: stri
 }
 
 export async function getAgentWorkload() {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select({ agent: leads.assignedAgent, count: sql<number>`count(*)` }).from(leads).where(sql`${leads.assignedAgent} IS NOT NULL`).groupBy(leads.assignedAgent);
+  return cached(generalCache, `agent:workload`, async () => {
+    const db = await getDb();
+    if (!db) return [];
+    return db.select({ agent: leads.assignedAgent, count: sql<number>`count(*)` }).from(leads).where(sql`${leads.assignedAgent} IS NOT NULL`).groupBy(leads.assignedAgent);
+  }, 3 * 60 * 1000);
 }
 
 // --- Knowledge Files ---
@@ -183,25 +197,33 @@ export async function addKnowledgeFile(data: { fileName: string; fileType: strin
   const db = await getDb();
   if (!db) return null;
   const result = await db.insert(knowledgeFiles).values(data);
+  generalCache.invalidate(`kb:files`);
+  generalCache.invalidate(`kb:all`);
   return { id: result[0].insertId, ...data };
 }
 
 export async function getKnowledgeFiles() {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(knowledgeFiles).orderBy(desc(knowledgeFiles.createdAt));
+  return cached(generalCache, `kb:files`, async () => {
+    const db = await getDb();
+    if (!db) return [];
+    return db.select().from(knowledgeFiles).orderBy(desc(knowledgeFiles.createdAt));
+  }, 10 * 60 * 1000);
 }
 
 export async function updateKnowledgeFile(id: number, fields: Partial<typeof knowledgeFiles.$inferInsert>) {
   const db = await getDb();
   if (!db) return;
   await db.update(knowledgeFiles).set(fields).where(eq(knowledgeFiles.id, id));
+  generalCache.invalidate(`kb:files`);
+  generalCache.invalidate(`kb:all`);
 }
 
 export async function deleteKnowledgeFile(id: number) {
   const db = await getDb();
   if (!db) return;
   await db.delete(knowledgeFiles).where(eq(knowledgeFiles.id, id));
+  generalCache.invalidate(`kb:files`);
+  generalCache.invalidate(`kb:all`);
 }
 
 // --- AI Tweaks ---
@@ -209,31 +231,39 @@ export async function addAiTweak(instruction: string, adminId?: number) {
   const db = await getDb();
   if (!db) return null;
   const result = await db.insert(aiTweaks).values({ tweakInstruction: instruction, adminId });
+  generalCache.invalidate(`tweaks:list`);
+  generalCache.invalidate(`tweaks:active`);
   return { id: result[0].insertId };
 }
 
 export async function getActiveTweaks() {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(aiTweaks).where(eq(aiTweaks.status, "active")).orderBy(desc(aiTweaks.appliedAt));
+  return cached(generalCache, `tweaks:list`, async () => {
+    const db = await getDb();
+    if (!db) return [];
+    return db.select().from(aiTweaks).where(eq(aiTweaks.status, "active")).orderBy(desc(aiTweaks.appliedAt));
+  }, 5 * 60 * 1000);
 }
 
 export async function archiveTweak(id: number) {
   const db = await getDb();
   if (!db) return;
   await db.update(aiTweaks).set({ status: "archived" }).where(eq(aiTweaks.id, id));
+  generalCache.invalidate(`tweaks:list`);
+  generalCache.invalidate(`tweaks:active`);
 }
 
 // --- AI Performance ---
 export async function getAiPerformanceStats() {
-  const db = await getDb();
-  if (!db) return { totalMessages: 0, aiMessages: 0, avgScore: 0, hotLeads: 0, totalLeads: 0 };
+  return cached(generalCache, `perf:stats`, async () => {
+    const db = await getDb();
+    if (!db) return { totalMessages: 0, aiMessages: 0, avgScore: 0, hotLeads: 0, totalLeads: 0 };
   const [totalMsg] = await db.select({ count: sql<number>`count(*)` }).from(conversations);
   const [aiMsg] = await db.select({ count: sql<number>`count(*)` }).from(conversations).where(eq(conversations.senderType, "ai"));
   const [scoreAvg] = await db.select({ avg: sql<number>`COALESCE(AVG(${leads.opportunityScore}), 0)` }).from(leads);
   const [hot] = await db.select({ count: sql<number>`count(*)` }).from(leads).where(gte(leads.opportunityScore, 80));
   const [total] = await db.select({ count: sql<number>`count(*)` }).from(leads);
-  return { totalMessages: totalMsg.count, aiMessages: aiMsg.count, avgScore: Math.round(scoreAvg.avg), hotLeads: hot.count, totalLeads: total.count };
+    return { totalMessages: totalMsg.count, aiMessages: aiMsg.count, avgScore: Math.round(scoreAvg.avg), hotLeads: hot.count, totalLeads: total.count };
+  }, 3 * 60 * 1000);
 }
 
 // --- Invites ---

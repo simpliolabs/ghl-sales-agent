@@ -19,6 +19,7 @@ import { handleTaskWebhook } from "./webhook-task";
 import { retroactiveCorrectionScan } from "./auto-correction";
 import { backfillOutcomes } from "./outcome-engine";
 import { processOverdueFollowUps } from "./follow-up-trigger";
+import { runLookback } from "./lookback-engine";
 
 export function createWebhookRouter(): Router {
   const router = Router();
@@ -72,6 +73,47 @@ export function createWebhookRouter(): Router {
       console.error('[FollowUp/Timer] Initial run error:', err);
     }
   }, 90 * 1000);
+
+  // --- LOOKBACK DRIP: Auto-analyze unprocessed leads every 30 minutes (5 per batch) ---
+  let lookbackRunning = false;
+  setInterval(async () => {
+    if (lookbackRunning) return; // Prevent overlapping runs
+    lookbackRunning = true;
+    try {
+      const result = await runLookback({
+        maxLeads: 5,
+        delayBetweenMs: 5000,
+        onlyUnprocessed: true,
+        skipResearch: false,
+      });
+      if (result.processed > 0) {
+        console.log(`[Lookback/Timer] Drip: ${result.processed} analyzed (${result.engage} engage, ${result.skip} skip, ${result.caution} caution, ${result.humanNeeded} human, ${result.errors} errors)`);
+      }
+    } catch (err) {
+      console.error('[Lookback/Timer] Drip error:', err);
+    } finally {
+      lookbackRunning = false;
+    }
+  }, 30 * 60 * 1000);
+
+  // Run initial lookback drip 2 minutes after startup
+  setTimeout(async () => {
+    if (lookbackRunning) return;
+    lookbackRunning = true;
+    try {
+      const result = await runLookback({
+        maxLeads: 5,
+        delayBetweenMs: 5000,
+        onlyUnprocessed: true,
+        skipResearch: false,
+      });
+      console.log(`[Lookback/Timer] Initial drip: ${result.processed} analyzed (${result.engage} engage, ${result.skip} skip, ${result.errors} errors)`);
+    } catch (err) {
+      console.error('[Lookback/Timer] Initial drip error:', err);
+    } finally {
+      lookbackRunning = false;
+    }
+  }, 2 * 60 * 1000);
 
   // --- WEBHOOK HEALTH CHECK ---
   router.get("/api/webhooks/health", (_req: Request, res: Response) => {

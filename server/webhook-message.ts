@@ -135,7 +135,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   }
 
   const convHistory = await getConversationHistory(lead!.id, 20);
-  let historyStr = convHistory.map(c => `[${c.senderType}/${c.channel}] ${c.messageBody}`).join("\n");
+  let historyStr = convHistory.map((c: any) => `[${c.senderType}/${c.channel}] ${c.messageBody}`).join("\n");
 
   // MANDATORY CONTEXT: For contacts older than 3 days, ALWAYS pull GHL history
   const leadCreated = lead!.createdAt ? new Date(lead!.createdAt).getTime() : Date.now();
@@ -218,7 +218,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   }
   if (consecutiveUnanswered >= 2) {
     const minGapMinutes = consecutiveUnanswered >= 4 ? 1440 : consecutiveUnanswered >= 3 ? 240 : 60;
-    const lastAiOutbound = recentConvs.filter(c => c.direction === "outbound" && c.senderType === "ai").pop();
+    const lastAiOutbound = recentConvs.filter((c: any) => c.direction === "outbound" && c.senderType === "ai").pop();
     if (lastAiOutbound) {
       const lastSentAt = new Date(lastAiOutbound.timestamp).getTime();
       const minutesSinceLastSend = (Date.now() - lastSentAt) / (1000 * 60);

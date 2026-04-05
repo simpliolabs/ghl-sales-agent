@@ -207,7 +207,7 @@ export const appRouter = router({
     }),
     syncGoogleSheet: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
       const files = await getKnowledgeFiles();
-      const file = files.find(f => f.id === input.id);
+      const file = files.find((f: any) => f.id === input.id);
       if (!file || !file.googleSheetUrl) throw new Error("Not a Google Sheet");
       const sheetId = file.googleSheetUrl.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1];
       if (!sheetId) throw new Error("Invalid Google Sheet URL");

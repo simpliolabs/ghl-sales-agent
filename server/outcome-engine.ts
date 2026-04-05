@@ -14,6 +14,7 @@ import { eq, desc, and, sql, gte, isNull } from "drizzle-orm";
 import { getDb } from "./db";
 import { brainCouncilAudit, messageOutcomes, leads, conversations, pipelineEvents } from "../drizzle/schema";
 import { invokeLLM } from "./_core/llm";
+import { cached, patternCache } from "./cache";
 
 // --- CONSTANTS ---
 const ATTRIBUTION_WINDOW_HOURS = 72;
@@ -212,6 +213,10 @@ export interface LearningInsights {
  * Called by the Strategist brain and the dashboard.
  */
 export async function getPatternAnalysis(): Promise<LearningInsights> {
+  return cached(patternCache, `patterns:all`, () => _getPatternAnalysisUncached());
+}
+
+async function _getPatternAnalysisUncached(): Promise<LearningInsights> {
   const db = await getDb();
   const empty: LearningInsights = {
     frameworkStats: [], segmentStats: [], channelStats: [], topPerformers: [],
@@ -339,6 +344,11 @@ export async function getPatternAnalysis(): Promise<LearningInsights> {
  * Only includes patterns with enough sample size (>=3) to be statistically meaningful.
  */
 export async function buildLearningContext(segment?: string): Promise<string> {
+  const cacheKey = `learning:${segment || 'all'}`;
+  return cached(patternCache, cacheKey, () => _buildLearningContextUncached(segment));
+}
+
+async function _buildLearningContextUncached(segment?: string): Promise<string> {
   const insights = await getPatternAnalysis();
 
   if (insights.totalTracked < 5) {

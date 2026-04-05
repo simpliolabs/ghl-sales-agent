@@ -142,3 +142,5 @@
 - [x] LOOKBACK: Pre-run Researcher for leads with business names to populate research data
 - [x] LOOKBACK: Recalculate follow-up schedules based on real conversation data (not just pipeline stage)
 - [x] LOOKBACK: Wire admin trigger + run on all 1,582 queued leads (rate-limited: 3s delay, 50/batch, auto-retry on rate limit, incremental resume)
+- [x] LOOKBACK: Wired as automatic background drip on server startup — 5 leads every 30 min, 5s delay between, auto-resume, incremental
+- [x] CACHE: Added TTL caching across entire portal — brain context (5min), conversations (2min), AI state (5min), tweaks (5min), KB (10min), pattern analysis (10min), perf stats (3min), pipeline stats (3min), agent workload (3min). Cache invalidation on all writes.

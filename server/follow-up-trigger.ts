@@ -94,7 +94,7 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
 
         // Build conversation context
         const convHistory = await getConversationHistory(leadId, 20);
-        let historyStr = convHistory.map(c =>
+        let historyStr = convHistory.map((c: any) =>
           `[${c.senderType === "ai" ? "ai" : c.direction === "inbound" ? "lead" : "agent"}/${c.channel}] ${c.messageBody}`
         ).join("\n");
 
@@ -144,7 +144,7 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
         }
         if (consecutiveUnanswered >= 2) {
           const minGapMinutes = consecutiveUnanswered >= 4 ? 1440 : consecutiveUnanswered >= 3 ? 240 : 60;
-          const lastAiOutbound = recentConvs.filter(c => c.direction === "outbound" && c.senderType === "ai").pop();
+          const lastAiOutbound = recentConvs.filter((c: any) => c.direction === "outbound" && c.senderType === "ai").pop();
           if (lastAiOutbound) {
             const lastSentAt = new Date(lastAiOutbound.timestamp).getTime();
             const minutesSinceLastSend = (Date.now() - lastSentAt) / (1000 * 60);
