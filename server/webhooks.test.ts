@@ -13,6 +13,8 @@ vi.mock("./db", () => ({
   addAgentAssignment: vi.fn().mockResolvedValue(undefined),
   getAgentWorkload: vi.fn().mockResolvedValue([{ agent: "Abby Bouwer", count: 5 }, { agent: "Chris McHendry", count: 3 }]),
   addWebhookLog: vi.fn().mockResolvedValue(undefined),
+  getLeadById: vi.fn().mockResolvedValue({ id: 1, name: "Test Lead", businessName: "Test Co", email: "test@test.com", phone: "+1234567890", assignedAgent: "Abby Bouwer", humanTakeover: 0, pipelineValue: 500 }),
+  addBrainCouncilAudit: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./ai-brain", () => ({
@@ -443,9 +445,9 @@ describe("Form data extraction in contact webhook", () => {
     vi.clearAllMocks();
   });
 
-  it("passes form data to AI when Facebook lead form fields are present", async () => {
-    const { runBrainCouncil } = await import("./brain-council");
-    const { fetchGhlConversationHistory } = await import("./ghl");
+  it("sends locked first-contact template (not Brain Council) when form data is present", async () => {
+    const { sendMessage, fetchGhlConversationHistory } = await import("./ghl");
+    const { addConversation } = await import("./db");
     (fetchGhlConversationHistory as ReturnType<typeof vi.fn>).mockResolvedValue([
       { direction: "inbound", type: "FB", body: "Form submission data" },
     ]);
@@ -464,14 +466,17 @@ describe("Form data extraction in contact webhook", () => {
     });
 
     expect(res.status).toBe(200);
-    // Brain Council should be called with form data
-    expect(runBrainCouncil).toHaveBeenCalledWith(
+    // Brain Council should NOT be called for first contact (locked template)
+    const { runBrainCouncil } = await import("./brain-council");
+    expect(runBrainCouncil).not.toHaveBeenCalled();
+    // sendMessage should be called with the locked template messages
+    expect(sendMessage).toHaveBeenCalled();
+    // addConversation should store the outbound messages
+    expect(addConversation).toHaveBeenCalledWith(
       expect.objectContaining({
-        leadId: expect.any(Number),
-        incomingMessage: expect.stringContaining("form"),
-        formData: expect.arrayContaining([
-          expect.objectContaining({ label: expect.any(String), value: expect.any(String) }),
-        ]),
+        direction: "outbound",
+        senderType: "ai",
+        messageBody: expect.stringContaining("4.9 star review"),
       })
     );
   });

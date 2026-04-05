@@ -92,3 +92,12 @@
 - [x] FIX: lastInbound.type crash (non-string type from GHL API) — wrapped all .type references with String()
 - [x] FIX: lastAngleUsed column too short for Brain Council angle descriptions — changed to TEXT
 - [x] Re-engaged Tammy Smith and Donna Baker-Johnson with correct GHL contact IDs
+- [x] BUG: Researcher brain pulled irrelevant business data (Chick-fil-A) for Tammy Smith instead of using her form data (Church/Ministry)
+- [x] BUG: Composer ignored lead's actual stated needs (delivery options, Church/Ministry) and used wrong research about Chick-fil-A
+- [x] FIX: Researcher must prioritize form data over web research — form data IS the ground truth
+- [x] FIX: Composer must always acknowledge lead's stated request from form data FIRST, never override with research
+- [x] LOCK DOWN: Disable Researcher brain on first contact — research only for long-term reactivation
+- [x] LOCK DOWN: Strict two-message welcome sequence for first contact:
+  - MSG 1: "Hi {name}, {agent} here! Adorb has a 4.9 star review helping {business_type} with customized {product} {timeline}."
+  - MSG 2 (immediate follow-up): "Do you have a design ready or would you like our team to help?"
+- [x] LOCK DOWN: No LLM creativity on first contact — template is fixed, only fill in form data variables

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
-import { upsertLead, addConversation, addPipelineEvent, getLeadByGhlContactId, updateLeadFields } from "./db";
+import { upsertLead, addConversation, addPipelineEvent, getLeadByGhlContactId, getLeadById, updateLeadFields } from "./db";
+import { addBrainCouncilAudit } from "./db";
 import { classifySegment, shouldHandoffToAgent, generateContactNotes, estimateOrderValue } from "./ai-brain";
 import { researchLead } from "./lead-researcher";
 import { runBrainCouncil } from "./brain-council";
@@ -507,7 +508,14 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
     const initialSchedule = await calculateNextFollowUp({ leadId: lead.id, triggerEvent: "new_lead" });
     await updateLeadFields(lead.id, { nextFollowUpAt: initialSchedule.nextFollowUpAt, cadencePosition: initialSchedule.cadencePosition });
 
-    // --- INITIAL AI OUTREACH FOR NEW CONTACTS ---
+    // =================================================================
+    // LOCKED FIRST-CONTACT SEQUENCE (Hormozi ACA — No Brain Council)
+    // =================================================================
+    // Two-message template. No AI generation. No research. Deterministic.
+    // Aligned with Alex Hormozi's ACA (Acknowledge, Compliment, Ask):
+    //   MSG 1: Acknowledge their request + Social proof (4.9 stars)
+    //   MSG 2: One low-friction Ask (design readiness)
+    // =================================================================
     try {
       // GLOBAL RATE LIMIT CHECK
       const rateCheck = await checkRateLimits();
@@ -528,87 +536,27 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
       // DEDUP GUARD: Skip if we already sent an AI message to this lead in the last 15 minutes
       const recentAiCount = await getRecentAiOutboundCount(lead.id, 15);
       if (recentAiCount > 0) {
-        console.log(`[Webhook] Skipping AI outreach for lead ${lead.id} — ${recentAiCount} AI message(s) sent in last 15 min`);
+        console.log(`[Webhook] Skipping first-contact for lead ${lead.id} — ${recentAiCount} message(s) sent in last 15 min`);
         res.json({ success: true, action: "dedup_skipped" });
         return;
       }
 
-      const ghlHistory = await fetchGhlConversationHistory(contactId);
-      let ghlHistoryStr = "";
-
-      // MANDATORY CONTEXT SYNC: For contacts older than 3 days, store GHL messages locally
-      const contactCreated = lead.createdAt ? new Date(lead.createdAt).getTime() : Date.now();
-      const contactAgeDays = (Date.now() - contactCreated) / (1000 * 60 * 60 * 24);
-      if (contactAgeDays >= 3 && ghlHistory.length > 0) {
-        // Check if we already have local conversations
-        const existingConvs = await getConversationHistory(lead.id, 1);
-        if (existingConvs.length === 0) {
-          let syncedCount = 0;
-          for (const m of ghlHistory) {
-            if (!m.body?.trim()) continue;
-            // Skip form data pseudo-messages
-            const bodyLower = m.body.toLowerCase();
-            if (bodyLower.includes("full name:") && bodyLower.includes("phone number:")) continue;
-            await addConversation({
-              leadId: lead.id,
-              channel: normalizeChannel(m.type || "SMS"),
-              direction: m.direction === "outbound" ? "outbound" : "inbound",
-              messageBody: m.body,
-              senderType: m.direction === "outbound" ? "human" : "lead",
-            });
-            syncedCount++;
+      // --- EXTRACT FORM DATA ---
+      // Try webhook payload first, then GHL contact custom fields
+      let formFields = extractFormData(payload);
+      
+      // If webhook payload had no form data, pull from GHL contact custom fields
+      if (formFields.length === 0) {
+        try {
+          const ghlContact = await getContact(resolvedContactId);
+          if (ghlContact?.customFields) {
+            formFields = extractFormData({ customFields: ghlContact.customFields });
           }
-          console.log(`[Webhook] Synced ${syncedCount} GHL messages for lead ${lead.id} (${contactAgeDays.toFixed(0)} days old) before AI engagement`);
-        }
+        } catch { /* best effort */ }
       }
 
-      // --- EXTRACT FORM DATA FROM PAYLOAD ---
-      // GHL webhook payloads for Facebook lead forms include custom fields
-      const formFields = extractFormData(payload);
-      let formContextStr = "";
-      if (formFields.length > 0) {
-        formContextStr = "\n--- LEAD FORM SUBMISSION DATA (acknowledge this in your response) ---\n" +
-          formFields.map(f => `${f.label}: ${f.value}`).join("\n") +
-          "\n--- END FORM DATA ---";
-      }
-
-      if (ghlHistory.length > 0) {
-        // Filter out GHL auto-responses and form data pseudo-messages
-        // Only include REAL conversation messages, not workflow auto-replies
-        const outboundFromOthers = ghlHistory.filter(m => 
-          m.direction === "outbound" && m.body?.trim()
-        );
-        
-        // If GHL already sent outbound messages (from workflows), note them
-        // so the AI knows not to repeat the same intro
-        const priorOutboundContext = outboundFromOthers.length > 0
-          ? "\n--- MESSAGES ALREADY SENT BY OTHER SYSTEMS (do NOT repeat similar content) ---\n" +
-            outboundFromOthers.map(m => `[auto-response] ${m.body}`).join("\n") +
-            "\n--- END PRIOR MESSAGES ---"
-          : "";
-
-        // Only include genuine inbound messages (not form data echoes)
-        const genuineInbound = ghlHistory.filter(m => {
-          if (m.direction !== "inbound" || !m.body?.trim()) return false;
-          // Filter out messages that look like form data dumps
-          const body = m.body.toLowerCase();
-          if (body.includes("full name:") && body.includes("phone number:")) return false;
-          if (body.includes("what type of products") && body.includes("how soon")) return false;
-          return true;
-        });
-
-        const allContextParts = [];
-        if (genuineInbound.length > 0) {
-          allContextParts.push(genuineInbound.map(m => `[lead/${String(m.type || "msg")}] ${m.body}`).join("\n"));
-        }
-        if (priorOutboundContext) allContextParts.push(priorOutboundContext);
-        if (formContextStr) allContextParts.push(formContextStr);
-        ghlHistoryStr = allContextParts.join("\n");
-      } else if (formContextStr) {
-        ghlHistoryStr = formContextStr;
-      }
-
-      // Detect the inbound channel from GHL history
+      // --- DETECT CHANNEL ---
+      const ghlHistory = await fetchGhlConversationHistory(resolvedContactId);
       let detectedChannel = "";
       if (ghlHistory.length > 0) {
         const lastInbound = [...ghlHistory].reverse().find(m => m.direction === "inbound");
@@ -621,7 +569,6 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
           else if (rawType.includes("sms") || rawType.includes("message")) detectedChannel = "SMS";
         }
       }
-      // Fallback: if no channel detected from history, use source hint or default
       if (!detectedChannel) {
         const src = (payload.source as string || "").toLowerCase();
         if (src.includes("facebook") || src.includes("fb")) detectedChannel = "FB";
@@ -634,70 +581,139 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
 
       if (detectedChannel && (lead.phone || lead.email)) {
         const channel = detectedChannel as "SMS" | "Email" | "WhatsApp" | "FB" | "IG";
-        // Build a structured intro that acknowledges what the lead already told us
-        let introMessage: string;
-        if (formFields.length > 0) {
-          // Use form data as structured context — the lead already told us what they want
-          const productType = formFields.find(f => f.label.toLowerCase().includes("product"))?.value || "custom printing";
-          const purpose = formFields.find(f => f.label.toLowerCase().includes("need") || f.label.toLowerCase().includes("for"))?.value || "";
-          const timeline = formFields.find(f => f.label.toLowerCase().includes("soon") || f.label.toLowerCase().includes("when"))?.value || "";
-          introMessage = `New lead from form: ${lead.name || "someone"} from ${lead.businessName || "a business"} wants ${productType}${purpose ? " for " + purpose : ""}${timeline ? ". Timeline: " + timeline : ""}. IMPORTANT: They already told us what they need via the form — acknowledge their specific request, don't ask discovery questions they already answered.`;
+
+        // --- REFRESH LEAD to get assigned agent name ---
+        const freshLead = await getLeadById(lead.id);
+        const agentName = freshLead?.assignedAgent || lead.assignedAgent || SALES_AGENTS[0];
+        const firstName = (lead.name || "").split(" ")[0] || "there";
+
+        // --- EXTRACT FORM FIELDS FOR TEMPLATE ---
+        const productType = formFields.find(f => f.label === "Product Type")?.value || "custom gear";
+        const purpose = formFields.find(f => f.label === "Purpose")?.value || "";
+        const timeline = formFields.find(f => f.label === "Timeline")?.value || "";
+
+        // --- BUILD MESSAGE 1: Intro (Acknowledge + Social Proof) ---
+        // Template: Hi {name}, {agentName} here! Adorb has a 4.9 star review
+        // helping {business type} with customized {product requested} {in the timeline requested}.
+        let msg1 = `Hi ${firstName}, ${agentName.split(" ")[0]} here! Adorb has a 4.9 star review helping`;
+        if (purpose) {
+          msg1 += ` ${purpose.toLowerCase()}`;
         } else {
-          introMessage = `New lead: ${lead.name || "someone"} from ${lead.businessName || "a business"} just signed up. They're interested in custom printing.`;
+          msg1 += ` businesses like yours`;
         }
-
-        const aiResponse = await runBrainCouncil({
-          leadId: lead.id,
-          incomingMessage: introMessage,
-          channel,
-          externalHistory: ghlHistoryStr || undefined,
-          formData: formFields.length > 0 ? formFields : undefined,
-        });
-        console.log(`[Webhook] Brain Council for lead ${lead.id}: QC=${aiResponse.qcScore}, strategy=${aiResponse.strategyReasoning.substring(0, 80)}`);
-
-        // Send the AI response on the SAME channel the lead used (with retry on wrong contact ID)
-        let sendOpts: Parameters<typeof sendMessage>[1];
-        if (channel === "Email" && lead.email) {
-          sendOpts = { type: "Email", subject: aiResponse.fromName, html: aiResponse.message, fromName: aiResponse.fromName };
-        } else if (channel === "FB") {
-          sendOpts = { type: "FB", message: aiResponse.message };
-        } else if (channel === "IG") {
-          sendOpts = { type: "IG", message: aiResponse.message };
-        } else if (channel === "WhatsApp") {
-          sendOpts = { type: "WhatsApp", message: aiResponse.message };
-        } else if (lead.phone) {
-          sendOpts = { type: "SMS", message: aiResponse.message };
+        msg1 += ` with customized ${productType.toLowerCase()}`;
+        if (timeline) {
+          msg1 += ` ${timeline.toLowerCase()}`;
         }
-        if (sendOpts!) {
-          const sendResult = await sendMessageWithRetry(resolvedContactId, sendOpts!, { email: lead.email, phone: lead.phone, id: lead.id });
-          if (sendResult.resolvedContactId !== resolvedContactId) {
-            resolvedContactId = sendResult.resolvedContactId;
+        msg1 += `.`;
+
+        // --- BUILD MESSAGE 2: Ask (Design readiness) ---
+        const msg2 = `Do you have a design ready or would you like our team to help?`;
+
+        console.log(`[Webhook] LOCKED first-contact for lead ${lead.id} (${firstName}): agent=${agentName}, channel=${channel}`);
+        console.log(`[Webhook] MSG1: ${msg1}`);
+        console.log(`[Webhook] MSG2: ${msg2}`);
+
+        // --- SEND MESSAGE 1 ---
+        const buildSendOpts = (message: string): Parameters<typeof sendMessage>[1] | undefined => {
+          if (channel === "Email" && lead.email) {
+            return { type: "Email", subject: `${agentName.split(" ")[0]} from Adorb Custom Tees`, html: `<p>${message}</p><p>${msg2}</p>`, fromName: agentName };
+          } else if (channel === "FB") {
+            return { type: "FB", message };
+          } else if (channel === "IG") {
+            return { type: "IG", message };
+          } else if (channel === "WhatsApp") {
+            return { type: "WhatsApp", message };
+          } else if (lead.phone) {
+            return { type: "SMS", message };
           }
-          if (!sendResult.success) {
-            console.error(`[Webhook] Failed to send message to lead ${lead.id}: ${sendResult.error}`);
+          return undefined;
+        };
+
+        const sendOpts1 = buildSendOpts(msg1);
+        let msg1Sent = false;
+        let msg2Sent = false;
+
+        if (sendOpts1) {
+          const sendResult1 = await sendMessageWithRetry(resolvedContactId, sendOpts1, { email: lead.email, phone: lead.phone, id: lead.id });
+          if (sendResult1.resolvedContactId !== resolvedContactId) {
+            resolvedContactId = sendResult1.resolvedContactId;
+          }
+          msg1Sent = sendResult1.success;
+          if (!msg1Sent) {
+            console.error(`[Webhook] Failed to send MSG1 to lead ${lead.id}: ${sendResult1.error}`);
           }
         }
 
-        // Store the conversation
+        // Store MSG1 conversation
         await addConversation({
           leadId: lead.id,
           channel,
           direction: "outbound",
-          messageBody: aiResponse.message,
+          messageBody: msg1,
           senderType: "ai",
-          senderName: aiResponse.fromName,
+          senderName: agentName,
         });
 
-        // Use scheduling engine for next follow-up after AI response
+        // --- SEND MESSAGE 2 (immediate follow-up, except for Email where both are in one) ---
+        if (channel !== "Email") {
+          // Small delay to feel natural (2 seconds)
+          await new Promise(resolve => setTimeout(resolve, 2000));
+
+          const sendOpts2 = buildSendOpts(msg2);
+          if (sendOpts2) {
+            const sendResult2 = await sendMessageWithRetry(resolvedContactId, sendOpts2, { email: lead.email, phone: lead.phone, id: lead.id });
+            msg2Sent = sendResult2.success;
+            if (!msg2Sent) {
+              console.error(`[Webhook] Failed to send MSG2 to lead ${lead.id}: ${sendResult2.error}`);
+            }
+          }
+
+          // Store MSG2 conversation
+          await addConversation({
+            leadId: lead.id,
+            channel,
+            direction: "outbound",
+            messageBody: msg2,
+            senderType: "ai",
+            senderName: agentName,
+          });
+        }
+
+        // --- AUDIT LOG: Record the locked first-contact ---
+        try {
+          await addBrainCouncilAudit({
+            leadId: lead.id,
+            leadName: lead.name || undefined,
+            channel,
+            incomingMessage: `[FIRST CONTACT] Form data: ${formFields.map(f => `${f.label}=${f.value}`).join(", ") || "none"}`,
+            strategyApproach: "first_contact",
+            strategyFramework: "HORMOZI_ACA",
+            strategyReasoning: "LOCKED TEMPLATE — No Brain Council. Deterministic two-message welcome sequence.",
+            strategyTier: "1",
+            researchSummary: "SKIPPED — Research disabled for first contact.",
+            composedMessage: msg1,
+            composerFromName: agentName,
+            qcScore: 100,
+            qcApproved: 1,
+            qcIssues: undefined,
+            qcFeedback: undefined,
+            wasRecomposed: 0,
+            finalMessage: channel === "Email" ? `${msg1}\n\n${msg2}` : `${msg1} | ${msg2}`,
+            messageSent: (msg1Sent ? 1 : 0),
+          });
+        } catch (auditErr) {
+          console.error('[Webhook] First-contact audit log error (non-fatal):', auditErr);
+        }
+
+        // --- UPDATE LEAD STATE ---
         const contactSchedule = await calculateNextFollowUp({
           leadId: lead.id,
-          aiSuggestedHours: aiResponse.nextEngagementHours,
+          aiSuggestedHours: 4, // Follow up in 4 hours if no reply
           triggerEvent: "ai_response",
         });
 
         await updateLeadFields(lead.id, {
-          opportunityScore: aiResponse.score,
-          omnisendSegment: aiResponse.segment,
           lastMessageAt: new Date(),
           nextFollowUpAt: contactSchedule.nextFollowUpAt,
           cadencePosition: contactSchedule.cadencePosition,
@@ -706,25 +722,16 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
         });
 
         await upsertAiState(lead.id, {
-          lastAngleUsed: aiResponse.angle,
-          lastFrameworkUsed: aiResponse.framework,
-          extractedDates: aiResponse.extractedDates as unknown as undefined,
-          messageCount: 1,
+          lastAngleUsed: "LOCKED_FIRST_CONTACT",
+          lastFrameworkUsed: "HORMOZI_ACA",
+          messageCount: channel === "Email" ? 1 : 2,
         });
 
-        // Estimate order value from initial conversation context
-        try {
-          const leadInfo = `${lead.name || "Unknown"} - ${lead.businessName || "Unknown"} - Stage: ${lead.pipelineStage}`;
-          const convForValue = ghlHistory.length > 0 ? ghlHistory.map(m => `[${m.direction}/${String(m.type || "msg")}] ${m.body}`).join("\n") + `\n[ai/${channel}] ${aiResponse.message}` : `[ai/${channel}] ${aiResponse.message}`;
-          const valueEstimate = await estimateOrderValue(convForValue, leadInfo);
-          if (valueEstimate.estimatedValue > 0) {
-            await updateLeadFields(lead.id, { pipelineValue: valueEstimate.estimatedValue });
-          }
-        } catch { /* best effort */ }
+        console.log(`[Webhook] First-contact COMPLETE for lead ${lead.id}: msg1=${msg1Sent}, msg2=${msg2Sent || channel === "Email"}`);
       }
     } catch (err) {
-      console.error("[Webhook] Initial AI outreach error (non-fatal):", err);
-      // Non-fatal — contact is still saved even if AI outreach fails
+      console.error("[Webhook] First-contact outreach error (non-fatal):", err);
+      // Non-fatal — contact is still saved even if outreach fails
     }
   }
 
@@ -737,6 +744,7 @@ function extractFormData(payload: Record<string, unknown>): Array<{ label: strin
   const fields: Array<{ label: string; value: string }> = [];
   
   // Known GHL form field keys from Facebook lead forms
+  // Includes both human-readable keys AND GHL custom field UUIDs
   const formFieldMappings: Record<string, string> = {
     "what_type_of_products_are_you_interested_in_": "Product Type",
     "what_do_you_need_bulk_printing_for_": "Purpose",
@@ -745,6 +753,16 @@ function extractFormData(payload: Record<string, unknown>): Array<{ label: strin
     "companyName": "Company",
     "full_name": "Full Name",
     "quantity": "Quantity",
+    // GHL custom field UUIDs (from /locations/{id}/customFields API)
+    "7bBSRMZOMh7S8z57PmX9": "Timeline",
+    "OUKhuVmDD7yg44tKAYAs": "Product Type",
+    "skKuaUesHa1fLm9Cq75U": "Purpose",
+    "7fL3fX0KnOUcm7BOvjdi": "Quantity",
+    "GCGSXhfM0eHz6MZS6tyZ": "Order Categories",
+    "XcZmRrIAuIgJq64VFjhq": "Print Style",
+    "vRQQP78R7rDNaXjoEFt3": "Garment Type",
+    "Uq2VcaIrV7U5m5LJQKO3": "Print Size",
+    "hyHJeRQGmIGbaulYhoHQ": "Sizes and Amount",
   };
 
   // Check top-level payload fields
