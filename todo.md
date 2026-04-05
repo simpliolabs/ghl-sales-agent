@@ -84,3 +84,5 @@
 - [x] Add Brain Council audit log storage — per-message strategist reasoning, composer output, QC score/issues
 - [x] Build Brain Council audit log dashboard page showing full decision trail for every AI message
 - [x] Strengthen QC brain to reject generic first-contact messages that don't follow ACA structure
+- [x] Add GHL API fallback: auto-pull full contact data from GHL API when webhook payload is missing name/email/phone
+- [x] Fix Sarah Weiss's incomplete lead record (missing name, email, phone) using GHL API enrichment

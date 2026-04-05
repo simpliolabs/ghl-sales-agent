@@ -4,10 +4,47 @@ import { classifySegment, shouldHandoffToAgent, generateContactNotes, estimateOr
 import { researchLead } from "./lead-researcher";
 import { runBrainCouncil } from "./brain-council";
 import { calculateNextFollowUp, checkRateLimits, checkLeadRateLimit } from "./scheduling-engine";
-import { sendMessage, updateContactCustomField, createTask, addNote, updateOpportunityValue, updateOpportunityStage, fetchGhlConversationHistory } from "./ghl";
+import { sendMessage, updateContactCustomField, createTask, addNote, updateOpportunityValue, updateOpportunityStage, fetchGhlConversationHistory, getContact } from "./ghl";
 import { pushContactToOmnisend } from "./omnisend";
 import { upsertAiState, getConversationHistory, getRecentAiOutboundCount } from "./db";
 import { addAgentAssignment, getAgentWorkload, addWebhookLog } from "./db";
+
+// --- GHL API FALLBACK ENRICHMENT ---
+// When webhook payload is missing key fields (name/email/phone), pull from GHL API
+async function enrichLeadFromGhl(leadId: number, ghlContactId: string, currentData: { name?: string | null; email?: string | null; phone?: string | null; businessName?: string | null; website?: string | null; source?: string | null }) {
+  const missing = !currentData.name || !currentData.email || !currentData.phone;
+  if (!missing) return currentData; // All fields present, no enrichment needed
+
+  try {
+    console.log(`[GHL Fallback] Lead ${leadId} missing data (name=${!!currentData.name}, email=${!!currentData.email}, phone=${!!currentData.phone}). Pulling from GHL API...`);
+    const ghlContact = await getContact(ghlContactId);
+    if (!ghlContact) {
+      console.log(`[GHL Fallback] Contact ${ghlContactId} not found in GHL`);
+      return currentData;
+    }
+
+    const enriched: Record<string, unknown> = {};
+    const ghlName = ghlContact.name || (ghlContact.firstName ? `${ghlContact.firstName} ${ghlContact.lastName || ""}`.trim() : null);
+
+    if (!currentData.name && ghlName) enriched.name = ghlName;
+    if (!currentData.email && ghlContact.email) enriched.email = ghlContact.email;
+    if (!currentData.phone && ghlContact.phone) enriched.phone = ghlContact.phone;
+    if (!currentData.businessName && ghlContact.companyName) enriched.businessName = ghlContact.companyName;
+    if (!currentData.website && ghlContact.website) enriched.website = ghlContact.website;
+    if (!currentData.source && ghlContact.source) enriched.source = ghlContact.source;
+
+    if (Object.keys(enriched).length > 0) {
+      await updateLeadFields(leadId, enriched);
+      console.log(`[GHL Fallback] Enriched lead ${leadId} with: ${Object.keys(enriched).join(", ")}`);
+      return { ...currentData, ...enriched };
+    } else {
+      console.log(`[GHL Fallback] No additional data found in GHL for lead ${leadId}`);
+    }
+  } catch (err) {
+    console.error(`[GHL Fallback] Failed to enrich lead ${leadId} from GHL:`, err);
+  }
+  return currentData;
+}
 
 // --- TEAM ROSTER ---
 const SALES_AGENTS = ["Abby Bouwer", "Chris McHendry"];
@@ -321,7 +358,7 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
   const contactId = (payload.id || payload.contactId) as string;
   if (!contactId) { res.status(400).json({ error: "No contact ID" }); return; }
 
-  const lead = await upsertLead({
+  let lead = await upsertLead({
     ghlContactId: contactId,
     name: payload.name as string || (payload.firstName ? `${payload.firstName || ""} ${payload.lastName || ""}`.trim() : undefined),
     email: payload.email as string,
@@ -330,6 +367,16 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
     website: payload.website as string,
     source: (payload.source || (payload.tags as string[])?.[0] || "ghl") as string,
   });
+
+  // GHL API fallback: enrich lead if webhook payload was missing key fields
+  if (lead) {
+    const enrichedData = await enrichLeadFromGhl(lead.id, contactId, {
+      name: lead.name, email: lead.email, phone: lead.phone,
+      businessName: lead.businessName, website: lead.website, source: lead.source,
+    });
+    // Update local lead object with enriched data for downstream use
+    lead = { ...lead, ...enrichedData } as typeof lead;
+  }
 
   if (lead && lead.businessName) {
     const segment = await classifySegment(lead.businessName, lead.website || undefined);
@@ -673,6 +720,13 @@ async function handleMessageWebhook(payload: Record<string, unknown>, res: Respo
     if (!newLead) { res.status(500).json({ error: "Failed to create lead" }); return; }
     lead = { ...newLead, id: newLead.id, humanTakeover: 0, lastAgentActivityAt: null, pipelineValue: null } as unknown as NonNullable<typeof lead>;
   }
+
+  // GHL API fallback: enrich lead if missing key fields
+  const enrichedData = await enrichLeadFromGhl(lead!.id, contactId, {
+    name: lead!.name, email: lead!.email, phone: lead!.phone,
+    businessName: lead!.businessName, website: (lead as any)?.website, source: lead!.source,
+  });
+  lead = { ...lead!, ...enrichedData } as typeof lead;
 
   // Store the message
   await addConversation({
