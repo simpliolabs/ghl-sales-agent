@@ -101,3 +101,9 @@
   - MSG 1: "Hi {name}, {agent} here! Adorb has a 4.9 star review helping {business_type} with customized {product} {timeline}."
   - MSG 2 (immediate follow-up): "Do you have a design ready or would you like our team to help?"
 - [x] LOCK DOWN: No LLM creativity on first contact — template is fixed, only fill in form data variables
+- [x] ACCOUNTABILITY: Hard QC blocking — messages scoring below threshold are BLOCKED, never sent, owner notified
+- [x] ACCOUNTABILITY: Violation categories — irrelevant research, ignoring form data, wrong business reference, generic opener, missing ACA structure
+- [x] ACCOUNTABILITY: Owner notification on every blocked message with full audit trail (what went wrong, which brain failed)
+- [x] ACCOUNTABILITY: Auto-fallback to safe template when QC blocks a message (instead of sending nothing)
+- [x] ACCOUNTABILITY: Dashboard showing blocked messages, violation patterns, QC failure rate over time
+- [x] ACCOUNTABILITY: Consecutive failure circuit breaker — if Brain Council fails 3x in a row for a lead, pause AI and alert owner

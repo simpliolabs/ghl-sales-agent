@@ -190,6 +190,13 @@ export const brainCouncilAudit = mysqlTable("brain_council_audit", {
   // Outcome
   messageSent: tinyint("messageSent").default(0),
   sendError: text("sendError"),
+  // Accountability
+  blocked: tinyint("blocked").default(0), // 1 = message was blocked, never sent
+  blockReason: text("blockReason"), // why it was blocked
+  violationCategory: varchar("violationCategory", { length: 64 }), // irrelevant_research, form_data_ignored, wrong_business, generic_opener, missing_framework, safety_violation
+  ownerNotified: tinyint("ownerNotified").default(0), // 1 = owner was notified about this violation
+  fallbackUsed: tinyint("fallbackUsed").default(0), // 1 = safe fallback template was used instead
+  fallbackMessage: text("fallbackMessage"), // the fallback message that was sent
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

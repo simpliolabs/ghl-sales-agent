@@ -1016,7 +1016,26 @@ async function handleMessageWebhook(payload: Record<string, unknown>, res: Respo
     channel,
     externalHistory: historyStr,
   });
-  console.log(`[Webhook] Brain Council for lead ${lead!.id}: QC=${aiResponse.qcScore}, strategy=${aiResponse.strategyReasoning.substring(0, 80)}`);
+  console.log(`[Webhook] Brain Council for lead ${lead!.id}: QC=${aiResponse.qcScore}, blocked=${aiResponse.blocked}, strategy=${aiResponse.strategyReasoning.substring(0, 80)}`);
+
+  // --- ACCOUNTABILITY: Handle blocked messages ---
+  if (aiResponse.blocked && aiResponse.fallbackUsed && aiResponse.fallbackMessage) {
+    console.log(`[Webhook] \u26a0\ufe0f BLOCKED message for lead ${lead!.id}: ${aiResponse.blockReason}. Sending fallback.`);
+    // Send the safe fallback instead
+    const fallbackOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
+      ? { type: "Email", subject: "Adorb Custom Tees", html: aiResponse.fallbackMessage, fromName: aiResponse.fromName }
+      : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.fallbackMessage };
+    const sendResult = await sendMessageWithRetry(resolvedContactId, fallbackOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
+    if (!sendResult.success) console.error(`[Webhook/Msg] Fallback send failed for lead ${lead!.id}: ${sendResult.error}`);
+    
+    await addConversation({
+      leadId: lead!.id, channel, direction: "outbound", messageBody: `[FALLBACK] ${aiResponse.fallbackMessage}`,
+      senderType: "ai", senderName: aiResponse.fromName,
+    });
+    
+    res.json({ success: true, action: "blocked_fallback_sent", violation: aiResponse.violationCategory, blockReason: aiResponse.blockReason });
+    return;
+  }
 
   // Check if AI wants to hand off (e.g., lead asking for firm quote)
   const aiHandoff = await shouldHandoffToAgent(

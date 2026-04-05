@@ -336,6 +336,13 @@ export async function addBrainCouncilAudit(data: {
   finalMessage?: string;
   messageSent?: number;
   sendError?: string;
+  // Accountability fields
+  blocked?: number;
+  blockReason?: string;
+  violationCategory?: string;
+  ownerNotified?: number;
+  fallbackUsed?: number;
+  fallbackMessage?: string;
 }) {
   const db = await getDb();
   if (!db) return;

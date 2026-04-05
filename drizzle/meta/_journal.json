@@ -43,6 +43,13 @@
       "when": 1775352822146,
       "tag": "0005_famous_molten_man",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1775395127401,
+      "tag": "0006_chubby_adam_destine",
+      "breakpoints": true
     }
   ]
 }

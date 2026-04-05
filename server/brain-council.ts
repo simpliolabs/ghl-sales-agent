@@ -11,6 +11,7 @@
  */
 
 import { invokeLLM } from "./_core/llm";
+import { notifyOwner } from "./_core/notification";
 import { getDb, addBrainCouncilAudit } from "./db";
 import { aiState, aiTweaks, knowledgeFiles, conversations, leads } from "../drizzle/schema";
 import { eq, desc } from "drizzle-orm";
@@ -80,6 +81,12 @@ export interface BrainCouncilOutput {
   qcScore: number;
   strategyReasoning: string;
   researchSummary: string;
+  // Accountability
+  blocked: boolean;
+  blockReason?: string;
+  violationCategory?: string;
+  fallbackUsed: boolean;
+  fallbackMessage?: string;
 }
 
 // ============================================================
@@ -841,8 +848,237 @@ Review this message now. Be strict but fair.`;
 // MAIN ORCHESTRATOR — runs all 4 brains in sequence
 // ============================================================
 
+// ============================================================
+// VIOLATION DETECTION — catches specific failure patterns
+// ============================================================
+
+type ViolationCategory = "irrelevant_research" | "form_data_ignored" | "wrong_business" | "generic_opener" | "missing_framework" | "safety_violation";
+
+function detectViolations(
+  composed: ComposedMessage,
+  qc: QCVerdict,
+  strategy: StrategyDecision,
+  context: Awaited<ReturnType<typeof buildLeadContext>>,
+  input: BrainCouncilInput,
+  research: ResearchResult
+): { category: ViolationCategory | null; reason: string } {
+  const msg = composed.message.toLowerCase();
+  const leadName = (context.lead.name || "").toLowerCase();
+  const businessName = (context.lead.businessName || "").toLowerCase();
+  const formLabels = (input.formData || []).map(f => f.value.toLowerCase());
+
+  // 1. WRONG BUSINESS — message references a business that doesn't match the lead's actual business
+  // Check if research mentions a business name that's NOT the lead's business and the message uses it
+  if (research.companyInfo && businessName) {
+    const researchBiz = research.companyInfo.toLowerCase();
+    // If the composed message references a company from research that's different from the lead's form data
+    const formPurpose = input.formData?.find(f => 
+      f.label.toLowerCase().includes("bulk printing") || f.label.toLowerCase().includes("purpose")
+    )?.value.toLowerCase();
+    if (formPurpose && !msg.includes(formPurpose) && researchBiz.length > 10) {
+      // Research pulled something, form says something else, message doesn't mention form data
+      return { category: "wrong_business", reason: `Message doesn't reference lead's stated purpose (${formPurpose}) but uses research data instead` };
+    }
+  }
+
+  // 2. FORM DATA IGNORED — form data exists but message doesn't reference any of it
+  if (input.formData && input.formData.length >= 2) {
+    const formValuesMentioned = formLabels.filter(v => v.length > 2 && msg.includes(v));
+    if (formValuesMentioned.length === 0) {
+      return { category: "form_data_ignored", reason: `Message ignores all form data: ${input.formData.map(f => `${f.label}=${f.value}`).join(", ")}` };
+    }
+  }
+
+  // 3. GENERIC OPENER — message is a generic "how can I help" without specifics
+  const genericPatterns = [
+    "what can we help you", "how can i help", "how can we assist",
+    "what can i do for you", "what can we do for you", "how may i help",
+    "what can we create for you", "what are you looking for"
+  ];
+  if (genericPatterns.some(p => msg.includes(p)) && context.isFirstResponse) {
+    return { category: "generic_opener", reason: "First-contact message uses generic opener instead of referencing lead's specific request" };
+  }
+
+  // 4. IRRELEVANT RESEARCH — research summary references things completely unrelated to the lead
+  if (research.summary && research.summary.length > 50) {
+    const researchLower = research.summary.toLowerCase();
+    // Check if research mentions a completely different industry/business
+    if (formLabels.length > 0) {
+      const anyFormMatch = formLabels.some(v => v.length > 3 && researchLower.includes(v));
+      if (!anyFormMatch && researchLower.length > 100) {
+        // Research is long but doesn't mention any form data — likely pulled wrong info
+        const researchUsedInMsg = researchLower.split(" ").filter(w => w.length > 5).some(w => msg.includes(w));
+        if (researchUsedInMsg) {
+          return { category: "irrelevant_research", reason: "Message uses research data that doesn't match any of the lead's form data" };
+        }
+      }
+    }
+  }
+
+  // 5. MISSING FRAMEWORK — strategy specified a framework but message doesn't follow it
+  if (strategy.framework === "HORMOZI_ACA" && qc.score < 60) {
+    const hasAcknowledge = formLabels.some(v => v.length > 2 && msg.includes(v)) || msg.includes(leadName);
+    const hasQuestion = msg.includes("?");
+    if (!hasAcknowledge || !hasQuestion) {
+      return { category: "missing_framework", reason: `HORMOZI_ACA requires Acknowledge+Compliment+Ask but message is missing ${!hasAcknowledge ? "acknowledgment" : "question"}` };
+    }
+  }
+
+  // 6. SAFETY — promises, pricing commitments, inappropriate content
+  const safetyPatterns = ["guarantee", "money back", "100% free", "no cost ever", "unlimited"];
+  if (safetyPatterns.some(p => msg.includes(p))) {
+    return { category: "safety_violation", reason: `Message contains potentially unsafe promise: ${safetyPatterns.find(p => msg.includes(p))}` };
+  }
+
+  return { category: null, reason: "" };
+}
+
+// ============================================================
+// SAFE FALLBACK TEMPLATE — used when Brain Council is blocked
+// ============================================================
+
+function buildSafeFallback(
+  context: Awaited<ReturnType<typeof buildLeadContext>>,
+  input: BrainCouncilInput
+): string {
+  const name = context.lead.name?.split(" ")[0] || "there";
+  const agentName = context.lead.assignedAgent || "Abby";
+  
+  // Extract form data if available
+  const productField = input.formData?.find(f => 
+    f.label.toLowerCase().includes("product") || f.label.toLowerCase().includes("interested")
+  );
+  const purposeField = input.formData?.find(f => 
+    f.label.toLowerCase().includes("bulk printing") || f.label.toLowerCase().includes("purpose")
+  );
+  
+  if (productField || purposeField) {
+    const product = productField?.value?.toLowerCase() || "custom apparel";
+    const purpose = purposeField?.value?.toLowerCase() || "your project";
+    return `Hi ${name}, ${agentName} here from Adorb Custom Tees! Thanks for reaching out about ${product} for ${purpose}. We'd love to help — do you have a design ready or would you like our team to help?`;
+  }
+  
+  // Minimal fallback if no form data
+  return `Hi ${name}, ${agentName} here from Adorb Custom Tees! Thanks for reaching out. What kind of custom apparel project can we help you with?`;
+}
+
+// ============================================================
+// CIRCUIT BREAKER — check consecutive failures for a lead
+// ============================================================
+
+async function checkCircuitBreaker(leadId: number): Promise<{ tripped: boolean; consecutiveFailures: number }> {
+  const db = await getDb();
+  if (!db) return { tripped: false, consecutiveFailures: 0 };
+  
+  const stateRows = await db.select().from(aiState).where(eq(aiState.leadId, leadId)).limit(1);
+  const consecutiveRejects = stateRows[0]?.consecutiveRejects || 0;
+  
+  return { tripped: consecutiveRejects >= 3, consecutiveFailures: consecutiveRejects };
+}
+
+async function updateCircuitBreaker(leadId: number, failed: boolean): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  
+  const stateRows = await db.select().from(aiState).where(eq(aiState.leadId, leadId)).limit(1);
+  if (stateRows[0]) {
+    const newCount = failed ? (stateRows[0].consecutiveRejects || 0) + 1 : 0;
+    await db.update(aiState).set({ consecutiveRejects: newCount }).where(eq(aiState.leadId, leadId));
+  }
+}
+
+// ============================================================
+// OWNER NOTIFICATION — alert on blocked messages
+// ============================================================
+
+async function notifyOwnerOfViolation(
+  leadId: number,
+  leadName: string,
+  violation: ViolationCategory,
+  reason: string,
+  composedMessage: string,
+  qcScore: number,
+  consecutiveFailures: number
+): Promise<boolean> {
+  const title = consecutiveFailures >= 3
+    ? `🚨 CIRCUIT BREAKER: AI paused for ${leadName} (Lead #${leadId})`
+    : `⚠️ AI Message BLOCKED for ${leadName} (Lead #${leadId})`;
+  
+  const content = [
+    `**Violation:** ${violation.replace(/_/g, " ").toUpperCase()}`,
+    `**Reason:** ${reason}`,
+    `**QC Score:** ${qcScore}/100`,
+    `**Blocked Message:** "${composedMessage.substring(0, 200)}${composedMessage.length > 200 ? "..." : ""}"`,
+    consecutiveFailures >= 3 ? `\n**⚠️ AI has failed ${consecutiveFailures} times in a row for this lead. AI engagement is PAUSED until you review.**` : "",
+    `\nA safe fallback message was sent instead. Review the Brain Council Audit Log for full details.`,
+  ].filter(Boolean).join("\n");
+  
+  try {
+    return await notifyOwner({ title, content });
+  } catch (err) {
+    console.error("[BrainCouncil] Failed to notify owner:", err);
+    return false;
+  }
+}
+
+// ============================================================
+// MAIN ORCHESTRATOR — runs all 4 brains with accountability
+// ============================================================
+
 export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCouncilOutput> {
   console.log(`[BrainCouncil] Starting for lead ${input.leadId} on ${input.channel}`);
+
+  // --- CIRCUIT BREAKER CHECK ---
+  const circuitBreaker = await checkCircuitBreaker(input.leadId);
+  if (circuitBreaker.tripped) {
+    console.log(`[BrainCouncil] ⚡ CIRCUIT BREAKER TRIPPED for lead ${input.leadId} (${circuitBreaker.consecutiveFailures} consecutive failures). AI paused.`);
+    const context = await buildLeadContext(input.leadId);
+    const fallbackMsg = buildSafeFallback(context, input);
+    
+    // Notify owner about circuit breaker
+    await notifyOwnerOfViolation(
+      input.leadId,
+      context.lead.name || `Lead #${input.leadId}`,
+      "safety_violation",
+      `Circuit breaker tripped: ${circuitBreaker.consecutiveFailures} consecutive QC failures`,
+      "(no message composed — circuit breaker active)",
+      0,
+      circuitBreaker.consecutiveFailures
+    );
+    
+    await addBrainCouncilAudit({
+      leadId: input.leadId,
+      leadName: context.lead.name || undefined,
+      channel: input.channel,
+      incomingMessage: input.incomingMessage?.substring(0, 2000),
+      blocked: 1,
+      blockReason: `Circuit breaker: ${circuitBreaker.consecutiveFailures} consecutive failures`,
+      violationCategory: "safety_violation",
+      ownerNotified: 1,
+      fallbackUsed: 1,
+      fallbackMessage: fallbackMsg,
+      messageSent: 0,
+    });
+    
+    return {
+      message: fallbackMsg,
+      fromName: context.lead.assignedAgent || "Abby Bouwer",
+      framework: "SAFE_FALLBACK",
+      angle: "circuit_breaker",
+      extractedDates: [],
+      score: 0,
+      segment: context.lead.omnisendSegment || "other",
+      nextEngagementHours: 168, // 1 week — wait for human review
+      qcScore: 0,
+      strategyReasoning: "Circuit breaker tripped — AI paused for this lead",
+      researchSummary: "",
+      blocked: true,
+      blockReason: `Circuit breaker: ${circuitBreaker.consecutiveFailures} consecutive failures`,
+      violationCategory: "safety_violation",
+      fallbackUsed: true,
+      fallbackMessage: fallbackMsg,
+    };
+  }
 
   // Build shared context once
   const context = await buildLeadContext(input.leadId);
@@ -865,28 +1101,119 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
 
   // BRAIN 4: QC REVIEWER
   console.log(`[BrainCouncil] Running QC Reviewer...`);
-  const qc = await runQC(input, context, strategy, composed);
+  let qc = await runQC(input, context, strategy, composed);
   console.log(`[BrainCouncil] QC: score=${qc.score}, approved=${qc.approved}, issues=${qc.issues.length}`);
 
-  // If QC rejected, try ONE recompose with QC feedback
-  if (!qc.approved && qc.score < 50) {
-    console.log(`[BrainCouncil] QC REJECTED (score ${qc.score}). Recomposing with feedback...`);
+  // --- VIOLATION DETECTION (runs on EVERY message, not just rejected ones) ---
+  let violation = detectViolations(composed, qc, strategy, context, input, research);
+  let recomposeQcScore = qc.score;
+  let wasRecomposed = false;
+
+  // If QC rejected OR violation detected, try ONE recompose
+  if ((!qc.approved && qc.score < 50) || violation.category) {
+    console.log(`[BrainCouncil] ${violation.category ? `VIOLATION: ${violation.category} — ${violation.reason}` : `QC REJECTED (score ${qc.score})`}. Recomposing...`);
+    wasRecomposed = true;
     const recomposeInput = { ...input };
-    recomposeInput.incomingMessage = `${input.incomingMessage}\n\n[QC FEEDBACK — YOUR PREVIOUS MESSAGE WAS REJECTED]\nIssues: ${qc.issues.join("; ")}\nSuggestions: ${qc.suggestions.join("; ")}\nFix these issues in your rewrite.`;
+    const feedback = [
+      qc.issues.length > 0 ? `QC Issues: ${qc.issues.join("; ")}` : "",
+      qc.suggestions.length > 0 ? `QC Suggestions: ${qc.suggestions.join("; ")}` : "",
+      violation.category ? `VIOLATION DETECTED (${violation.category}): ${violation.reason}. You MUST fix this.` : "",
+    ].filter(Boolean).join("\n");
+    
+    recomposeInput.incomingMessage = `${input.incomingMessage}\n\n[QC FEEDBACK — YOUR PREVIOUS MESSAGE HAD ISSUES]\n${feedback}\nFix ALL issues in your rewrite. Reference the lead's ACTUAL form data.`;
 
     composed = await runComposer(recomposeInput, context, strategy, research);
     const qc2 = await runQC(recomposeInput, context, strategy, composed);
+    recomposeQcScore = qc2.score;
     console.log(`[BrainCouncil] Recompose QC: score=${qc2.score}, approved=${qc2.approved}`);
 
-    // Use the best version
+    // Re-check violations on recomposed message
+    violation = detectViolations(composed, qc2, strategy, context, input, research);
+
     if (qc2.revisedMessage) {
       composed.message = qc2.revisedMessage;
     }
+    qc = qc2;
   } else if (qc.revisedMessage) {
-    // QC approved with edits — use the revised version
     composed.message = qc.revisedMessage;
     console.log(`[BrainCouncil] Using QC-revised message`);
   }
+
+  // --- HARD BLOCK DECISION ---
+  // Block if: QC still fails after recompose, OR violation persists after recompose
+  const shouldBlock = (wasRecomposed && qc.score < 50) || (wasRecomposed && violation.category !== null);
+  const fallbackMsg = shouldBlock ? buildSafeFallback(context, input) : undefined;
+  
+  if (shouldBlock) {
+    console.log(`[BrainCouncil] 🚫 BLOCKED — ${violation.category || "low_qc_score"}: ${violation.reason || `QC score ${qc.score} after recompose`}`);
+    
+    // Update circuit breaker
+    await updateCircuitBreaker(input.leadId, true);
+    const updatedBreaker = await checkCircuitBreaker(input.leadId);
+    
+    // Notify owner
+    const notified = await notifyOwnerOfViolation(
+      input.leadId,
+      context.lead.name || `Lead #${input.leadId}`,
+      violation.category || "missing_framework",
+      violation.reason || `QC score ${qc.score} after recompose`,
+      composed.message,
+      qc.score,
+      updatedBreaker.consecutiveFailures
+    );
+    
+    // Audit log with accountability
+    await addBrainCouncilAudit({
+      leadId: input.leadId,
+      leadName: context.lead.name || undefined,
+      channel: input.channel,
+      incomingMessage: input.incomingMessage?.substring(0, 2000),
+      strategyApproach: strategy.approach,
+      strategyFramework: strategy.framework,
+      strategyReasoning: strategy.reasoning?.substring(0, 2000),
+      strategyTier: String(strategy.personalizationTier),
+      researchSummary: research.summary?.substring(0, 2000),
+      composedMessage: composed.message,
+      composerFromName: composed.fromName,
+      qcScore: qc.score,
+      qcApproved: 0,
+      qcIssues: qc.issues.length > 0 ? JSON.stringify(qc.issues) : undefined,
+      qcFeedback: qc.suggestions.length > 0 ? JSON.stringify(qc.suggestions) : undefined,
+      wasRecomposed: 1,
+      recomposeScore: recomposeQcScore,
+      finalMessage: fallbackMsg,
+      messageSent: 0,
+      blocked: 1,
+      blockReason: violation.reason || `QC score ${qc.score} after recompose`,
+      violationCategory: violation.category || "missing_framework",
+      ownerNotified: notified ? 1 : 0,
+      fallbackUsed: 1,
+      fallbackMessage: fallbackMsg,
+    });
+    
+    return {
+      message: fallbackMsg!,
+      fromName: context.lead.assignedAgent || composed.fromName,
+      subject: composed.subject || undefined,
+      framework: "SAFE_FALLBACK",
+      angle: strategy.angle,
+      extractedDates: [],
+      score: 0,
+      segment: context.lead.omnisendSegment || "other",
+      nextEngagementHours: strategy.nextEngagementHours,
+      qcScore: qc.score,
+      strategyReasoning: strategy.reasoning,
+      researchSummary: research.summary,
+      blocked: true,
+      blockReason: violation.reason || `QC score ${qc.score} after recompose`,
+      violationCategory: violation.category || "missing_framework",
+      fallbackUsed: true,
+      fallbackMessage: fallbackMsg,
+    };
+  }
+
+  // --- MESSAGE APPROVED — reset circuit breaker ---
+  await updateCircuitBreaker(input.leadId, false);
 
   // Score the lead using the sentiment-priority-scorer formula
   const urgencyScore = context.urgencyStage.includes("first") ? 1.0 :
@@ -928,9 +1255,14 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
       qcApproved: qc.approved ? 1 : 0,
       qcIssues: qc.issues.length > 0 ? JSON.stringify(qc.issues) : undefined,
       qcFeedback: qc.suggestions.length > 0 ? JSON.stringify(qc.suggestions) : undefined,
-      wasRecomposed: (!qc.approved && qc.score < 50) ? 1 : 0,
+      wasRecomposed: wasRecomposed ? 1 : 0,
+      recomposeScore: wasRecomposed ? recomposeQcScore : undefined,
       finalMessage: composed.message,
       messageSent: 1, // will be updated by webhook handler if send fails
+      blocked: 0,
+      violationCategory: undefined,
+      ownerNotified: 0,
+      fallbackUsed: 0,
     });
   } catch (auditErr) {
     console.error('[BrainCouncil] Audit log error (non-fatal):', auditErr);
@@ -949,5 +1281,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     qcScore: qc.score,
     strategyReasoning: strategy.reasoning,
     researchSummary: research.summary,
+    blocked: false,
+    fallbackUsed: false,
   };
 }
