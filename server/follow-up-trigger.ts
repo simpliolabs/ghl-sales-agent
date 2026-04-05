@@ -114,9 +114,22 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
           }
         }
 
-        // Determine channel — use preferred or last outbound, default SMS
-        const preferredChannel = (lead as any).preferredChannel || (lead as any).lastOutboundChannel || "SMS";
-        const channel = normalizeChannel(preferredChannel);
+        // --- DORMANCY DETECTION ---
+        const lastActivityAt = convHistory.length > 0 ? new Date(convHistory[0].timestamp).getTime() : (createdAt ? new Date(createdAt).getTime() : 0);
+        const daysSinceLastActivity = lastActivityAt ? (Date.now() - lastActivityAt) / (1000 * 60 * 60 * 24) : 999;
+        const isDormant = daysSinceLastActivity >= 30;
+        const dormancyTier = daysSinceLastActivity >= 180 ? "deep" : daysSinceLastActivity >= 90 ? "long" : daysSinceLastActivity >= 30 ? "moderate" : "active";
+
+        // Determine channel — dormant leads get EMAIL first, active leads use preferred
+        let channel: string;
+        if (isDormant && (lead as any).email) {
+          // Dormant leads ALWAYS get email re-activation first — SMS is too invasive after months of silence
+          channel = "Email";
+          console.log(`[FollowUp] Lead ${leadId} dormant ${Math.round(daysSinceLastActivity)}d — forcing Email channel (not SMS)`);
+        } else {
+          const preferredChannel = (lead as any).preferredChannel || (lead as any).lastOutboundChannel || "SMS";
+          channel = normalizeChannel(preferredChannel);
+        }
 
         // Check handoff status
         const handoffDecision = await shouldHandoffToAgent(historyStr, null);
@@ -150,10 +163,29 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
           }
         }
 
+        // --- BUILD DORMANCY-AWARE TRIGGER CONTEXT ---
+        let triggerContext = `[FOLLOW-UP TRIGGER] Lead is overdue for engagement.`;
+        triggerContext += ` Last contact: ${convHistory.length > 0 ? new Date(convHistory[0].timestamp).toLocaleString() : "never"}.`;
+        triggerContext += ` Consecutive unanswered: ${consecutiveUnanswered}.`;
+
+        if (isDormant) {
+          triggerContext += `\n\n⚠️ DORMANCY ALERT: This lead has been inactive for ${Math.round(daysSinceLastActivity)} days (${dormancyTier} dormancy).`;
+          triggerContext += ` DO NOT continue the old conversation as if no time has passed.`;
+          triggerContext += ` This is a RE-ACTIVATION — craft a warm, fresh re-introduction.`;
+          triggerContext += ` Channel: ${channel} (email preferred for dormant re-engagement).`;
+          if (dormancyTier === "deep") {
+            triggerContext += ` This lead has been silent 6+ months — treat as a brand new relationship. Reference their business, not past conversations.`;
+          } else if (dormancyTier === "long") {
+            triggerContext += ` This lead has been silent 3-6 months — acknowledge the gap naturally, offer fresh value.`;
+          } else {
+            triggerContext += ` This lead has been silent 1-3 months — gentle check-in with new value proposition.`;
+          }
+        }
+
         // --- RUN BRAIN COUNCIL ---
         const aiResponse = await runBrainCouncil({
           leadId,
-          incomingMessage: `[FOLLOW-UP TRIGGER] Lead is overdue for engagement. Last contact: ${convHistory.length > 0 ? new Date(convHistory[0].timestamp).toLocaleString() : "never"}. Consecutive unanswered: ${consecutiveUnanswered}.`,
+          incomingMessage: triggerContext,
           channel,
           externalHistory: historyStr,
         });
