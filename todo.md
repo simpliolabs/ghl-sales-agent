@@ -144,3 +144,8 @@
 - [x] LOOKBACK: Wire admin trigger + run on all 1,582 queued leads (rate-limited: 3s delay, 50/batch, auto-retry on rate limit, incremental resume)
 - [x] LOOKBACK: Wired as automatic background drip on server startup — 5 leads every 30 min, 5s delay between, auto-resume, incremental
 - [x] CACHE: Added TTL caching across entire portal — brain context (5min), conversations (2min), AI state (5min), tweaks (5min), KB (10min), pattern analysis (10min), perf stats (3min), pipeline stats (3min), agent workload (3min). Cache invalidation on all writes.
+- [x] BUG: Email to Pastor Shirley has no signature, no Google reviews, one long paragraph — fixed Composer with mandatory email format + signature block
+- [x] FIX: Composer brain now outputs short punchy lines (max 15 words/line) with blank lines between, Hormozi/Martell style
+- [x] FIX: Added mandatory email signature block: Agent | Adorb Custom Printing, phone, email, website, 4.9 Stars · 867+ Verified Reviews, Google reviews link
+- [x] FIX: QC brain now has Email Formatting Check (criterion 12) — scores 0 for missing signature, long paragraphs, no reviews link. Auto-fixes in revisedMessage.
+- [x] FIX: Email subject bug — follow-up trigger + webhook-message used fromName as subject instead of Composer's subject field

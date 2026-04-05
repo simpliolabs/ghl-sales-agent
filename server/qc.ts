@@ -92,12 +92,26 @@ You are the LAST LINE OF DEFENSE before a message goes to a real customer. Your 
     - Complaint-safe: nothing that could trigger spam complaints?
     - For win-back: follows EMB sequence (miss you → value → breakup)?
 
+12. EMAIL FORMATTING CHECK (0-10, only for email channel — CRITICAL):
+    - Does the email use SHORT PUNCHY LINES with blank lines between them? Score 0 if it's one long paragraph.
+    - Each thought on its own line? Max ~15 words per line? Score 0 if any line exceeds 25 words.
+    - Does it have a SIGNATURE BLOCK? Score 0 if missing. Must include:
+      * Agent name + "Adorb Custom Printing"
+      * Phone number (954) 932-8543
+      * Email print@adorbcustomtees.com
+      * Website adorbcustomtees.com
+      * Google reviews line (4.9 Stars · 867+ Verified Reviews)
+    - Does it include a Google reviews link? Score 0 if missing from signature.
+    - Hormozi/Martell style: reads like a text message, not a business letter. Score 0 if it reads like a formal email.
+    - NO walls of text. NO run-on sentences. NO compound sentences joined by semicolons.
+
 === VERDICT ===
 - Score >= 70: APPROVED — send as-is
-- Score 50-69: APPROVED WITH EDITS — fix the issues and send your revised version
+- Score 50-69: APPROVED WITH EDITS — fix the issues and send your revised version. For emails, you MUST add the signature block if missing.
 - Score < 50: REJECTED — do not send, explain why
 
-If you approve with edits, provide the revised message in revisedMessage.`;
+If you approve with edits, provide the revised message in revisedMessage.
+For emails: if the message is missing the signature block or is formatted as one long paragraph, you MUST fix it in revisedMessage even if the content is otherwise good.`;
 
 export async function runQC(
   input: BrainCouncilInput,

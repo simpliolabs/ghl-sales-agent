@@ -273,7 +273,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     }
     {
       const handoffOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
-        ? { type: "Email", subject: aiResponse.fromName, html: aiResponse.message, fromName: aiResponse.fromName }
+        ? { type: "Email", subject: aiResponse.subject || `${aiResponse.fromName} from Adorb`, html: aiResponse.message, fromName: aiResponse.fromName }
         : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
       const sendResult = await sendMessageWithRetry(resolvedContactId, handoffOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
       if (sendResult.resolvedContactId !== resolvedContactId) resolvedContactId = sendResult.resolvedContactId;
@@ -287,7 +287,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   // --- NORMAL AI RESPONSE ---
   {
     const normalOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
-      ? { type: "Email", subject: aiResponse.fromName, html: aiResponse.message, fromName: aiResponse.fromName }
+      ? { type: "Email", subject: aiResponse.subject || `${aiResponse.fromName} from Adorb`, html: aiResponse.message, fromName: aiResponse.fromName }
       : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
     const sendResult = await sendMessageWithRetry(resolvedContactId, normalOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
     if (sendResult.resolvedContactId !== resolvedContactId) resolvedContactId = sendResult.resolvedContactId;

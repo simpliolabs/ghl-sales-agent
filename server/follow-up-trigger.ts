@@ -214,7 +214,7 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
 
         // --- SEND MESSAGE ---
         const msgOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
-          ? { type: "Email", subject: aiResponse.fromName, html: aiResponse.message, fromName: aiResponse.fromName }
+          ? { type: "Email", subject: aiResponse.subject || `${aiResponse.fromName} from Adorb`, html: aiResponse.message, fromName: aiResponse.fromName }
           : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
         const sendResult = await sendMessageWithRetry(ghlContactId, msgOpts, { email: (lead as any).email, phone: (lead as any).phone, id: leadId });
 
