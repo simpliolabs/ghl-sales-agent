@@ -228,10 +228,17 @@ export function extractFormData(payload: Record<string, unknown>): Array<{ label
 
 // --- CHANNEL NORMALIZATION ---
 export function normalizeChannel(raw: unknown): string {
-  const lower = String(raw || "SMS").toLowerCase();
+  const lower = String(raw || "SMS").toLowerCase().trim();
+  // GHL numeric message types: 2=SMS, 3=Email, 4=FB, 5=IG, 6=WhatsApp, 15=Live_Chat(FB)
+  if (lower === "4" || lower === "15") return "FB";
+  if (lower === "5") return "IG";
+  if (lower === "6") return "WhatsApp";
+  if (lower === "3") return "Email";
+  if (lower === "2") return "SMS";
+  // String-based types
   if (lower.includes("email")) return "Email";
   if (lower.includes("whatsapp")) return "WhatsApp";
-  if (lower.includes("fb") || lower.includes("facebook")) return "FB";
+  if (lower.includes("fb") || lower.includes("facebook") || lower.includes("live_chat")) return "FB";
   if (lower.includes("ig") || lower.includes("instagram")) return "IG";
   return "SMS";
 }

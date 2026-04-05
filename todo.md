@@ -161,3 +161,4 @@
 - [x] LLM RETRY: AuditLog.tsx — Added "LLM Credits Exhausted" violation label + purple badge color
 - [x] LLM RETRY: 12 new vitest tests for isLlmExhausted, constants, and exponential backoff calculation
 - [x] BUG: Duplicate SMS sent to Jose Alfredo Munoz — same message sent twice at 01:27 PM on Apr 5. Fixed with in-memory concurrent dedup lock in webhooks.ts (acquireMessageLock/releaseMessageLock) + type-safe fallback handler for empty/object body payloads. 4 new dedup tests added.
+- [x] BUG: Paulette Hughes Kornegay came in via Facebook but locked first-contact template sent via SMS — Fixed with 7-layer channel detection in webhook-contact.ts (GHL history, payload type, nested message type, payload source, lead source, workflow name, tags) + normalizeChannel now handles GHL numeric types (2=SMS, 3=Email, 4=FB, 5=IG, 6=WhatsApp, 15=Live_Chat). 12 new normalizeChannel tests.

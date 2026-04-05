@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isLlmExhausted, LLM_RETRY_DELAY_MS, MAX_LLM_RETRIES } from "./webhook-helpers";
+import { isLlmExhausted, LLM_RETRY_DELAY_MS, MAX_LLM_RETRIES, normalizeChannel } from "./webhook-helpers";
 
 describe("isLlmExhausted", () => {
   it("detects 412 Precondition Failed usage exhausted errors", () => {
@@ -89,5 +89,71 @@ describe("exponential backoff calculation", () => {
     // After retry 5, the exponent caps at 5, so delays plateau
     expect(delays[5]).toBe(delays[6]);
     expect(delays[6]).toBe(delays[7]);
+  });
+});
+
+describe("normalizeChannel", () => {
+  it("detects GHL numeric type 4 as FB", () => {
+    expect(normalizeChannel(4)).toBe("FB");
+    expect(normalizeChannel("4")).toBe("FB");
+  });
+
+  it("detects GHL numeric type 15 (Live_Chat) as FB", () => {
+    expect(normalizeChannel(15)).toBe("FB");
+    expect(normalizeChannel("15")).toBe("FB");
+  });
+
+  it("detects GHL numeric type 5 as IG", () => {
+    expect(normalizeChannel(5)).toBe("IG");
+    expect(normalizeChannel("5")).toBe("IG");
+  });
+
+  it("detects GHL numeric type 6 as WhatsApp", () => {
+    expect(normalizeChannel(6)).toBe("WhatsApp");
+    expect(normalizeChannel("6")).toBe("WhatsApp");
+  });
+
+  it("detects GHL numeric type 3 as Email", () => {
+    expect(normalizeChannel(3)).toBe("Email");
+    expect(normalizeChannel("3")).toBe("Email");
+  });
+
+  it("detects GHL numeric type 2 as SMS", () => {
+    expect(normalizeChannel(2)).toBe("SMS");
+    expect(normalizeChannel("2")).toBe("SMS");
+  });
+
+  it("detects string 'FB' as FB", () => {
+    expect(normalizeChannel("FB")).toBe("FB");
+    expect(normalizeChannel("fb")).toBe("FB");
+    expect(normalizeChannel("Facebook")).toBe("FB");
+  });
+
+  it("detects 'live_chat' as FB", () => {
+    expect(normalizeChannel("Live_Chat")).toBe("FB");
+    expect(normalizeChannel("live_chat")).toBe("FB");
+  });
+
+  it("detects string 'IG' as IG", () => {
+    expect(normalizeChannel("IG")).toBe("IG");
+    expect(normalizeChannel("Instagram")).toBe("IG");
+  });
+
+  it("detects string 'Email' as Email", () => {
+    expect(normalizeChannel("Email")).toBe("Email");
+    expect(normalizeChannel("email")).toBe("Email");
+  });
+
+  it("detects string 'WhatsApp' as WhatsApp", () => {
+    expect(normalizeChannel("WhatsApp")).toBe("WhatsApp");
+    expect(normalizeChannel("whatsapp")).toBe("WhatsApp");
+  });
+
+  it("defaults to SMS for unknown types", () => {
+    expect(normalizeChannel("SMS")).toBe("SMS");
+    expect(normalizeChannel("InboundMessage")).toBe("SMS");
+    expect(normalizeChannel(undefined)).toBe("SMS");
+    expect(normalizeChannel(null)).toBe("SMS");
+    expect(normalizeChannel("")).toBe("SMS");
   });
 });

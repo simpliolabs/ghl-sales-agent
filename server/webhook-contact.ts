@@ -148,29 +148,84 @@ export async function handleContactWebhook(payload: Record<string, unknown>, res
         } catch { /* best effort */ }
       }
 
-      // --- DETECT CHANNEL ---
+      // --- DETECT CHANNEL (multi-layer) ---
+      // Layer 1: Check GHL conversation history for inbound message type
       const ghlHistory = await fetchGhlConversationHistory(resolvedContactId);
       let detectedChannel = "";
       if (ghlHistory.length > 0) {
         const lastInbound = [...ghlHistory].reverse().find(m => m.direction === "inbound");
         if (lastInbound) {
           const rawType = String(lastInbound.type || "").toLowerCase();
-          if (rawType.includes("fb") || rawType.includes("facebook")) detectedChannel = "FB";
-          else if (rawType.includes("ig") || rawType.includes("instagram")) detectedChannel = "IG";
-          else if (rawType.includes("whatsapp")) detectedChannel = "WhatsApp";
-          else if (rawType.includes("email")) detectedChannel = "Email";
-          else if (rawType.includes("sms") || rawType.includes("message")) detectedChannel = "SMS";
+          // GHL uses numeric types: 2=SMS, 3=Email, 4=FB, 5=IG, 6=WhatsApp, etc.
+          // Also check string types: "FB", "Email", "SMS", etc.
+          if (rawType === "4" || rawType.includes("fb") || rawType.includes("facebook") || rawType.includes("live_chat")) detectedChannel = "FB";
+          else if (rawType === "5" || rawType.includes("ig") || rawType.includes("instagram")) detectedChannel = "IG";
+          else if (rawType === "6" || rawType.includes("whatsapp")) detectedChannel = "WhatsApp";
+          else if (rawType === "3" || rawType.includes("email")) detectedChannel = "Email";
+          else if (rawType === "2" || rawType.includes("sms") || rawType.includes("message")) detectedChannel = "SMS";
         }
       }
+
+      // Layer 2: Check the webhook payload itself for channel indicators
+      if (!detectedChannel) {
+        // Check payload.messageType or payload.type for FB/IG/etc.
+        const payloadType = String(payload.messageType || payload.type || "").toLowerCase();
+        if (payloadType === "4" || payloadType.includes("fb") || payloadType.includes("facebook")) detectedChannel = "FB";
+        else if (payloadType === "5" || payloadType.includes("ig") || payloadType.includes("instagram")) detectedChannel = "IG";
+        else if (payloadType === "6" || payloadType.includes("whatsapp")) detectedChannel = "WhatsApp";
+
+        // Check nested message.type (GHL workflow payloads)
+        if (!detectedChannel) {
+          const nestedMsg = payload.message as Record<string, unknown> | undefined;
+          if (nestedMsg && typeof nestedMsg === "object") {
+            const nestedType = String(nestedMsg.type || "").toLowerCase();
+            if (nestedType === "4" || nestedType.includes("fb") || nestedType.includes("facebook")) detectedChannel = "FB";
+            else if (nestedType === "5" || nestedType.includes("ig") || nestedType.includes("instagram")) detectedChannel = "IG";
+            else if (nestedType === "6" || nestedType.includes("whatsapp")) detectedChannel = "WhatsApp";
+          }
+        }
+      }
+
+      // Layer 3: Check payload.source AND GHL contact source field
       if (!detectedChannel) {
         const src = (payload.source as string || "").toLowerCase();
-        if (src.includes("facebook") || src.includes("fb")) detectedChannel = "FB";
+        if (src.includes("facebook") || src.includes("fb") || src.includes("lead_form")) detectedChannel = "FB";
         else if (src.includes("instagram") || src.includes("ig")) detectedChannel = "IG";
         else if (src.includes("whatsapp")) detectedChannel = "WhatsApp";
-        else if (lead.email && !lead.phone) detectedChannel = "Email";
+      }
+
+      // Layer 4: Check the GHL contact's source field from API enrichment
+      if (!detectedChannel && lead.source) {
+        const leadSrc = (lead.source as string).toLowerCase();
+        if (leadSrc.includes("facebook") || leadSrc.includes("fb") || leadSrc.includes("lead_form")) detectedChannel = "FB";
+        else if (leadSrc.includes("instagram") || leadSrc.includes("ig")) detectedChannel = "IG";
+        else if (leadSrc.includes("whatsapp")) detectedChannel = "WhatsApp";
+      }
+
+      // Layer 5: Check workflow name for Facebook/IG indicators
+      if (!detectedChannel) {
+        const workflow = payload.workflow as Record<string, unknown> | undefined;
+        const wfName = String(workflow?.name || "").toLowerCase();
+        if (wfName.includes("facebook") || wfName.includes("fb")) detectedChannel = "FB";
+        else if (wfName.includes("instagram") || wfName.includes("ig")) detectedChannel = "IG";
+      }
+
+      // Layer 6: Check tags for Facebook/IG indicators
+      if (!detectedChannel) {
+        const tags = (payload.tags as string[] || []);
+        const tagStr = tags.join(" ").toLowerCase();
+        if (tagStr.includes("facebook") || tagStr.includes("fb") || tagStr.includes("lead_form")) detectedChannel = "FB";
+        else if (tagStr.includes("instagram") || tagStr.includes("ig")) detectedChannel = "IG";
+      }
+
+      // Layer 7: Default fallback — phone → SMS, email-only → Email
+      if (!detectedChannel) {
+        if (lead.email && !lead.phone) detectedChannel = "Email";
         else if (lead.phone) detectedChannel = "SMS";
         else if (lead.email) detectedChannel = "Email";
       }
+
+      console.log(`[Webhook] Channel detection for lead ${lead.id}: detected=${detectedChannel}, ghlHistory=${ghlHistory.length} msgs, source=${payload.source || lead.source || "none"}`);
 
       if (detectedChannel && (lead.phone || lead.email)) {
         const channel = detectedChannel as "SMS" | "Email" | "WhatsApp" | "FB" | "IG";
