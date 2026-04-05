@@ -6,6 +6,7 @@ import { Response } from "express";
 import { getLeadByGhlContactId, addPipelineEvent, updateLeadFields, addConversation, addAgentAssignment, getAgentWorkload } from "./db";
 import { calculateNextFollowUp } from "./scheduling-engine";
 import { createTask, addNote } from "./ghl";
+import { attributeStageAdvance } from "./outcome-engine";
 import {
   SALES_AGENTS,
   DESIGNER,
@@ -147,6 +148,17 @@ export async function handlePipelineWebhook(payload: Record<string, unknown>, re
   if (!lead) { res.status(404).json({ error: "Lead not found" }); return; }
 
   await addPipelineEvent({ leadId: lead.id, fromStage, toStage, triggeredBy: "webhook" });
+
+  // --- SELF-LEARNING: Attribute stage advance to the AI message that influenced it ---
+  try {
+    await attributeStageAdvance({
+      leadId: lead.id,
+      toStage,
+      previousScore: lead.opportunityScore ?? undefined,
+    });
+  } catch (err) {
+    console.error('[Webhook/Learn] Stage attribution error (non-fatal):', err);
+  }
 
   const updateFields: Record<string, unknown> = { pipelineStage: toStage };
   if (monetaryValue !== undefined && monetaryValue !== null) updateFields.pipelineValue = Number(monetaryValue);

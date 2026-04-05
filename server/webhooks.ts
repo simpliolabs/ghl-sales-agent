@@ -17,6 +17,7 @@ import { handleMessageWebhook } from "./webhook-message";
 import { handlePipelineWebhook } from "./webhook-pipeline";
 import { handleTaskWebhook } from "./webhook-task";
 import { retroactiveCorrectionScan } from "./auto-correction";
+import { backfillOutcomes } from "./outcome-engine";
 
 export function createWebhookRouter(): Router {
   const router = Router();
@@ -30,6 +31,26 @@ export function createWebhookRouter(): Router {
       console.error('[AutoCorrect/Timer] Scan error:', err);
     }
   }, 15 * 60 * 1000);
+
+  // --- SELF-LEARNING: Backfill outcome records every 30 minutes ---
+  setInterval(async () => {
+    try {
+      const created = await backfillOutcomes();
+      if (created > 0) console.log(`[Learn/Timer] Backfilled ${created} outcome records`);
+    } catch (err) {
+      console.error('[Learn/Timer] Backfill error:', err);
+    }
+  }, 30 * 60 * 1000);
+
+  // Run initial backfill 60s after startup
+  setTimeout(async () => {
+    try {
+      const created = await backfillOutcomes();
+      console.log(`[Learn/Timer] Initial backfill: ${created} outcome records created`);
+    } catch (err) {
+      console.error('[Learn/Timer] Initial backfill error:', err);
+    }
+  }, 60 * 1000);
 
   // --- WEBHOOK HEALTH CHECK ---
   router.get("/api/webhooks/health", (_req: Request, res: Response) => {

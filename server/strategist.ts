@@ -4,6 +4,7 @@
 
 import { invokeLLM } from "./_core/llm";
 import type { BrainCouncilInput, StrategyDecision, LeadContext } from "./brain-types";
+import { buildLearningContext } from "./outcome-engine";
 
 const STRATEGIST_PROMPT = `You are the STRATEGIST brain for Adorb Custom Tees' AI outreach system.
 
@@ -126,6 +127,21 @@ Deliverability (from EMB Chapter 7):
 === YOUR OUTPUT ===
 Analyze the lead context and produce a strategic directive. Be specific and actionable.`;
 
+// Cache learning context for 10 minutes to avoid repeated DB queries
+let _learningCache: { text: string; expires: number } | null = null;
+
+async function getLearningBlock(segment?: string | null): Promise<string> {
+  if (_learningCache && Date.now() < _learningCache.expires) return _learningCache.text;
+  try {
+    const text = await buildLearningContext(segment || undefined);
+    _learningCache = { text, expires: Date.now() + 10 * 60 * 1000 };
+    return text;
+  } catch (err) {
+    console.error('[Strategist] Failed to build learning context:', err);
+    return 'LEARNING DATA: Unavailable (error fetching).';
+  }
+}
+
 export async function runStrategist(input: BrainCouncilInput, context: LeadContext): Promise<StrategyDecision> {
   const { lead, state, historyStr, isFirstResponse, leadAgeDays, urgencyStage, unansweredCount } = context;
 
@@ -163,7 +179,9 @@ ${input.externalHistory ? input.externalHistory + "\n" + historyStr : historyStr
 INCOMING MESSAGE:
 ${input.incomingMessage}
 
-Produce your strategic directive now.`;
+${await getLearningBlock(lead.omnisendSegment)}
+
+Produce your strategic directive now. PRIORITIZE frameworks and channels with proven higher reply rates from the learning data above (if available).`;
 
   const response = await invokeLLM({
     messages: [

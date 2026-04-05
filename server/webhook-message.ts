@@ -21,6 +21,7 @@ import { runBrainCouncil } from "./brain-council-orchestrator";
 import { calculateNextFollowUp, checkRateLimits } from "./scheduling-engine";
 import { sendMessage, updateContactCustomField, createTask, addNote, fetchGhlConversationHistory, getContact } from "./ghl";
 import { detectConfusion, handleConfusionReply, postSendValidation } from "./auto-correction";
+import { attributeReply } from "./outcome-engine";
 import {
   resolveGhlContactId,
   extractContactData,
@@ -79,6 +80,23 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   });
 
   await updateLeadFields(lead!.id, { lastMessageAt: new Date() });
+
+  // --- SELF-LEARNING: Attribute this reply to the AI message that caused it ---
+  if (direction === "inbound") {
+    try {
+      const attribution = await attributeReply({
+        leadId: lead!.id,
+        replyMessage: messageBody,
+        replyTimestamp: new Date(),
+        channel,
+      });
+      if (attribution) {
+        console.log(`[Webhook/Learn] Reply attributed to audit #${attribution.auditId}: ${attribution.replyMinutes}min, sentiment=${attribution.sentiment}`);
+      }
+    } catch (err) {
+      console.error('[Webhook/Learn] Attribution error (non-fatal):', err);
+    }
+  }
 
   // --- AUTO-CORRECTION: Detect confusion in inbound messages ---
   if (direction === "inbound" && detectConfusion(messageBody)) {

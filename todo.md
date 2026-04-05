@@ -115,6 +115,13 @@
 - [x] REFACTOR: Split brain-council.ts (1287 lines) into brain-types.ts, brain-context.ts, strategist.ts, researcher.ts, composer.ts, qc.ts, brain-council-orchestrator.ts
 - [ ] REFACTOR: Extract shared types/interfaces into shared/types.ts
 - [ ] BUILD: Follow-up engine as first-class module with tier-based cadence
-- [ ] BUILD: Self-learning infrastructure (outcome tracking, pattern analysis, prompt injection)
+- [x] BUILD: Self-learning infrastructure (outcome tracking, pattern analysis, prompt injection)
 - [ ] BUILD: Bulk agent assignment for 1,618 unassigned leads
 - [ ] BUILD: Bulk GHL data enrichment for all leads
+- [x] SELF-LEARN: Schema + DB helpers for outcome tracking (message_outcomes table linking audit → reply/conversion/sentiment)
+- [x] SELF-LEARN: Outcome detection engine — detect replies, conversions, sentiment shifts per AI message
+- [x] SELF-LEARN: Pattern analysis module — aggregate win rates by framework/angle/segment/agent
+- [x] SELF-LEARN: Inject learning context into Strategist brain (top-performing frameworks per segment)
+- [x] SELF-LEARN: Wire outcome tracking into webhook message flow (auto-attribute replies to prior AI messages)
+- [x] SELF-LEARN: Dashboard UI — learning insights page showing what's working and what's not
+- [x] SELF-LEARN: Tests for outcome tracking + pattern analysis

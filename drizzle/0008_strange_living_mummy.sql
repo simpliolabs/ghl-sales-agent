@@ -1,0 +1,22 @@
+CREATE TABLE `message_outcomes` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`auditId` int NOT NULL,
+	`leadId` int NOT NULL,
+	`framework` varchar(64),
+	`angle` varchar(128),
+	`approach` varchar(64),
+	`channel` varchar(32),
+	`segment` varchar(64),
+	`agentName` varchar(128),
+	`personalizationTier` int,
+	`gotReply` tinyint DEFAULT 0,
+	`replyMinutes` int,
+	`replySentiment` varchar(16),
+	`stageAdvanced` tinyint DEFAULT 0,
+	`toStage` varchar(64),
+	`scoreChange` int,
+	`converted` tinyint DEFAULT 0,
+	`attributedAt` timestamp,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	CONSTRAINT `message_outcomes_id` PRIMARY KEY(`id`)
+);

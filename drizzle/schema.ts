@@ -204,6 +204,35 @@ export const brainCouncilAudit = mysqlTable("brain_council_audit", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+// Self-learning: Outcome tracking — links each AI message to its measurable result
+export const messageOutcomes = mysqlTable("message_outcomes", {
+  id: int("id").autoincrement().primaryKey(),
+  auditId: int("auditId").notNull(), // FK → brain_council_audit.id
+  leadId: int("leadId").notNull(),
+  // What the AI sent
+  framework: varchar("framework", { length: 64 }),
+  angle: varchar("angle", { length: 128 }),
+  approach: varchar("approach", { length: 64 }),
+  channel: varchar("channel", { length: 32 }),
+  segment: varchar("segment", { length: 64 }),
+  agentName: varchar("agentName", { length: 128 }),
+  personalizationTier: int("personalizationTier"),
+  // Outcome signals
+  gotReply: tinyint("gotReply").default(0), // 1 = lead replied within attribution window
+  replyMinutes: int("replyMinutes"), // how fast they replied (null = no reply)
+  replySentiment: varchar("replySentiment", { length: 16 }), // positive, neutral, negative
+  stageAdvanced: tinyint("stageAdvanced").default(0), // 1 = pipeline moved forward after this message
+  toStage: varchar("toStage", { length: 64 }), // which stage they moved to
+  scoreChange: int("scoreChange"), // opportunity score delta
+  converted: tinyint("converted").default(0), // 1 = reached Paid/Approved/Delivered
+  // Metadata
+  attributedAt: timestamp("attributedAt"), // when the outcome was recorded
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type MessageOutcome = typeof messageOutcomes.$inferSelect;
+export type InsertMessageOutcome = typeof messageOutcomes.$inferInsert;
+
 export type AiTweak = typeof aiTweaks.$inferSelect;
 export type Invite = typeof invites.$inferSelect;
 export type InsertInvite = typeof invites.$inferInsert;

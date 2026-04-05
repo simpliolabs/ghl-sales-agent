@@ -19,6 +19,7 @@ import { storagePut } from "./storage";
 import { getContacts, getPipelines } from "./ghl";
 import { invokeLLM } from "./_core/llm";
 import { scoreLeadQuick } from "./ai-brain";
+import { getPatternAnalysis, backfillOutcomes } from "./outcome-engine";
 
 // Auto-synthesize uploaded content using LLM
 async function synthesizeContent(rawText: string, fileName: string): Promise<string> {
@@ -133,6 +134,11 @@ export const appRouter = router({
       return result;
     }),
     archiveTweak: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => { await archiveTweak(input.id); return { success: true }; }),
+    learningInsights: protectedProcedure.query(async () => getPatternAnalysis()),
+    triggerBackfill: adminProcedure.mutation(async () => {
+      const created = await backfillOutcomes();
+      return { created };
+    }),
   }),
 
   knowledge: router({
