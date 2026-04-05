@@ -48,7 +48,7 @@ vi.mock("./scheduling-engine", () => ({
   checkLeadRateLimit: vi.fn().mockResolvedValue(true),
 }));
 
-vi.mock("./brain-council", () => ({
+vi.mock("./brain-council-orchestrator", () => ({
   runBrainCouncil: vi.fn().mockResolvedValue({ message: "Hello from Brain Council!", fromName: "Adorb Custom Tees", framework: "PAS", angle: "intro", extractedDates: [], score: 50, segment: "other", nextEngagementHours: 24, qcScore: 85, strategyReasoning: "Test strategy" }),
 }));
 
@@ -358,7 +358,7 @@ describe("Dedup guard and cadence backoff", () => {
     const { getRecentAiOutboundCount } = await import("./db");
     (getRecentAiOutboundCount as ReturnType<typeof vi.fn>).mockResolvedValue(1);
 
-    const { runBrainCouncil } = await import("./brain-council");
+    const { runBrainCouncil } = await import("./brain-council-orchestrator");
 
     const res = await request(app).post("/api/webhooks/ghl").send({
       id: "contact_dedup_1",
@@ -379,7 +379,7 @@ describe("Dedup guard and cadence backoff", () => {
     const { getRecentAiOutboundCount } = await import("./db");
     (getRecentAiOutboundCount as ReturnType<typeof vi.fn>).mockResolvedValue(1);
 
-    const { runBrainCouncil } = await import("./brain-council");
+    const { runBrainCouncil } = await import("./brain-council-orchestrator");
 
     const res = await request(app).post("/api/webhooks/ghl/message").send({
       contactId: "contact_123",
@@ -402,7 +402,7 @@ describe("Dedup guard and cadence backoff", () => {
       { direction: "outbound", senderType: "ai", channel: "SMS", messageBody: "First msg", timestamp: new Date(Date.now() - 120000) },
     ]);
 
-    const { runBrainCouncil } = await import("./brain-council");
+    const { runBrainCouncil } = await import("./brain-council-orchestrator");
 
     const res = await request(app).post("/api/webhooks/ghl/message").send({
       contactId: "contact_123",
@@ -424,7 +424,7 @@ describe("Dedup guard and cadence backoff", () => {
     // Reset conversation history to empty (no unanswered messages)
     (getConversationHistory as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
-    const { runBrainCouncil } = await import("./brain-council");
+    const { runBrainCouncil } = await import("./brain-council-orchestrator");
 
     const res = await request(app).post("/api/webhooks/ghl/message").send({
       contactId: "contact_123",
@@ -467,7 +467,7 @@ describe("Form data extraction in contact webhook", () => {
 
     expect(res.status).toBe(200);
     // Brain Council should NOT be called for first contact (locked template)
-    const { runBrainCouncil } = await import("./brain-council");
+    const { runBrainCouncil } = await import("./brain-council-orchestrator");
     expect(runBrainCouncil).not.toHaveBeenCalled();
     // sendMessage should be called with the locked template messages
     expect(sendMessage).toHaveBeenCalled();

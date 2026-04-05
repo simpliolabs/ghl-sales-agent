@@ -111,3 +111,10 @@
 - [x] AUTO-CORRECT: When a message is blocked by QC, auto-send apology + correct message if a bad message was already delivered
 - [x] AUTO-CORRECT: Detect when a previously sent message was bad (via audit log violation) and trigger correction
 - [x] AUTO-CORRECT: Apology template — short, human, acknowledges the mix-up, then delivers the correct locked template
+- [x] REFACTOR: Split webhooks.ts (1386 lines) into webhook-helpers.ts, webhook-contact.ts, webhook-message.ts, webhook-pipeline.ts, webhook-task.ts, webhooks.ts (thin router)
+- [x] REFACTOR: Split brain-council.ts (1287 lines) into brain-types.ts, brain-context.ts, strategist.ts, researcher.ts, composer.ts, qc.ts, brain-council-orchestrator.ts
+- [ ] REFACTOR: Extract shared types/interfaces into shared/types.ts
+- [ ] BUILD: Follow-up engine as first-class module with tier-based cadence
+- [ ] BUILD: Self-learning infrastructure (outcome tracking, pattern analysis, prompt injection)
+- [ ] BUILD: Bulk agent assignment for 1,618 unassigned leads
+- [ ] BUILD: Bulk GHL data enrichment for all leads

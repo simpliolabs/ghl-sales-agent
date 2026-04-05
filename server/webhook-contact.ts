@@ -1,0 +1,263 @@
+/**
+ * WEBHOOK CONTACT HANDLER — Handles new contact creation from GHL
+ * 
+ * Responsibilities:
+ * - Upsert lead from GHL contact data
+ * - Resolve real GHL contact ID (GHL sends wrong IDs sometimes)
+ * - Enrich lead with GHL API data
+ * - Classify segment + research lead
+ * - Push to Omnisend
+ * - Auto-assign sales agent
+ * - Send LOCKED first-contact template (Hormozi ACA — no Brain Council)
+ */
+
+import { Response } from "express";
+import { upsertLead, updateLeadFields, getLeadById, getRecentAiOutboundCount, addConversation, upsertAiState, addBrainCouncilAudit, addAgentAssignment, getAgentWorkload } from "./db";
+import { classifySegment } from "./ai-brain";
+import { researchLead } from "./lead-researcher";
+import { calculateNextFollowUp, checkRateLimits, checkLeadRateLimit } from "./scheduling-engine";
+import { getContact, fetchGhlConversationHistory } from "./ghl";
+import { pushContactToOmnisend } from "./omnisend";
+import {
+  SALES_AGENTS,
+  STAGES,
+  resolveGhlContactId,
+  extractContactData,
+  sendMessageWithRetry,
+  extractFormData,
+} from "./webhook-helpers";
+import { handleStageAutomation } from "./webhook-pipeline";
+
+export async function handleContactWebhook(payload: Record<string, unknown>, res: Response) {
+  const contactId = (payload.id || payload.contactId) as string;
+  if (!contactId) { res.status(400).json({ error: "No contact ID" }); return; }
+
+  let lead = await upsertLead({
+    ghlContactId: contactId,
+    name: payload.name as string || (payload.firstName ? `${payload.firstName || ""} ${payload.lastName || ""}`.trim() : undefined),
+    email: payload.email as string,
+    phone: payload.phone as string,
+    businessName: (payload.companyName || payload.businessName) as string,
+    website: payload.website as string,
+    source: (payload.source || (payload.tags as string[])?.[0] || "ghl") as string,
+  });
+
+  // GHL CONTACT ID RESOLUTION
+  let resolvedContactId = contactId;
+  if (lead) {
+    const resolved = await resolveGhlContactId(contactId, lead.email || (payload.email as string), lead.phone || (payload.phone as string));
+    if (resolved) {
+      resolvedContactId = resolved.resolvedId;
+      if (resolvedContactId !== contactId) {
+        console.log(`[Webhook] Contact ID resolved: ${contactId} → ${resolvedContactId}`);
+        await updateLeadFields(lead.id, { ghlContactId: resolvedContactId });
+      }
+      const enriched = extractContactData(resolved.contact);
+      const updates: Record<string, unknown> = {};
+      if (!lead.name && enriched.name) updates.name = enriched.name;
+      if (!lead.email && enriched.email) updates.email = enriched.email;
+      if (!lead.phone && enriched.phone) updates.phone = enriched.phone;
+      if (!lead.businessName && enriched.businessName) updates.businessName = enriched.businessName;
+      if (!lead.website && enriched.website) updates.website = enriched.website;
+      if (!lead.source && enriched.source) updates.source = enriched.source;
+      if (Object.keys(updates).length > 0) {
+        await updateLeadFields(lead.id, updates);
+        console.log(`[Webhook] Enriched lead ${lead.id} with: ${Object.keys(updates).join(", ")}`);
+        lead = { ...lead, ...updates } as typeof lead;
+      }
+    }
+  }
+
+  if (lead && lead.businessName) {
+    const segment = await classifySegment(lead.businessName, lead.website || undefined);
+    try {
+      const research = await researchLead({
+        name: lead.name || undefined,
+        businessName: lead.businessName || undefined,
+        source: lead.source || undefined,
+        website: lead.website || undefined,
+        segment,
+        email: lead.email || undefined,
+      });
+      await updateLeadFields(lead.id, { omnisendSegment: segment, researchData: research });
+    } catch (err) {
+      console.error("[Webhook] Research failed for lead", lead.id, err);
+      await updateLeadFields(lead.id, { omnisendSegment: segment });
+    }
+
+    if (lead.email) {
+      const nameParts = (lead.name || "").split(" ");
+      await pushContactToOmnisend({
+        email: lead.email,
+        firstName: nameParts[0],
+        lastName: nameParts.slice(1).join(" "),
+        phone: lead.phone || undefined,
+        tags: [segment],
+      });
+    }
+  }
+
+  // Auto-assign sales agent and trigger New Lead automation
+  if (lead) {
+    await handleStageAutomation(STAGES.NEW_LEAD, {
+      id: lead.id,
+      ghlContactId: contactId,
+      name: lead.name || null,
+      businessName: lead.businessName || null,
+      email: lead.email || null,
+      assignedAgent: lead.assignedAgent || null,
+      pipelineValue: null,
+    });
+
+    const initialSchedule = await calculateNextFollowUp({ leadId: lead.id, triggerEvent: "new_lead" });
+    await updateLeadFields(lead.id, { nextFollowUpAt: initialSchedule.nextFollowUpAt, cadencePosition: initialSchedule.cadencePosition });
+
+    // =================================================================
+    // LOCKED FIRST-CONTACT SEQUENCE (Hormozi ACA — No Brain Council)
+    // =================================================================
+    try {
+      const rateCheck = await checkRateLimits();
+      if (!rateCheck.allowed) {
+        console.log(`[Webhook] Rate limit hit for lead ${lead.id}: ${rateCheck.reason}`);
+        res.json({ success: true, action: "rate_limited" });
+        return;
+      }
+
+      const leadAllowed = await checkLeadRateLimit(lead.id);
+      if (!leadAllowed) {
+        console.log(`[Webhook] Per-lead rate limit for lead ${lead.id} — already contacted in last 24h`);
+        res.json({ success: true, action: "lead_rate_limited" });
+        return;
+      }
+
+      const recentAiCount = await getRecentAiOutboundCount(lead.id, 15);
+      if (recentAiCount > 0) {
+        console.log(`[Webhook] Skipping first-contact for lead ${lead.id} — ${recentAiCount} message(s) sent in last 15 min`);
+        res.json({ success: true, action: "dedup_skipped" });
+        return;
+      }
+
+      // --- EXTRACT FORM DATA ---
+      let formFields = extractFormData(payload);
+      if (formFields.length === 0) {
+        try {
+          const ghlContact = await getContact(resolvedContactId);
+          if (ghlContact?.customFields) {
+            formFields = extractFormData({ customFields: ghlContact.customFields });
+          }
+        } catch { /* best effort */ }
+      }
+
+      // --- DETECT CHANNEL ---
+      const ghlHistory = await fetchGhlConversationHistory(resolvedContactId);
+      let detectedChannel = "";
+      if (ghlHistory.length > 0) {
+        const lastInbound = [...ghlHistory].reverse().find(m => m.direction === "inbound");
+        if (lastInbound) {
+          const rawType = String(lastInbound.type || "").toLowerCase();
+          if (rawType.includes("fb") || rawType.includes("facebook")) detectedChannel = "FB";
+          else if (rawType.includes("ig") || rawType.includes("instagram")) detectedChannel = "IG";
+          else if (rawType.includes("whatsapp")) detectedChannel = "WhatsApp";
+          else if (rawType.includes("email")) detectedChannel = "Email";
+          else if (rawType.includes("sms") || rawType.includes("message")) detectedChannel = "SMS";
+        }
+      }
+      if (!detectedChannel) {
+        const src = (payload.source as string || "").toLowerCase();
+        if (src.includes("facebook") || src.includes("fb")) detectedChannel = "FB";
+        else if (src.includes("instagram") || src.includes("ig")) detectedChannel = "IG";
+        else if (src.includes("whatsapp")) detectedChannel = "WhatsApp";
+        else if (lead.email && !lead.phone) detectedChannel = "Email";
+        else if (lead.phone) detectedChannel = "SMS";
+        else if (lead.email) detectedChannel = "Email";
+      }
+
+      if (detectedChannel && (lead.phone || lead.email)) {
+        const channel = detectedChannel as "SMS" | "Email" | "WhatsApp" | "FB" | "IG";
+
+        const freshLead = await getLeadById(lead.id);
+        const agentName = freshLead?.assignedAgent || lead.assignedAgent || SALES_AGENTS[0];
+        const firstName = (lead.name || "").split(" ")[0] || "there";
+
+        const productType = formFields.find(f => f.label === "Product Type")?.value || "custom gear";
+        const purpose = formFields.find(f => f.label === "Purpose")?.value || "";
+        const timeline = formFields.find(f => f.label === "Timeline")?.value || "";
+
+        let msg1 = `Hi ${firstName}, ${agentName.split(" ")[0]} here! Adorb has a 4.9 star review helping`;
+        if (purpose) { msg1 += ` ${purpose.toLowerCase()}`; } else { msg1 += ` businesses like yours`; }
+        msg1 += ` with customized ${productType.toLowerCase()}`;
+        if (timeline) { msg1 += ` ${timeline.toLowerCase()}`; }
+        msg1 += `.`;
+
+        const msg2 = `Do you have a design ready or would you like our team to help?`;
+
+        console.log(`[Webhook] LOCKED first-contact for lead ${lead.id} (${firstName}): agent=${agentName}, channel=${channel}`);
+        console.log(`[Webhook] MSG1: ${msg1}`);
+        console.log(`[Webhook] MSG2: ${msg2}`);
+
+        // --- SEND MESSAGE 1 ---
+        const buildSendOpts = (message: string): Parameters<typeof import("./ghl").sendMessage>[1] | undefined => {
+          if (channel === "Email" && lead.email) {
+            return { type: "Email", subject: `${agentName.split(" ")[0]} from Adorb Custom Tees`, html: `<p>${message}</p><p>${msg2}</p>`, fromName: agentName };
+          } else if (channel === "FB") { return { type: "FB", message }; }
+          else if (channel === "IG") { return { type: "IG", message }; }
+          else if (channel === "WhatsApp") { return { type: "WhatsApp", message }; }
+          else if (lead.phone) { return { type: "SMS", message }; }
+          return undefined;
+        };
+
+        const sendOpts1 = buildSendOpts(msg1);
+        let msg1Sent = false;
+        let msg2Sent = false;
+
+        if (sendOpts1) {
+          const sendResult1 = await sendMessageWithRetry(resolvedContactId, sendOpts1, { email: lead.email, phone: lead.phone, id: lead.id });
+          if (sendResult1.resolvedContactId !== resolvedContactId) resolvedContactId = sendResult1.resolvedContactId;
+          msg1Sent = sendResult1.success;
+          if (!msg1Sent) console.error(`[Webhook] Failed to send MSG1 to lead ${lead.id}: ${sendResult1.error}`);
+        }
+
+        await addConversation({ leadId: lead.id, channel, direction: "outbound", messageBody: msg1, senderType: "ai", senderName: agentName });
+
+        if (channel !== "Email") {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          const sendOpts2 = buildSendOpts(msg2);
+          if (sendOpts2) {
+            const sendResult2 = await sendMessageWithRetry(resolvedContactId, sendOpts2, { email: lead.email, phone: lead.phone, id: lead.id });
+            msg2Sent = sendResult2.success;
+            if (!msg2Sent) console.error(`[Webhook] Failed to send MSG2 to lead ${lead.id}: ${sendResult2.error}`);
+          }
+          await addConversation({ leadId: lead.id, channel, direction: "outbound", messageBody: msg2, senderType: "ai", senderName: agentName });
+        }
+
+        try {
+          await addBrainCouncilAudit({
+            leadId: lead.id, leadName: lead.name || undefined, channel,
+            incomingMessage: `[FIRST CONTACT] Form data: ${formFields.map(f => `${f.label}=${f.value}`).join(", ") || "none"}`,
+            strategyApproach: "first_contact", strategyFramework: "HORMOZI_ACA",
+            strategyReasoning: "LOCKED TEMPLATE — No Brain Council. Deterministic two-message welcome sequence.",
+            strategyTier: "1", researchSummary: "SKIPPED — Research disabled for first contact.",
+            composedMessage: msg1, composerFromName: agentName, qcScore: 100, qcApproved: 1,
+            wasRecomposed: 0, finalMessage: channel === "Email" ? `${msg1}\n\n${msg2}` : `${msg1} | ${msg2}`,
+            messageSent: (msg1Sent ? 1 : 0),
+          });
+        } catch (auditErr) { console.error('[Webhook] First-contact audit log error (non-fatal):', auditErr); }
+
+        const contactSchedule = await calculateNextFollowUp({ leadId: lead.id, aiSuggestedHours: 4, triggerEvent: "ai_response" });
+        await updateLeadFields(lead.id, {
+          lastMessageAt: new Date(), nextFollowUpAt: contactSchedule.nextFollowUpAt,
+          cadencePosition: contactSchedule.cadencePosition, preferredChannel: contactSchedule.channel,
+          lastOutboundChannel: channel,
+        });
+
+        await upsertAiState(lead.id, { lastAngleUsed: "LOCKED_FIRST_CONTACT", lastFrameworkUsed: "HORMOZI_ACA", messageCount: channel === "Email" ? 1 : 2 });
+
+        console.log(`[Webhook] First-contact COMPLETE for lead ${lead.id}: msg1=${msg1Sent}, msg2=${msg2Sent || channel === "Email"}`);
+      }
+    } catch (err) {
+      console.error("[Webhook] First-contact outreach error (non-fatal):", err);
+    }
+  }
+
+  res.json({ success: true });
+}
