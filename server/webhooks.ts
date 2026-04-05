@@ -11,7 +11,7 @@
 
 import { Router, Request, Response } from "express";
 import { addWebhookLog } from "./db";
-import { detectEventType } from "./webhook-helpers";
+import { detectEventType, normalizeWorkflowPayload } from "./webhook-helpers";
 import { handleContactWebhook } from "./webhook-contact";
 import { handleMessageWebhook } from "./webhook-message";
 import { handlePipelineWebhook } from "./webhook-pipeline";
@@ -86,7 +86,7 @@ export function createWebhookRouter(): Router {
   // --- UNIFIED GHL WEBHOOK ENDPOINT ---
   router.post("/api/webhooks/ghl", async (req: Request, res: Response) => {
     const startTime = Date.now();
-    const payload = req.body;
+    const payload = normalizeWorkflowPayload(req.body);
     const contactId = (payload.contactId || payload.id || "") as string;
     let detectedType = "unknown";
     let action = "";
@@ -167,19 +167,19 @@ export function createWebhookRouter(): Router {
 
   // Keep legacy endpoints for backward compatibility
   router.post("/api/webhooks/ghl/contact", async (req: Request, res: Response) => {
-    try { await handleContactWebhook(req.body, res); } catch (err) {
+    try { await handleContactWebhook(normalizeWorkflowPayload(req.body), res); } catch (err) {
       console.error("[Webhook] Contact error:", err); res.status(500).json({ error: "Internal error" });
     }
   });
 
   router.post("/api/webhooks/ghl/message", async (req: Request, res: Response) => {
-    try { await handleMessageWebhook(req.body, res); } catch (err) {
+    try { await handleMessageWebhook(normalizeWorkflowPayload(req.body), res); } catch (err) {
       console.error("[Webhook] Message error:", err); res.status(500).json({ error: "Internal error" });
     }
   });
 
   router.post("/api/webhooks/ghl/pipeline", async (req: Request, res: Response) => {
-    try { await handlePipelineWebhook(req.body, res); } catch (err) {
+    try { await handlePipelineWebhook(normalizeWorkflowPayload(req.body), res); } catch (err) {
       console.error("[Webhook] Pipeline error:", err); res.status(500).json({ error: "Internal error" });
     }
   });

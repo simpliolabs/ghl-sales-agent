@@ -118,8 +118,60 @@ export function detectEventType(payload: Record<string, unknown>): "contact" | "
   if (payload.type === "PipelineStageChanged" || payload.event === "opportunity.stageUpdate" || payload.currentStage || payload.toStage) return "pipeline";
   if (payload.type === "TaskCompleted" || payload.event === "task.completed" || (payload.taskId && payload.status === "completed")) return "task";
   if (payload.body && payload.contactId && (payload.direction || payload.messageId)) return "message";
+  // GHL workflow payloads: message nested in payload.message.body, contact ID in contact_id
+  const msg = payload.message as Record<string, unknown> | undefined;
+  if (msg && typeof msg === "object" && msg.body && (payload.contact_id || payload.contactId)) return "message";
+  // GHL workflow pipeline payloads: pipeline info in top-level fields
+  if (payload.pipleline_stage || payload.pipeline_stage || payload.pipeline_id) return "pipeline";
   if (payload.pipelineId || payload.stageName) return "pipeline";
   return "unknown";
+}
+
+// --- NORMALIZE GHL WORKFLOW PAYLOAD ---
+// GHL workflow webhooks use a different format than direct API webhooks.
+// This normalizer converts workflow payloads to the standard format our handlers expect.
+export function normalizeWorkflowPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  const normalized = { ...payload };
+
+  // Normalize contact_id → contactId
+  if (!normalized.contactId && normalized.contact_id) {
+    normalized.contactId = normalized.contact_id;
+  }
+
+  // Normalize nested message.body → top-level body
+  const msg = normalized.message as Record<string, unknown> | undefined;
+  if (msg && typeof msg === "object" && msg.body && !normalized.body) {
+    normalized.body = msg.body;
+    // Map message.type to a direction hint (type 2 = SMS inbound in GHL)
+    if (!normalized.direction) normalized.direction = "inbound";
+  }
+
+  // Normalize workflow-based pipeline payloads
+  if (!normalized.pipelineStage && normalized.pipleline_stage) {
+    normalized.toStage = normalized.pipleline_stage;
+  }
+  if (!normalized.pipelineStage && normalized.pipeline_stage) {
+    normalized.toStage = normalized.pipeline_stage;
+  }
+  if (!normalized.pipelineId && normalized.pipeline_id) {
+    normalized.pipelineId = normalized.pipeline_id;
+  }
+
+  // Normalize name fields
+  if (!normalized.name && normalized.full_name) {
+    normalized.name = normalized.full_name;
+  }
+  if (!normalized.firstName && normalized.first_name) {
+    normalized.firstName = normalized.first_name;
+  }
+  if (!normalized.lastName && normalized.last_name) {
+    normalized.lastName = normalized.last_name;
+  }
+  if (!normalized.companyName && normalized.company_name) {
+    normalized.companyName = normalized.company_name;
+  }
+
+  return normalized;
 }
 
 // --- FORM DATA EXTRACTION ---

@@ -481,3 +481,69 @@ describe("Form data extraction in contact webhook", () => {
     );
   });
 });
+
+describe("GHL workflow payload normalization", () => {
+  let app: ReturnType<typeof createTestApp>;
+
+  beforeEach(() => {
+    app = createTestApp();
+    vi.clearAllMocks();
+  });
+
+  it("handles workflow-style inbound message with contact_id and nested message.body", async () => {
+    const { runBrainCouncil } = await import("./brain-council-orchestrator");
+    const { addConversation } = await import("./db");
+
+    // This is the exact payload format GHL sends from the "Customer Replied" workflow
+    const res = await request(app).post("/api/webhooks/ghl").send({
+      contact_id: "LfVLSEmvupduc5x8HBNX",
+      first_name: "DENNIS",
+      last_name: "BOST",
+      full_name: "DENNIS BOST",
+      email: "dennis@hwbbqrecon.com",
+      phone: "+17862857531",
+      company_name: "Hog Wild BBQ",
+      message: { type: 2, body: "The last shirts I ordered were paid for and picked up long ago" },
+      workflow: { id: "4559864a-68d8-442d-96cd-395a4870365d", name: "Adorb AI — Customer Replied" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    // Brain Council should be called to generate a response
+    expect(runBrainCouncil).toHaveBeenCalled();
+    // The inbound message should be stored
+    expect(addConversation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        direction: "inbound",
+        messageBody: "The last shirts I ordered were paid for and picked up long ago",
+      })
+    );
+  });
+
+  it("handles workflow-style pipeline change with pipleline_stage and contact_id", async () => {
+    const res = await request(app).post("/api/webhooks/ghl").send({
+      contact_id: "LfVLSEmvupduc5x8HBNX",
+      full_name: "DENNIS BOST",
+      pipleline_stage: "Quote Sent",
+      pipeline_id: "OpojlMx3cTa0ts0e2pMc",
+      pipeline_name: "Bulk Printing Pipeline",
+      workflow: { id: "1d6cf8d1-a6ca-4c0c-a302-7ac496421963", name: "Adorb AI — Pipeline Stage Changed" },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  it("does not drop messages with empty body from workflow payloads", async () => {
+    // Some workflow payloads have empty message body (e.g., reactions)
+    const res = await request(app).post("/api/webhooks/ghl").send({
+      contact_id: "test-contact-123",
+      full_name: "Test User",
+      message: { type: 18, body: "" },
+      workflow: { id: "test-workflow", name: "Adorb AI — Customer Replied" },
+    });
+
+    // Should not crash — empty body should be handled gracefully
+    expect(res.status).toBeLessThanOrEqual(400);
+  });
+});

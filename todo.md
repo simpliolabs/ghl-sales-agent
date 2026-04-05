@@ -129,3 +129,4 @@
 - [x] ACTIVATE: Wire follow-up cron trigger so overdue leads get auto-engaged via Brain Council (10min cycle, max 10/batch, cadence backoff, rate limits)
 - [x] ACTIVATE: Tier 1 — engage 4 hot leads (score 80+) set to NOW (Garvey Mclean 88, Robbin Johnson 85, Spany Mburunyeme 80, Judy Winters Fenton 80)
 - [x] ACTIVATE: Tier 2 — engage 40 quote_sent leads staggered over next 2 hours (3 min apart)
+- [x] BUG: Dennis Bost replied 3 times — GHL workflow payloads used contact_id + nested message.body format that our system didn't recognize. Fixed with normalizeWorkflowPayload() in webhook router. 71 tests passing.
