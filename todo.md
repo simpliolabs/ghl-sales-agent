@@ -149,3 +149,4 @@
 - [x] FIX: Added mandatory email signature block: Agent | Adorb Custom Printing, phone, email, website, 4.9 Stars · 867+ Verified Reviews, Google reviews link
 - [x] FIX: QC brain now has Email Formatting Check (criterion 12) — scores 0 for missing signature, long paragraphs, no reviews link. Auto-fixes in revisedMessage.
 - [x] FIX: Email subject bug — follow-up trigger + webhook-message used fromName as subject instead of Composer's subject field
+- [x] OMNISEND: Bulk push all 798 existing leads with email to Omnisend (with segment + stage + score tags) — zero errors
