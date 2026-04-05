@@ -25,6 +25,7 @@ import {
   extractContactData,
   sendMessageWithRetry,
   extractFormData,
+  parseFormDataFromMessageBody,
 } from "./webhook-helpers";
 import { handleStageAutomation } from "./webhook-pipeline";
 
@@ -179,8 +180,14 @@ async function sendDelayedFirstContact(
       return;
     }
 
-    // --- EXTRACT FORM DATA ---
+    // --- FETCH GHL CONVERSATION HISTORY (shared by form extraction + channel detection) ---
+    const ghlHistory = await fetchGhlConversationHistory(resolvedContactId);
+
+    // --- EXTRACT FORM DATA (3-layer) ---
+    // Layer 1: Direct webhook payload fields
     let formFields = extractFormData(payload);
+
+    // Layer 2: GHL contact custom fields (API call)
     if (formFields.length === 0) {
       try {
         const ghlContact = await getContact(resolvedContactId);
@@ -190,10 +197,33 @@ async function sendDelayedFirstContact(
       } catch { /* best effort */ }
     }
 
+    // Layer 3: Parse form data from Facebook message body in GHL conversation history
+    // Facebook lead forms send form data as a text block in the message body:
+    //   "Company name: Calvary Community Church\nWhat type of products...?: T-shirts\n..."
+    if (formFields.length === 0 && ghlHistory.length > 0) {
+      const inboundMsgs = ghlHistory.filter(m => m.direction === "inbound");
+      for (const msg of inboundMsgs) {
+        const body = String(msg.body || "");
+        if (body.includes(":")) {
+          const parsed = parseFormDataFromMessageBody(body);
+          if (parsed.length > 0) {
+            formFields = parsed;
+            console.log(`[Webhook] Extracted ${parsed.length} form fields from FB message body for lead ${leadId}: ${parsed.map(f => `${f.label}=${f.value}`).join(", ")}`);
+            break;
+          }
+        }
+      }
+    }
+
+    console.log(`[Webhook] Form data for lead ${leadId}: ${formFields.length > 0 ? formFields.map(f => `${f.label}=${f.value}`).join(", ") : "NONE (will use generic template)"}`);
+    // Also log the raw payload keys for debugging
+    if (formFields.length === 0) {
+      console.log(`[Webhook] Raw payload keys for lead ${leadId}: ${Object.keys(payload).join(", ")}`);
+    }
+
     // --- DETECT CHANNEL (multi-layer) ---
     // Now that 45s have passed, GHL should have the conversation indexed
     // Layer 1: Check GHL conversation history for inbound message type
-    const ghlHistory = await fetchGhlConversationHistory(resolvedContactId);
     let detectedChannel = "";
     if (ghlHistory.length > 0) {
       const lastInbound = [...ghlHistory].reverse().find(m => m.direction === "inbound");

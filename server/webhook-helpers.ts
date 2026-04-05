@@ -174,30 +174,53 @@ export function normalizeWorkflowPayload(payload: Record<string, unknown>): Reco
   return normalized;
 }
 
+// --- FORM FIELD MAPPINGS (shared between extractors) ---
+const FORM_FIELD_MAPPINGS: Record<string, string> = {
+  "what_type_of_products_are_you_interested_in_": "Product Type",
+  "what_do_you_need_bulk_printing_for_": "Purpose",
+  "how_soon_do_you_need_your_order_": "Timeline",
+  "company_name": "Company",
+  "companyName": "Company",
+  "full_name": "Full Name",
+  "quantity": "Quantity",
+  "7bBSRMZOMh7S8z57PmX9": "Timeline",
+  "OUKhuVmDD7yg44tKAYAs": "Product Type",
+  "skKuaUesHa1fLm9Cq75U": "Purpose",
+  "7fL3fX0KnOUcm7BOvjdi": "Quantity",
+  "GCGSXhfM0eHz6MZS6tyZ": "Order Categories",
+  "XcZmRrIAuIgJq64VFjhq": "Print Style",
+  "vRQQP78R7rDNaXjoEFt3": "Garment Type",
+  "Uq2VcaIrV7U5m5LJQKO3": "Print Size",
+  "hyHJeRQGmIGbaulYhoHQ": "Sizes and Amount",
+};
+
+/**
+ * Maps human-readable form question text to our canonical labels.
+ * Used to parse Facebook lead form submissions where GHL sends
+ * the form data as a text block in the message body like:
+ *   "What type of products are you interested in?: T-shirts"
+ */
+const FORM_QUESTION_MAPPINGS: Record<string, string> = {
+  "what type of products are you interested in": "Product Type",
+  "what do you need bulk printing for": "Purpose",
+  "how soon do you need your order": "Timeline",
+  "company name": "Company",
+  "full name": "Full Name",
+  "email": "Email",
+  "phone number": "Phone",
+  "quantity": "Quantity",
+  "order categories": "Order Categories",
+  "print style": "Print Style",
+  "garment type": "Garment Type",
+  "print size": "Print Size",
+  "sizes and amount": "Sizes and Amount",
+};
+
 // --- FORM DATA EXTRACTION ---
 export function extractFormData(payload: Record<string, unknown>): Array<{ label: string; value: string }> {
   const fields: Array<{ label: string; value: string }> = [];
 
-  const formFieldMappings: Record<string, string> = {
-    "what_type_of_products_are_you_interested_in_": "Product Type",
-    "what_do_you_need_bulk_printing_for_": "Purpose",
-    "how_soon_do_you_need_your_order_": "Timeline",
-    "company_name": "Company",
-    "companyName": "Company",
-    "full_name": "Full Name",
-    "quantity": "Quantity",
-    "7bBSRMZOMh7S8z57PmX9": "Timeline",
-    "OUKhuVmDD7yg44tKAYAs": "Product Type",
-    "skKuaUesHa1fLm9Cq75U": "Purpose",
-    "7fL3fX0KnOUcm7BOvjdi": "Quantity",
-    "GCGSXhfM0eHz6MZS6tyZ": "Order Categories",
-    "XcZmRrIAuIgJq64VFjhq": "Print Style",
-    "vRQQP78R7rDNaXjoEFt3": "Garment Type",
-    "Uq2VcaIrV7U5m5LJQKO3": "Print Size",
-    "hyHJeRQGmIGbaulYhoHQ": "Sizes and Amount",
-  };
-
-  for (const [key, label] of Object.entries(formFieldMappings)) {
+  for (const [key, label] of Object.entries(FORM_FIELD_MAPPINGS)) {
     const val = payload[key];
     if (val && typeof val === "string" && val.trim()) {
       fields.push({ label, value: val.trim() });
@@ -210,16 +233,52 @@ export function extractFormData(payload: Record<string, unknown>): Array<{ label
       const key = (cf.id || cf.key || cf.field_key || "") as string;
       const val = (cf.value || cf.field_value || "") as string;
       if (key && val && typeof val === "string" && val.trim()) {
-        const label = formFieldMappings[key] || key.replace(/_/g, " ").replace(/\?/g, "");
+        const label = FORM_FIELD_MAPPINGS[key] || key.replace(/_/g, " ").replace(/\?/g, "");
         fields.push({ label, value: val.trim() });
       }
     }
   } else if (customFields && typeof customFields === "object") {
     for (const [key, val] of Object.entries(customFields)) {
       if (val && typeof val === "string" && val.trim()) {
-        const label = formFieldMappings[key] || key.replace(/_/g, " ").replace(/\?/g, "");
+        const label = FORM_FIELD_MAPPINGS[key] || key.replace(/_/g, " ").replace(/\?/g, "");
         fields.push({ label, value: val.trim() });
       }
+    }
+  }
+
+  return fields;
+}
+
+/**
+ * Parses form data from a Facebook lead form message body.
+ * GHL sends Facebook form submissions as text blocks like:
+ *   "Company name: Calvary Community Church\nHow soon do you need your order?: ASAP\n..."
+ * This function extracts key-value pairs from that text.
+ */
+export function parseFormDataFromMessageBody(messageBody: string): Array<{ label: string; value: string }> {
+  const fields: Array<{ label: string; value: string }> = [];
+  if (!messageBody || typeof messageBody !== "string") return fields;
+
+  const lines = messageBody.split("\n").filter(l => l.trim());
+  for (const line of lines) {
+    // Match "Question?: Answer" or "Question: Answer" patterns
+    const colonIdx = line.indexOf(":");
+    if (colonIdx === -1) continue;
+    const rawQuestion = line.substring(0, colonIdx).replace(/\?$/, "").trim().toLowerCase();
+    const rawAnswer = line.substring(colonIdx + 1).trim();
+    if (!rawQuestion || !rawAnswer) continue;
+
+    // Try to match against known question mappings
+    let matchedLabel = "";
+    for (const [question, label] of Object.entries(FORM_QUESTION_MAPPINGS)) {
+      if (rawQuestion === question || rawQuestion.includes(question)) {
+        matchedLabel = label;
+        break;
+      }
+    }
+
+    if (matchedLabel) {
+      fields.push({ label: matchedLabel, value: rawAnswer });
     }
   }
 

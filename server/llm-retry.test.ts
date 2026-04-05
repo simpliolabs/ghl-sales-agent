@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isLlmExhausted, LLM_RETRY_DELAY_MS, MAX_LLM_RETRIES, normalizeChannel } from "./webhook-helpers";
+import { isLlmExhausted, LLM_RETRY_DELAY_MS, MAX_LLM_RETRIES, normalizeChannel, parseFormDataFromMessageBody } from "./webhook-helpers";
 
 describe("isLlmExhausted", () => {
   it("detects 412 Precondition Failed usage exhausted errors", () => {
@@ -155,5 +155,75 @@ describe("normalizeChannel", () => {
     expect(normalizeChannel(undefined)).toBe("SMS");
     expect(normalizeChannel(null)).toBe("SMS");
     expect(normalizeChannel("")).toBe("SMS");
+  });
+});
+
+describe("parseFormDataFromMessageBody", () => {
+  it("parses Facebook lead form text block (James Walden format)", () => {
+    const body = `Company name: Calvary Community Church - The Tabernacle
+How soon do you need your order?: ASAP
+What type of products are you interested in?: T-shirts
+Email: jwalden@bellsouth.net
+Full name: James Walden
+Phone number: (678) 332-1504
+What do you need bulk printing for?: Church / Ministry`;
+
+    const fields = parseFormDataFromMessageBody(body);
+    expect(fields.length).toBeGreaterThanOrEqual(4);
+
+    const productType = fields.find(f => f.label === "Product Type");
+    expect(productType).toBeDefined();
+    expect(productType!.value).toBe("T-shirts");
+
+    const purpose = fields.find(f => f.label === "Purpose");
+    expect(purpose).toBeDefined();
+    expect(purpose!.value).toBe("Church / Ministry");
+
+    const timeline = fields.find(f => f.label === "Timeline");
+    expect(timeline).toBeDefined();
+    expect(timeline!.value).toBe("ASAP");
+
+    const company = fields.find(f => f.label === "Company");
+    expect(company).toBeDefined();
+    expect(company!.value).toBe("Calvary Community Church - The Tabernacle");
+  });
+
+  it("parses Paulette Hughes Kornegay format", () => {
+    const body = `How soon do you need your order?: ASAP
+What type of products are you interested in?: T-shirts
+Email: pkornegay68@gmail.com
+Full name: Paulette Kornegay
+Phone number: (205) 553-2917
+What do you need bulk printing for?: Other`;
+
+    const fields = parseFormDataFromMessageBody(body);
+    const productType = fields.find(f => f.label === "Product Type");
+    expect(productType).toBeDefined();
+    expect(productType!.value).toBe("T-shirts");
+
+    const purpose = fields.find(f => f.label === "Purpose");
+    expect(purpose).toBeDefined();
+    expect(purpose!.value).toBe("Other");
+  });
+
+  it("returns empty array for non-form text", () => {
+    const body = "Just our church name on about 100 shirts various sizes";
+    const fields = parseFormDataFromMessageBody(body);
+    expect(fields.length).toBe(0);
+  });
+
+  it("returns empty array for empty or null input", () => {
+    expect(parseFormDataFromMessageBody("")).toEqual([]);
+    expect(parseFormDataFromMessageBody(null as unknown as string)).toEqual([]);
+    expect(parseFormDataFromMessageBody(undefined as unknown as string)).toEqual([]);
+  });
+
+  it("handles partial form data with only some recognized fields", () => {
+    const body = `What type of products are you interested in?: Hoodies
+Some random field: random value`;
+    const fields = parseFormDataFromMessageBody(body);
+    expect(fields.length).toBe(1);
+    expect(fields[0].label).toBe("Product Type");
+    expect(fields[0].value).toBe("Hoodies");
   });
 });
