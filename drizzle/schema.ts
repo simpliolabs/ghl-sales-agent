@@ -197,6 +197,10 @@ export const brainCouncilAudit = mysqlTable("brain_council_audit", {
   ownerNotified: tinyint("ownerNotified").default(0), // 1 = owner was notified about this violation
   fallbackUsed: tinyint("fallbackUsed").default(0), // 1 = safe fallback template was used instead
   fallbackMessage: text("fallbackMessage"), // the fallback message that was sent
+  // Auto-correction
+  correctionSent: tinyint("correctionSent").default(0), // 1 = apology + correct message was auto-sent
+  correctionMessage: text("correctionMessage"), // the correction/apology message that was sent
+  correctionReason: text("correctionReason"), // why correction was needed
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

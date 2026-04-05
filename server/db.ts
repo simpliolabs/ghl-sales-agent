@@ -343,6 +343,10 @@ export async function addBrainCouncilAudit(data: {
   ownerNotified?: number;
   fallbackUsed?: number;
   fallbackMessage?: string;
+  // Auto-correction fields
+  correctionSent?: number;
+  correctionMessage?: string;
+  correctionReason?: string;
 }) {
   const db = await getDb();
   if (!db) return;
@@ -363,4 +367,35 @@ export async function getBrainCouncilAuditForLead(leadId: number, limit = 20) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(brainCouncilAudit).where(eq(brainCouncilAudit.leadId, leadId)).orderBy(desc(brainCouncilAudit.createdAt)).limit(limit);
+}
+
+// Update an audit entry with correction data
+export async function updateAuditCorrection(auditId: number, data: {
+  correctionSent: number;
+  correctionMessage: string;
+  correctionReason: string;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await db.update(brainCouncilAudit).set(data).where(eq(brainCouncilAudit.id, auditId));
+  } catch (err) {
+    console.error('[DB] Failed to update audit correction:', err);
+  }
+}
+
+// Get recent sent messages that had violations but were still sent (for retroactive correction)
+export async function getUncorrectedViolations(limit = 10) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(brainCouncilAudit)
+    .where(
+      and(
+        eq(brainCouncilAudit.messageSent, 1),
+        eq(brainCouncilAudit.correctionSent, 0),
+        sql`${brainCouncilAudit.violationCategory} IS NOT NULL AND ${brainCouncilAudit.violationCategory} != ''`
+      )
+    )
+    .orderBy(desc(brainCouncilAudit.createdAt))
+    .limit(limit);
 }

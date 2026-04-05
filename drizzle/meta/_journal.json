@@ -50,6 +50,13 @@
       "when": 1775395127401,
       "tag": "0006_chubby_adam_destine",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1775396355101,
+      "tag": "0007_clever_lester",
+      "breakpoints": true
     }
   ]
 }

@@ -22,9 +22,10 @@ import {
   Ban,
   Bell,
   LifeBuoy,
+  Wrench,
 } from "lucide-react";
 
-type FilterTab = "all" | "approved" | "blocked" | "recomposed" | "violations";
+type FilterTab = "all" | "approved" | "blocked" | "recomposed" | "violations" | "corrected";
 
 export default function AuditLog() {
   const { data: auditEntries, isLoading } = trpc.ai.auditLog.useQuery({ limit: 100 });
@@ -38,6 +39,7 @@ export default function AuditLog() {
     if (activeTab === "blocked" && entry.blocked !== 1) return false;
     if (activeTab === "recomposed" && entry.wasRecomposed !== 1) return false;
     if (activeTab === "violations" && !entry.violationCategory) return false;
+    if (activeTab === "corrected" && entry.correctionSent !== 1) return false;
 
     // Search filter
     if (!searchTerm) return true;
@@ -58,6 +60,7 @@ export default function AuditLog() {
   const approvedCount = auditEntries?.filter((e) => e.qcApproved === 1 && e.blocked !== 1).length || 0;
   const recomposedCount = auditEntries?.filter((e) => e.wasRecomposed === 1).length || 0;
   const fallbackCount = auditEntries?.filter((e) => e.fallbackUsed === 1).length || 0;
+  const correctedCount = auditEntries?.filter((e) => e.correctionSent === 1).length || 0;
 
   const tabs: { key: FilterTab; label: string; count: number; color: string }[] = [
     { key: "all", label: "All", count: auditEntries?.length || 0, color: "text-gray-700" },
@@ -65,6 +68,7 @@ export default function AuditLog() {
     { key: "blocked", label: "Blocked", count: blockedCount, color: "text-red-700" },
     { key: "recomposed", label: "Recomposed", count: recomposedCount, color: "text-amber-700" },
     { key: "violations", label: "Violations", count: violationCount, color: "text-orange-700" },
+    { key: "corrected", label: "Corrected", count: correctedCount, color: "text-blue-700" },
   ];
 
   function violationLabel(cat: string): string {
@@ -276,6 +280,12 @@ export default function AuditLog() {
                               <Badge className="bg-blue-100 text-blue-700 text-xs shrink-0">
                                 <LifeBuoy className="h-3 w-3 mr-1" />
                                 Fallback
+                              </Badge>
+                            )}
+                            {entry.correctionSent === 1 && (
+                              <Badge className="bg-blue-100 text-blue-800 text-xs shrink-0">
+                                <Wrench className="h-3 w-3 mr-1" />
+                                Corrected
                               </Badge>
                             )}
                             {entry.ownerNotified === 1 && (
@@ -541,6 +551,28 @@ export default function AuditLog() {
                             <p className="text-sm text-gray-800 whitespace-pre-wrap">
                               {entry.finalMessage}
                             </p>
+                          </div>
+                        )}
+
+                        {/* Auto-Correction */}
+                        {entry.correctionSent === 1 && (
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                            <div className="flex items-center gap-2 text-sm font-semibold text-blue-800 mb-2">
+                              <Wrench className="h-4 w-4" />
+                              Auto-Correction Sent
+                            </div>
+                            {entry.correctionReason && (
+                              <p className="text-xs text-blue-600 mb-2">
+                                <span className="font-medium">Reason:</span> {entry.correctionReason}
+                              </p>
+                            )}
+                            {entry.correctionMessage && (
+                              <div className="bg-white rounded p-2 border border-blue-100">
+                                <p className="text-sm text-gray-800 whitespace-pre-wrap">
+                                  {entry.correctionMessage}
+                                </p>
+                              </div>
+                            )}
                           </div>
                         )}
 

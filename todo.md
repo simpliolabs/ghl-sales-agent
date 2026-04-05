@@ -107,3 +107,7 @@
 - [x] ACCOUNTABILITY: Auto-fallback to safe template when QC blocks a message (instead of sending nothing)
 - [x] ACCOUNTABILITY: Dashboard showing blocked messages, violation patterns, QC failure rate over time
 - [x] ACCOUNTABILITY: Consecutive failure circuit breaker — if Brain Council fails 3x in a row for a lead, pause AI and alert owner
+- [x] Send Tammy Smith apology + correct first-contact message for the Chick-fil-A mistake
+- [x] AUTO-CORRECT: When a message is blocked by QC, auto-send apology + correct message if a bad message was already delivered
+- [x] AUTO-CORRECT: Detect when a previously sent message was bad (via audit log violation) and trigger correction
+- [x] AUTO-CORRECT: Apology template — short, human, acknowledges the mix-up, then delivers the correct locked template

@@ -1,12 +1,13 @@
 import { Router, Request, Response } from "express";
 import { upsertLead, addConversation, addPipelineEvent, getLeadByGhlContactId, getLeadById, updateLeadFields } from "./db";
-import { addBrainCouncilAudit } from "./db";
+import { addBrainCouncilAudit, getBrainCouncilAuditForLead } from "./db";
 import { classifySegment, shouldHandoffToAgent, generateContactNotes, estimateOrderValue } from "./ai-brain";
 import { researchLead } from "./lead-researcher";
 import { runBrainCouncil } from "./brain-council";
 import { calculateNextFollowUp, checkRateLimits, checkLeadRateLimit } from "./scheduling-engine";
 import { sendMessage, updateContactCustomField, createTask, addNote, updateOpportunityValue, updateOpportunityStage, fetchGhlConversationHistory, getContact, searchContacts } from "./ghl";
 import { pushContactToOmnisend } from "./omnisend";
+import { detectConfusion, handleConfusionReply, postSendValidation, retroactiveCorrectionScan } from "./auto-correction";
 import { upsertAiState, getConversationHistory, getRecentAiOutboundCount } from "./db";
 import { addAgentAssignment, getAgentWorkload, addWebhookLog } from "./db";
 
@@ -283,6 +284,16 @@ async function handleStageAutomation(stage: string, lead: { id: number; ghlConta
 
 export function createWebhookRouter(): Router {
   const router = Router();
+
+  // --- RETROACTIVE CORRECTION SCAN (every 15 minutes) ---
+  setInterval(async () => {
+    try {
+      const corrected = await retroactiveCorrectionScan();
+      if (corrected > 0) console.log(`[AutoCorrect/Timer] Retroactive scan corrected ${corrected} messages`);
+    } catch (err) {
+      console.error('[AutoCorrect/Timer] Scan error:', err);
+    }
+  }, 15 * 60 * 1000);
 
   // --- WEBHOOK HEALTH CHECK ---
   router.get("/api/webhooks/health", (_req: Request, res: Response) => {
@@ -869,6 +880,36 @@ async function handleMessageWebhook(payload: Record<string, unknown>, res: Respo
 
   await updateLeadFields(lead!.id, { lastMessageAt: new Date() });
 
+  // --- AUTO-CORRECTION: Detect confusion in inbound messages ---
+  if (direction === "inbound" && detectConfusion(messageBody)) {
+    console.log(`[Webhook] Confusion detected from lead ${lead!.id}: "${messageBody.substring(0, 100)}"`);
+    // Extract form data for correction template
+    let corrFormData: { productType?: string; purpose?: string; timeline?: string } | undefined;
+    try {
+      const ghlContact = await getContact(contactId);
+      if (ghlContact?.customFields) {
+        const corrFormFields = extractFormData({ customFields: ghlContact.customFields });
+        corrFormData = {
+          productType: corrFormFields.find(f => f.label === "Product Type")?.value,
+          purpose: corrFormFields.find(f => f.label === "Purpose")?.value,
+          timeline: corrFormFields.find(f => f.label === "Timeline")?.value,
+        };
+      }
+    } catch { /* best effort */ }
+
+    const corrected = await handleConfusionReply({
+      leadId: lead!.id,
+      contactId,
+      channel,
+      confusionMessage: messageBody,
+      formData: corrFormData,
+    });
+    if (corrected) {
+      console.log(`[Webhook] Auto-correction sent for lead ${lead!.id}`);
+      // Continue processing — don't return, the lead may also need a real response
+    }
+  }
+
   // If outbound from a human agent, mark agent activity
   if (direction === "outbound") {
     await updateLeadFields(lead!.id, {
@@ -1161,6 +1202,41 @@ async function handleMessageWebhook(payload: Record<string, unknown>, res: Respo
     lastOutboundChannel: channel,
   });
   console.log(`[Webhook] Scheduling engine for lead ${lead!.id}: ${scheduleResult.reason}`);
+
+  // --- POST-SEND VALIDATION: Check if the just-sent message needs correction ---
+  if (aiResponse.violationCategory) {
+    try {
+      // Get the most recent audit entry for this lead (the one we just created)
+      const recentAudits = await getBrainCouncilAuditForLead(lead!.id, 1);
+      if (recentAudits.length > 0) {
+        let corrFormData: { productType?: string; purpose?: string; timeline?: string } | undefined;
+        try {
+          const ghlContact = await getContact(resolvedContactId);
+          if (ghlContact?.customFields) {
+            const corrFormFields = extractFormData({ customFields: ghlContact.customFields });
+            corrFormData = {
+              productType: corrFormFields.find(f => f.label === "Product Type")?.value,
+              purpose: corrFormFields.find(f => f.label === "Purpose")?.value,
+              timeline: corrFormFields.find(f => f.label === "Timeline")?.value,
+            };
+          }
+        } catch { /* best effort */ }
+
+        await postSendValidation({
+          auditId: recentAudits[0].id,
+          leadId: lead!.id,
+          contactId: resolvedContactId,
+          channel,
+          sentMessage: aiResponse.message,
+          violationCategory: aiResponse.violationCategory,
+          qcScore: aiResponse.qcScore,
+          formData: corrFormData,
+        });
+      }
+    } catch (corrErr) {
+      console.error('[Webhook] Post-send validation error (non-fatal):', corrErr);
+    }
+  }
 
   res.json({ success: true, action: "ai_responded" });
 }
