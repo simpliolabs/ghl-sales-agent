@@ -147,6 +147,54 @@ export const invites = mysqlTable("invites", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+// Webhook event log — tracks every incoming GHL webhook for diagnostics
+export const webhookLogs = mysqlTable("webhook_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  eventType: varchar("eventType", { length: 64 }), // contact, message, pipeline, task, unknown
+  detectedType: varchar("detectedType", { length: 64 }), // what detectEventType returned
+  contactId: varchar("contactId", { length: 128 }),
+  leadId: int("leadId"),
+  payloadSummary: text("payloadSummary"), // truncated JSON of key fields
+  action: varchar("action", { length: 64 }), // what we did with it
+  error: text("error"), // any error that occurred
+  processingMs: int("processingMs"), // how long it took
+  receivedAt: timestamp("receivedAt").defaultNow().notNull(),
+});
+
+// Brain Council audit log — full decision trail for every AI message
+export const brainCouncilAudit = mysqlTable("brain_council_audit", {
+  id: int("id").autoincrement().primaryKey(),
+  leadId: int("leadId").notNull(),
+  leadName: varchar("leadName", { length: 255 }),
+  channel: varchar("channel", { length: 32 }),
+  incomingMessage: text("incomingMessage"), // what triggered the council
+  // Strategist output
+  strategyApproach: varchar("strategyApproach", { length: 64 }), // first_contact, follow_up, etc.
+  strategyFramework: varchar("strategyFramework", { length: 64 }), // HORMOZI_ACA, etc.
+  strategyReasoning: text("strategyReasoning"),
+  strategyTier: varchar("strategyTier", { length: 32 }),
+  // Researcher output
+  researchSummary: text("researchSummary"),
+  // Composer output
+  composedMessage: text("composedMessage"),
+  composerFromName: varchar("composerFromName", { length: 128 }),
+  // QC output
+  qcScore: int("qcScore"),
+  qcApproved: tinyint("qcApproved"),
+  qcIssues: text("qcIssues"), // JSON array of issues
+  qcFeedback: text("qcFeedback"),
+  // Recompose (if QC rejected)
+  wasRecomposed: tinyint("wasRecomposed").default(0),
+  recomposeScore: int("recomposeScore"),
+  finalMessage: text("finalMessage"), // the message that was actually sent
+  // Outcome
+  messageSent: tinyint("messageSent").default(0),
+  sendError: text("sendError"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 export type AiTweak = typeof aiTweaks.$inferSelect;
 export type Invite = typeof invites.$inferSelect;
 export type InsertInvite = typeof invites.$inferInsert;
+export type WebhookLog = typeof webhookLogs.$inferSelect;
+export type BrainCouncilAuditEntry = typeof brainCouncilAudit.$inferSelect;

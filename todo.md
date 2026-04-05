@@ -78,3 +78,9 @@
 - [x] FIX GAP: Set up cron job for recalculateStaleSchedules + score decay (hourly interval on server startup)
 - [x] Integrate Email Marketing Bible skill from GitHub (CosmoBlk/email-marketing-bible) — 473-line skill integrated into Strategist (email sequences), Composer (copywriting formulas), QC (email-specific checks)
 - [x] Verify GHL webhooks are firing — YES, webhooks fire but sendMessage returns 422/400. Fixed API version header from 2021-07-28 → 2021-04-15 + added error logging
+- [x] BUG: Composer ignores Strategist framework choice on first contact — writes generic one-liners instead of ACA (Acknowledge/Compliment/Ask) structure
+- [x] Add webhook event logging table to track all incoming GHL webhooks (for diagnosing missed events like Rodney Williams)
+- [x] Add webhook health check endpoint (GET /api/webhooks/health)
+- [x] Add Brain Council audit log storage — per-message strategist reasoning, composer output, QC score/issues
+- [x] Build Brain Council audit log dashboard page showing full decision trail for every AI message
+- [x] Strengthen QC brain to reject generic first-contact messages that don't follow ACA structure

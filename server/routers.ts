@@ -12,6 +12,7 @@ import {
   getAgentWorkload, getPipelineEvents, getAiState, updateLeadFields, upsertLead,
   createInvite, getInviteByToken, markInviteUsed, getActiveInvites, deleteInvite,
   getAllUsers, updateUserRole, getUserByOpenId,
+  getBrainCouncilAuditLog, getBrainCouncilAuditForLead, getRecentWebhookLogs,
 } from "./db";
 import { ENV } from "./_core/env";
 import { storagePut } from "./storage";
@@ -116,6 +117,15 @@ export const appRouter = router({
   ai: router({
     performance: protectedProcedure.query(async () => getAiPerformanceStats()),
     recentMessages: protectedProcedure.query(async () => getRecentAiMessages(30)),
+    auditLog: protectedProcedure.input(z.object({ limit: z.number().optional() }).optional()).query(async ({ input }) => {
+      return getBrainCouncilAuditLog(input?.limit || 50);
+    }),
+    auditForLead: protectedProcedure.input(z.object({ leadId: z.number(), limit: z.number().optional() })).query(async ({ input }) => {
+      return getBrainCouncilAuditForLead(input.leadId, input.limit || 20);
+    }),
+    webhookLogs: adminProcedure.input(z.object({ limit: z.number().optional() }).optional()).query(async ({ input }) => {
+      return getRecentWebhookLogs(input?.limit || 50);
+    }),
     tweaks: adminProcedure.query(async () => getActiveTweaks()),
     addTweak: adminProcedure.input(z.object({ instruction: z.string() })).mutation(async ({ input, ctx }) => {
       const result = await addAiTweak(input.instruction, ctx.user?.id);

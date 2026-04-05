@@ -7,7 +7,7 @@ import { calculateNextFollowUp, checkRateLimits, checkLeadRateLimit } from "./sc
 import { sendMessage, updateContactCustomField, createTask, addNote, updateOpportunityValue, updateOpportunityStage, fetchGhlConversationHistory } from "./ghl";
 import { pushContactToOmnisend } from "./omnisend";
 import { upsertAiState, getConversationHistory, getRecentAiOutboundCount } from "./db";
-import { addAgentAssignment, getAgentWorkload } from "./db";
+import { addAgentAssignment, getAgentWorkload, addWebhookLog } from "./db";
 
 // --- TEAM ROSTER ---
 const SALES_AGENTS = ["Abby Bouwer", "Chris McHendry"];
@@ -180,40 +180,103 @@ async function handleStageAutomation(stage: string, lead: { id: number; ghlConta
 export function createWebhookRouter(): Router {
   const router = Router();
 
+  // --- WEBHOOK HEALTH CHECK ---
+  router.get("/api/webhooks/health", (_req: Request, res: Response) => {
+    res.json({
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      message: "Adorb Outreach webhook endpoint is healthy",
+    });
+  });
+
   // --- UNIFIED GHL WEBHOOK ENDPOINT ---
   // All GHL workflows point to this single URL
   router.post("/api/webhooks/ghl", async (req: Request, res: Response) => {
+    const startTime = Date.now();
+    const payload = req.body;
+    const contactId = (payload.contactId || payload.id || "") as string;
+    let detectedType = "unknown";
+    let action = "";
+    let logError = "";
+
     try {
-      const payload = req.body;
-
       // Detect event type from payload
-      const eventType = detectEventType(payload);
+      detectedType = detectEventType(payload);
 
-      switch (eventType) {
+      // Summarize key payload fields for logging (truncated)
+      const payloadSummary = JSON.stringify({
+        type: payload.type,
+        event: payload.event,
+        contactId: contactId,
+        name: payload.name || payload.firstName,
+        direction: payload.direction,
+        messageType: payload.messageType,
+        source: payload.source,
+        body: typeof payload.body === 'string' ? payload.body.substring(0, 200) : undefined,
+      });
+
+      switch (detectedType) {
         case "contact":
-          return await handleContactWebhook(payload, res);
+          action = "contact_handler";
+          await handleContactWebhook(payload, res);
+          break;
         case "message":
-          return await handleMessageWebhook(payload, res);
+          action = "message_handler";
+          await handleMessageWebhook(payload, res);
+          break;
         case "pipeline":
-          return await handlePipelineWebhook(payload, res);
+          action = "pipeline_handler";
+          await handlePipelineWebhook(payload, res);
+          break;
         case "task":
-          return await handleTaskWebhook(payload, res);
+          action = "task_handler";
+          await handleTaskWebhook(payload, res);
+          break;
         default:
-          // Try to handle as generic — check for contactId and route accordingly
+          // Try to handle as generic
           if (payload.body || payload.message || payload.messageType) {
-            return await handleMessageWebhook(payload, res);
+            action = "fallback_message";
+            await handleMessageWebhook(payload, res);
+          } else if (payload.currentStage || payload.toStage || payload.stageName || payload.pipelineId) {
+            action = "fallback_pipeline";
+            await handlePipelineWebhook(payload, res);
+          } else if (payload.id || payload.contactId) {
+            action = "fallback_contact";
+            await handleContactWebhook(payload, res);
+          } else {
+            action = "unrecognized";
+            res.json({ success: true, action: "unrecognized_event" });
           }
-          if (payload.currentStage || payload.toStage || payload.stageName || payload.pipelineId) {
-            return await handlePipelineWebhook(payload, res);
-          }
-          if (payload.id || payload.contactId) {
-            return await handleContactWebhook(payload, res);
-          }
-          res.json({ success: true, action: "unrecognized_event" });
       }
+
+      // Log successful webhook
+      addWebhookLog({
+        eventType: (payload.type || payload.event || "unknown") as string,
+        detectedType,
+        contactId: contactId || undefined,
+        payloadSummary,
+        action,
+        processingMs: Date.now() - startTime,
+      }).catch(() => {});
+
     } catch (err) {
+      logError = err instanceof Error ? err.message : String(err);
       console.error("[Webhook] Error:", err);
-      res.status(500).json({ error: "Internal error" });
+
+      // Log failed webhook
+      addWebhookLog({
+        eventType: (payload?.type || payload?.event || "unknown") as string,
+        detectedType,
+        contactId: contactId || undefined,
+        action,
+        error: logError,
+        processingMs: Date.now() - startTime,
+      }).catch(() => {});
+
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Internal error" });
+      }
     }
   });
 

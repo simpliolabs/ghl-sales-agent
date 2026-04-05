@@ -1,6 +1,6 @@
 import { eq, desc, gte, and, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, leads, conversations, aiState, pipelineEvents, agentAssignments, knowledgeFiles, aiTweaks, invites } from "../drizzle/schema";
+import { InsertUser, users, leads, conversations, aiState, pipelineEvents, agentAssignments, knowledgeFiles, aiTweaks, invites, webhookLogs, brainCouncilAudit } from "../drizzle/schema";
 import type { InsertLead } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -286,4 +286,74 @@ export async function getRecentAiMessages(limit = 20) {
   if (!db) return [];
   return db.select({ id: conversations.id, leadId: conversations.leadId, channel: conversations.channel, messageBody: conversations.messageBody, senderName: conversations.senderName, timestamp: conversations.timestamp, leadName: leads.name, businessName: leads.businessName })
     .from(conversations).leftJoin(leads, eq(conversations.leadId, leads.id)).where(eq(conversations.senderType, "ai")).orderBy(desc(conversations.timestamp)).limit(limit);
+}
+
+// --- Webhook Logs ---
+export async function addWebhookLog(data: {
+  eventType?: string;
+  detectedType?: string;
+  contactId?: string;
+  leadId?: number;
+  payloadSummary?: string;
+  action?: string;
+  error?: string;
+  processingMs?: number;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await db.insert(webhookLogs).values(data);
+  } catch (err) {
+    console.error('[DB] Failed to log webhook:', err);
+  }
+}
+
+export async function getRecentWebhookLogs(limit = 50) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(webhookLogs).orderBy(desc(webhookLogs.receivedAt)).limit(limit);
+}
+
+// --- Brain Council Audit ---
+export async function addBrainCouncilAudit(data: {
+  leadId: number;
+  leadName?: string;
+  channel?: string;
+  incomingMessage?: string;
+  strategyApproach?: string;
+  strategyFramework?: string;
+  strategyReasoning?: string;
+  strategyTier?: string;
+  researchSummary?: string;
+  composedMessage?: string;
+  composerFromName?: string;
+  qcScore?: number;
+  qcApproved?: number;
+  qcIssues?: string;
+  qcFeedback?: string;
+  wasRecomposed?: number;
+  recomposeScore?: number;
+  finalMessage?: string;
+  messageSent?: number;
+  sendError?: string;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await db.insert(brainCouncilAudit).values(data);
+  } catch (err) {
+    console.error('[DB] Failed to log brain council audit:', err);
+  }
+}
+
+export async function getBrainCouncilAuditLog(limit = 50) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(brainCouncilAudit).orderBy(desc(brainCouncilAudit.createdAt)).limit(limit);
+}
+
+export async function getBrainCouncilAuditForLead(leadId: number, limit = 20) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(brainCouncilAudit).where(eq(brainCouncilAudit.leadId, leadId)).orderBy(desc(brainCouncilAudit.createdAt)).limit(limit);
 }

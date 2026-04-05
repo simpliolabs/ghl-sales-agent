@@ -11,7 +11,7 @@
  */
 
 import { invokeLLM } from "./_core/llm";
-import { getDb } from "./db";
+import { getDb, addBrainCouncilAudit } from "./db";
 import { aiState, aiTweaks, knowledgeFiles, conversations, leads } from "../drizzle/schema";
 import { eq, desc } from "drizzle-orm";
 
@@ -541,6 +541,64 @@ Email Benchmarks (from EMB Appendix):
 - Never present estimates as binding quotes
 - Never offer discounts unless admin tweak says to
 
+=== FRAMEWORK-SPECIFIC STRUCTURE (MANDATORY — follow the assigned framework exactly) ===
+
+If framework = HORMOZI_ACA (first contact):
+  Your message MUST follow this exact 3-part structure:
+  1. ACKNOWLEDGE: Reference something SPECIFIC about the lead (their business name, their product request, their event, their team). NOT "thanks for reaching out" — that's generic.
+  2. COMPLIMENT: A genuine, specific compliment related to what you acknowledged. "Love supporting local sports programs" or "Churches doing community events is awesome" — NOT "great to hear from you."
+  3. ASK: ONE low-friction question that opens conversation. Ask about a detail they haven't provided yet (design, color, timeline specifics). NOT "how can I help you" — that's generic.
+  Total: 2-3 sentences max. Warm, human, like a friend texting. NO product dumps. NO service listings. NO pricing. Just connection.
+  Example: "Sweatshirts for South Panola's sports team — that's awesome! What sport are we outfitting, and do you have a logo ready or need help with design?"
+
+If framework = HORMOZI_ACA (follow-up):
+  1. ACKNOWLEDGE: "I know you mentioned [specific thing from last conversation]..."
+  2. COMPLIMENT: "...which makes sense because [genuine observation about their situation]."
+  3. ASK: "Have you had a chance to [specific next step], or should I [alternative]?"
+
+If framework = HORMOZI_INDIRECT:
+  NEVER say "buy our products" or "we offer..."
+  Instead: "Do you know anyone who needs [specific thing they need] for [their specific context]?"
+  Let them self-identify.
+
+If framework = PAS:
+  1. PROBLEM: State their specific pain point (from research/form data)
+  2. AGITATE: Why it matters now (deadline, event, season)
+  3. SOLUTION: How Adorb solves it specifically
+
+If framework = BAB:
+  1. BEFORE: Their current situation
+  2. AFTER: What it looks like with custom gear
+  3. BRIDGE: How Adorb gets them there
+
+If framework = AIDA:
+  1. ATTENTION: Hook with something relevant to them
+  2. INTEREST: Specific benefit for their situation
+  3. DESIRE: Social proof or case study
+  4. ACTION: One clear CTA
+
+If framework = SOAP_OPERA:
+  Open a narrative loop. Tell a mini-story about a similar customer. End with curiosity gap.
+
+If framework = EMB_WELCOME / EMB_WINBACK / EMB_POST_PURCHASE / EMB_COLD:
+  Follow the Email Marketing Bible sequence rules from the strategy section above.
+
+=== FIRST CONTACT RULES (when approach = first_contact) ===
+- This is the MOST IMPORTANT message. It sets the tone for the entire relationship.
+- MUST be introductory — you are meeting this person for the first time.
+- MUST acknowledge what they told us (form data, their message, their request).
+- MUST be SHORT: 2-3 sentences for SMS, 3-4 for email. No walls of text.
+- MUST sound like a real person, not a chatbot or auto-responder.
+- MUST NOT list all services. MUST NOT dump pricing. MUST NOT ask "how can I help."
+- If form data says what they want (e.g., "50 shirts, sports team, this month"), ACKNOWLEDGE IT IMMEDIATELY. Don't ask discovery questions about things they already told you.
+- Include ONE Adorb social proof point naturally (4.9 stars OR 1.1M customers — not both).
+
+=== ANTI-REPETITION RULES ===
+- Check the conversation history. Your message MUST NOT start with the same words as any prior outbound.
+- If prior messages started with "Hey [name]!", you MUST use a different opener.
+- Vary your structure: if prior messages were question-heavy, make this one statement-heavy.
+- Never repeat a question that was already asked in a prior message.
+
 You write the message. The QC brain will review it before it goes out.`;
 
 async function runComposer(
@@ -667,7 +725,9 @@ You are the LAST LINE OF DEFENSE before a message goes to a real customer. Your 
 
 7. STRATEGY COMPLIANCE (0-10):
    - Does the message follow the strategy directive?
-   - Does it use the assigned framework?
+   - Does it use the assigned framework STRUCTURE (not just mention it)?
+   - If framework = HORMOZI_ACA + first_contact: Does the message have all 3 parts? (1) Acknowledge something SPECIFIC about the lead, (2) Genuine compliment, (3) One low-friction question. Score 0 if it's a generic "how can I help" or "what can we do for you" response.
+   - If form data exists: Does the message reference what the lead already told us? Score 0 if it asks questions the form already answered.
    - Does it stay within the max length?
 
 8. BRAND VOICE (0-10):
@@ -734,6 +794,15 @@ ${input.formData?.map(f => `- ${f.label}: ${f.value}`).join("\n") || "None"}
 
 === INCOMING MESSAGE BEING RESPONDED TO ===
 ${input.incomingMessage}
+
+=== FIRST CONTACT SPECIAL RULES ===
+If the strategy says approach = first_contact:
+- The message MUST be introductory and warm, like meeting someone for the first time.
+- It MUST NOT sound like a customer service auto-reply.
+- It MUST reference something specific about the lead (not just their name).
+- If form data provided product/quantity/timeline, the message MUST acknowledge it.
+- Score 0 on Strategy Compliance if the message is generic ("What can we help you with?", "How can I assist you?").
+- Score 0 on Acknowledgment if form data exists but isn't referenced.
 
 Review this message now. Be strict but fair.`;
 
@@ -840,6 +909,32 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
   const datePattern = /\b(\d{1,2}\/\d{1,2}\/\d{2,4}|\w+ \d{1,2}(?:st|nd|rd|th)?(?:,? \d{4})?|(?:next|this) (?:week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/gi;
   const allText = input.incomingMessage + " " + composed.message;
   const extractedDates = Array.from(allText.matchAll(datePattern)).map(m => m[0]);
+
+  // --- AUDIT LOG: Record the full Brain Council decision trail ---
+  try {
+    await addBrainCouncilAudit({
+      leadId: input.leadId,
+      leadName: context.lead.name || undefined,
+      channel: input.channel,
+      incomingMessage: input.incomingMessage?.substring(0, 2000),
+      strategyApproach: strategy.approach,
+      strategyFramework: strategy.framework,
+      strategyReasoning: strategy.reasoning?.substring(0, 2000),
+      strategyTier: String(strategy.personalizationTier),
+      researchSummary: research.summary?.substring(0, 2000),
+      composedMessage: composed.message,
+      composerFromName: composed.fromName,
+      qcScore: qc.score,
+      qcApproved: qc.approved ? 1 : 0,
+      qcIssues: qc.issues.length > 0 ? JSON.stringify(qc.issues) : undefined,
+      qcFeedback: qc.suggestions.length > 0 ? JSON.stringify(qc.suggestions) : undefined,
+      wasRecomposed: (!qc.approved && qc.score < 50) ? 1 : 0,
+      finalMessage: composed.message,
+      messageSent: 1, // will be updated by webhook handler if send fails
+    });
+  } catch (auditErr) {
+    console.error('[BrainCouncil] Audit log error (non-fatal):', auditErr);
+  }
 
   return {
     message: composed.message,

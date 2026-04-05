@@ -12,6 +12,7 @@ vi.mock("./db", () => ({
   getRecentAiOutboundCount: vi.fn().mockResolvedValue(0),
   addAgentAssignment: vi.fn().mockResolvedValue(undefined),
   getAgentWorkload: vi.fn().mockResolvedValue([{ agent: "Abby Bouwer", count: 5 }, { agent: "Chris McHendry", count: 3 }]),
+  addWebhookLog: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./ai-brain", () => ({

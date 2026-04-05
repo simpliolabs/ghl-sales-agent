@@ -13,6 +13,8 @@ import AIPerformance from "./pages/AIPerformance";
 import KnowledgeBase from "./pages/KnowledgeBase";
 import Settings from "./pages/Settings";
 import AcceptInvite from "./pages/AcceptInvite";
+import AuditLog from "./pages/AuditLog";
+import WebhookLogs from "./pages/WebhookLogs";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -26,6 +28,8 @@ function Router() {
       <Route path="/ai-performance" component={AIPerformance} />
       <Route path="/knowledge" component={KnowledgeBase} />
       <Route path="/settings" component={Settings} />
+      <Route path="/audit-log" component={AuditLog} />
+      <Route path="/webhook-logs" component={WebhookLogs} />
       <Route path="/invite/:token" component={AcceptInvite} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
