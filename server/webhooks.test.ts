@@ -355,7 +355,9 @@ describe("Dedup guard and cadence backoff", () => {
   });
 
   it("skips AI outreach on contact create if recent AI message exists (dedup)", async () => {
+    vi.useFakeTimers();
     const { getRecentAiOutboundCount } = await import("./db");
+    const { sendMessage } = await import("./ghl");
     (getRecentAiOutboundCount as ReturnType<typeof vi.fn>).mockResolvedValue(1);
 
     const { runBrainCouncil } = await import("./brain-council-orchestrator");
@@ -370,9 +372,18 @@ describe("Dedup guard and cadence backoff", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(res.body.action).toBe("dedup_skipped");
-    // AI should NOT have been called
+    // Webhook responds immediately with success (first-contact is delayed)
+    expect(res.body.success).toBe(true);
+
+    // Advance past the 45s delay so the delayed first-contact fires
+    await vi.advanceTimersByTimeAsync(50_000);
+
+    // AI should NOT have been called (dedup guard inside delayed function)
     expect(runBrainCouncil).not.toHaveBeenCalled();
+    // sendMessage should NOT have been called (dedup skipped the send)
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    vi.useRealTimers();
   });
 
   it("skips AI response on inbound message if recent AI message exists (dedup cooldown)", async () => {
@@ -446,6 +457,7 @@ describe("Form data extraction in contact webhook", () => {
   });
 
   it("sends locked first-contact template (not Brain Council) when form data is present", async () => {
+    vi.useFakeTimers();
     const { sendMessage, fetchGhlConversationHistory } = await import("./ghl");
     const { addConversation } = await import("./db");
     (fetchGhlConversationHistory as ReturnType<typeof vi.fn>).mockResolvedValue([
@@ -469,6 +481,10 @@ describe("Form data extraction in contact webhook", () => {
     // Brain Council should NOT be called for first contact (locked template)
     const { runBrainCouncil } = await import("./brain-council-orchestrator");
     expect(runBrainCouncil).not.toHaveBeenCalled();
+
+    // First-contact is now delayed by 45s — advance fake timers
+    await vi.advanceTimersByTimeAsync(50_000);
+
     // sendMessage should be called with the locked template messages
     expect(sendMessage).toHaveBeenCalled();
     // addConversation should store the outbound messages
@@ -479,6 +495,8 @@ describe("Form data extraction in contact webhook", () => {
         messageBody: expect.stringContaining("4.9 star review"),
       })
     );
+
+    vi.useRealTimers();
   });
 });
 
