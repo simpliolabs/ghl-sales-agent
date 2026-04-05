@@ -149,4 +149,14 @@
 - [x] FIX: Added mandatory email signature block: Agent | Adorb Custom Printing, phone, email, website, 4.9 Stars · 867+ Verified Reviews, Google reviews link
 - [x] FIX: QC brain now has Email Formatting Check (criterion 12) — scores 0 for missing signature, long paragraphs, no reviews link. Auto-fixes in revisedMessage.
 - [x] FIX: Email subject bug — follow-up trigger + webhook-message used fromName as subject instead of Composer's subject field
-- [x] OMNISEND: Bulk push all 798 existing leads with email to Omnisend (with segment + stage + score tags) — zero errors
+- [x] OMNISEND: Bulk push all 798 existing leads with email to Omnisend (with segment + stage + score tags) — zero errors- [ ] BUG: Bobby Clarner (Facebook) — webhooks arrived but Brain Council failed due to LLM credits exhausted (412). Need retry queue for failed LLM calls. as Dennis Bost.
+- [x] LLM RETRY: Added isLlmExhausted() helper to webhook-helpers.ts — detects 412, 429, rate, exhausted, quota, usage errors
+- [x] LLM RETRY: webhook-message.ts — Brain Council call wrapped in try/catch, LLM exhaustion auto-reschedules lead with exponential backoff (15min → 22min → 33min → max 4hr)
+- [x] LLM RETRY: webhook-message.ts — Logs failed LLM calls in brain_council_audit with violationCategory="llm_exhausted"
+- [x] LLM RETRY: webhook-message.ts — Notifies owner on first failure and every 5th retry
+- [x] LLM RETRY: follow-up-trigger.ts — Brain Council call wrapped in try/catch, LLM exhaustion stops entire cycle (no point trying more leads)
+- [x] LLM RETRY: follow-up-trigger.ts — Reschedules ALL remaining leads in batch with staggered retry times (prevents thundering herd)
+- [x] LLM RETRY: follow-up-trigger.ts — Tracks consecutive exhaustion cycles, notifies owner on first + every 6th cycle (~1 hour)
+- [x] LLM RETRY: follow-up-trigger.ts — Resets exhaustion counter on successful Brain Council call (auto-recovery when credits replenish)
+- [x] LLM RETRY: AuditLog.tsx — Added "LLM Credits Exhausted" violation label + purple badge color
+- [x] LLM RETRY: 12 new vitest tests for isLlmExhausted, constants, and exponential backoff calculation

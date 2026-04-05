@@ -9,6 +9,8 @@
  * - Skips leads with no assigned agent
  * - Skips leads contacted in the last 5 minutes (dedup)
  * - Respects global rate limits
+ * - LLM exhaustion detection: on credit/rate-limit errors, reschedules lead
+ *   with exponential backoff and stops the cycle (no point trying more leads)
  * - Logs every engagement attempt
  */
 
@@ -16,14 +18,18 @@ import { getLeadsDueForFollowUp, getConversationHistory, updateLeadFields, addCo
 import { runBrainCouncil } from "./brain-council-orchestrator";
 import { calculateNextFollowUp, checkRateLimits, capDate } from "./scheduling-engine";
 import { sendMessage, addNote, fetchGhlConversationHistory, getContact } from "./ghl";
-import { sendMessageWithRetry, normalizeChannel, extractFormData } from "./webhook-helpers";
+import { sendMessageWithRetry, normalizeChannel, extractFormData, isLlmExhausted, LLM_RETRY_DELAY_MS } from "./webhook-helpers";
 import { shouldHandoffToAgent, estimateOrderValue, generateContactNotes } from "./ai-brain";
+import { notifyOwner } from "./_core/notification";
 
 const MAX_PER_CYCLE = 10;
 const MIN_MINUTES_BETWEEN_AI = 5;
 
-export async function processOverdueFollowUps(): Promise<{ processed: number; sent: number; skipped: number; errors: number }> {
-  const stats = { processed: 0, sent: 0, skipped: 0, errors: 0 };
+/** Track consecutive LLM exhaustion events across cycles to avoid spamming notifications */
+let consecutiveLlmExhaustionCycles = 0;
+
+export async function processOverdueFollowUps(): Promise<{ processed: number; sent: number; skipped: number; errors: number; llmExhausted: boolean }> {
+  const stats = { processed: 0, sent: 0, skipped: 0, errors: 0, llmExhausted: false };
 
   try {
     // Global rate limit check first
@@ -177,13 +183,69 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
           }
         }
 
-        // --- RUN BRAIN COUNCIL (it decides the channel autonomously) ---
-        const aiResponse = await runBrainCouncil({
-          leadId,
-          incomingMessage: triggerContext,
-          channel: hintChannel, // hint only — Strategist overrides this
-          externalHistory: historyStr,
-        });
+        // --- RUN BRAIN COUNCIL (with LLM exhaustion detection) ---
+        let aiResponse;
+        try {
+          aiResponse = await runBrainCouncil({
+            leadId,
+            incomingMessage: triggerContext,
+            channel: hintChannel, // hint only — Strategist overrides this
+            externalHistory: historyStr,
+          });
+        } catch (brainErr) {
+          if (isLlmExhausted(brainErr)) {
+            // LLM credits exhausted — reschedule this lead and STOP the entire cycle
+            // (no point trying more leads if the LLM is down)
+            const retryAt = new Date(Date.now() + LLM_RETRY_DELAY_MS);
+            console.error(`[FollowUp] ⚠️ LLM EXHAUSTED for lead ${leadId} (${leadName}). Rescheduling to ${retryAt.toISOString()} and stopping cycle.`);
+
+            await updateLeadFields(leadId, { nextFollowUpAt: retryAt });
+
+            // Log in audit trail
+            await addBrainCouncilAudit({
+              leadId,
+              leadName,
+              channel: hintChannel,
+              incomingMessage: triggerContext.substring(0, 2000),
+              blocked: 1,
+              blockReason: `LLM credits exhausted — auto-retry scheduled for ${retryAt.toISOString()}`,
+              violationCategory: "llm_exhausted",
+              messageSent: 0,
+              ownerNotified: consecutiveLlmExhaustionCycles === 0 ? 1 : 0,
+            });
+
+            // Reschedule ALL remaining leads in this batch so they don't pile up
+            for (const remainingLead of batch.slice(batch.indexOf(lead) + 1)) {
+              const rLeadId = (remainingLead as any).id;
+              // Stagger retries: each lead gets an extra 1-minute offset to avoid thundering herd
+              const staggeredRetry = new Date(retryAt.getTime() + (batch.indexOf(remainingLead) * 60 * 1000));
+              try {
+                await updateLeadFields(rLeadId, { nextFollowUpAt: staggeredRetry });
+              } catch { /* best effort */ }
+            }
+
+            // Notify owner (only on first exhaustion cycle, then every 6th = ~1 hour)
+            consecutiveLlmExhaustionCycles++;
+            if (consecutiveLlmExhaustionCycles === 1 || consecutiveLlmExhaustionCycles % 6 === 0) {
+              try {
+                await notifyOwner({
+                  title: `⚠️ LLM Credits Exhausted — Follow-ups Paused`,
+                  content: `Brain Council failed for ${leadName} (Lead #${leadId}). Error: ${String((brainErr as any)?.message || brainErr).substring(0, 200)}. All ${batch.length} overdue leads rescheduled for retry at ${retryAt.toLocaleString()}. This is exhaustion cycle #${consecutiveLlmExhaustionCycles}. Credits will auto-replenish on your Manus billing cycle.`,
+                });
+              } catch { /* best effort */ }
+            }
+
+            stats.errors++;
+            stats.llmExhausted = true;
+            break; // Stop the entire cycle
+          }
+
+          // Non-LLM error — handle normally
+          throw brainErr;
+        }
+
+        // Reset exhaustion counter on successful Brain Council call
+        consecutiveLlmExhaustionCycles = 0;
 
         // Use the Brain Council's channel decision, not our hint
         const channel = normalizeChannel(aiResponse.channel || hintChannel);
@@ -258,7 +320,7 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
       }
     }
 
-    console.log(`[FollowUp] Cycle complete: ${stats.processed} processed, ${stats.sent} sent, ${stats.skipped} skipped, ${stats.errors} errors`);
+    console.log(`[FollowUp] Cycle complete: ${stats.processed} processed, ${stats.sent} sent, ${stats.skipped} skipped, ${stats.errors} errors${stats.llmExhausted ? " (LLM EXHAUSTED — cycle stopped early)" : ""}`);
   } catch (err) {
     console.error("[FollowUp] Fatal error in follow-up trigger:", err);
   }

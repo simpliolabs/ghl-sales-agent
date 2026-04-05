@@ -8,6 +8,7 @@
  * - Smart handoff logic (human takeover detection)
  * - Dedup guard + cadence backoff
  * - AI response via Brain Council (Strategist → Researcher → Composer → QC)
+ * - LLM failure retry queue (auto-reschedule on credit exhaustion)
  * - Post-send validation + scheduling
  */
 
@@ -22,12 +23,16 @@ import { calculateNextFollowUp, checkRateLimits } from "./scheduling-engine";
 import { sendMessage, updateContactCustomField, createTask, addNote, fetchGhlConversationHistory, getContact } from "./ghl";
 import { detectConfusion, handleConfusionReply, postSendValidation } from "./auto-correction";
 import { attributeReply } from "./outcome-engine";
+import { notifyOwner } from "./_core/notification";
 import {
   resolveGhlContactId,
   extractContactData,
   sendMessageWithRetry,
   normalizeChannel,
   extractFormData,
+  isLlmExhausted,
+  LLM_RETRY_DELAY_MS,
+  MAX_LLM_RETRIES,
 } from "./webhook-helpers";
 
 export async function handleMessageWebhook(payload: Record<string, unknown>, res: Response) {
@@ -232,8 +237,52 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     }
   }
 
-  // --- AI RESPONSE via BRAIN COUNCIL ---
-  const aiResponse = await runBrainCouncil({ leadId: lead!.id, incomingMessage: messageBody, channel, externalHistory: historyStr });
+  // --- AI RESPONSE via BRAIN COUNCIL (with LLM failure retry queue) ---
+  let aiResponse;
+  try {
+    aiResponse = await runBrainCouncil({ leadId: lead!.id, incomingMessage: messageBody, channel, externalHistory: historyStr });
+  } catch (brainErr) {
+    if (isLlmExhausted(brainErr)) {
+      // LLM credits exhausted — schedule retry instead of dropping the lead
+      const currentRetries = (lead!.cadencePosition || 0); // reuse cadencePosition as retry counter during LLM outage
+      const retryDelay = Math.min(LLM_RETRY_DELAY_MS * Math.pow(1.5, Math.min(currentRetries, 5)), 4 * 60 * 60 * 1000); // 15min → 22min → 33min → ... max 4 hours
+      const retryAt = new Date(Date.now() + retryDelay);
+
+      console.error(`[Webhook] ⚠️ LLM EXHAUSTED for lead ${lead!.id} (${lead!.name || "Unknown"}). Retry #${currentRetries + 1} scheduled at ${retryAt.toISOString()}`);
+
+      await updateLeadFields(lead!.id, { nextFollowUpAt: retryAt });
+
+      // Log the failure in audit trail
+      await addBrainCouncilAudit({
+        leadId: lead!.id,
+        leadName: lead!.name || undefined,
+        channel,
+        incomingMessage: messageBody?.substring(0, 2000),
+        blocked: 1,
+        blockReason: `LLM credits exhausted — auto-retry #${currentRetries + 1} scheduled for ${retryAt.toISOString()}`,
+        violationCategory: "llm_exhausted",
+        messageSent: 0,
+        ownerNotified: 1,
+      });
+
+      // Notify owner on first failure or every 5th retry
+      if (currentRetries === 0 || currentRetries % 5 === 0) {
+        try {
+          await notifyOwner({
+            title: `⚠️ LLM Credits Exhausted — ${currentRetries === 0 ? "Leads Being Queued" : `${currentRetries} retries so far`}`,
+            content: `Brain Council failed for ${lead!.name || "Lead #" + lead!.id} (${messageBody?.substring(0, 100)}). Error: ${String((brainErr as any)?.message || brainErr).substring(0, 200)}. Lead auto-scheduled for retry at ${retryAt.toLocaleString()}. Credits will auto-replenish on your Manus billing cycle.`,
+          });
+        } catch { /* best effort */ }
+      }
+
+      res.json({ success: true, action: "llm_exhausted_retry_queued", retryAt: retryAt.toISOString() });
+      return;
+    }
+
+    // Non-LLM error — rethrow so the router's catch block handles it
+    throw brainErr;
+  }
+
   console.log(`[Webhook] Brain Council for lead ${lead!.id}: QC=${aiResponse.qcScore}, blocked=${aiResponse.blocked}, strategy=${aiResponse.strategyReasoning.substring(0, 80)}`);
 
   // --- ACCOUNTABILITY: Handle blocked messages ---

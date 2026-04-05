@@ -79,6 +79,7 @@ export default function AuditLog() {
       generic_opener: "Generic Opener",
       missing_framework: "Missing Framework",
       safety_violation: "Safety Violation",
+      llm_exhausted: "LLM Credits Exhausted",
     };
     return labels[cat] || cat.replace(/_/g, " ");
   }
@@ -91,6 +92,7 @@ export default function AuditLog() {
       generic_opener: "bg-amber-100 text-amber-800",
       missing_framework: "bg-yellow-100 text-yellow-800",
       safety_violation: "bg-red-200 text-red-900",
+      llm_exhausted: "bg-purple-100 text-purple-800",
     };
     return colors[cat] || "bg-gray-100 text-gray-800";
   }

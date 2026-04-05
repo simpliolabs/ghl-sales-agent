@@ -236,6 +236,22 @@ export function normalizeChannel(raw: unknown): string {
   return "SMS";
 }
 
+// --- LLM EXHAUSTION DETECTION ---
+/**
+ * Detects if an error is an LLM credit/rate-limit exhaustion.
+ * Matches the same patterns used by lookback-engine.ts.
+ */
+export function isLlmExhausted(err: unknown): boolean {
+  const msg = String((err as any)?.message || err).toLowerCase();
+  return msg.includes("429") || msg.includes("rate") || msg.includes("exhausted") || msg.includes("412") || msg.includes("quota") || msg.includes("usage");
+}
+
+/** Default retry delay for LLM exhaustion (15 minutes) */
+export const LLM_RETRY_DELAY_MS = 15 * 60 * 1000;
+
+/** Max consecutive LLM retries before pausing a lead (prevents infinite retry loops) */
+export const MAX_LLM_RETRIES = 10;
+
 // --- SEND OPTIONS BUILDER ---
 export function buildSendOpts(
   channel: string,
