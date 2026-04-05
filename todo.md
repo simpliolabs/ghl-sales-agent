@@ -160,3 +160,4 @@
 - [x] LLM RETRY: follow-up-trigger.ts — Resets exhaustion counter on successful Brain Council call (auto-recovery when credits replenish)
 - [x] LLM RETRY: AuditLog.tsx — Added "LLM Credits Exhausted" violation label + purple badge color
 - [x] LLM RETRY: 12 new vitest tests for isLlmExhausted, constants, and exponential backoff calculation
+- [x] BUG: Duplicate SMS sent to Jose Alfredo Munoz — same message sent twice at 01:27 PM on Apr 5. Fixed with in-memory concurrent dedup lock in webhooks.ts (acquireMessageLock/releaseMessageLock) + type-safe fallback handler for empty/object body payloads. 4 new dedup tests added.

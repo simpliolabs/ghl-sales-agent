@@ -536,6 +536,9 @@ describe("GHL workflow payload normalization", () => {
 
   it("does not drop messages with empty body from workflow payloads", async () => {
     // Some workflow payloads have empty message body (e.g., reactions)
+    // Empty body is falsy, so normalizer won't promote it to top-level body.
+    // detectEventType sees no body/messageType, so falls through to "unknown".
+    // The default handler sees contactId and treats it as a fallback_contact.
     const res = await request(app).post("/api/webhooks/ghl").send({
       contact_id: "test-contact-123",
       full_name: "Test User",
@@ -544,6 +547,126 @@ describe("GHL workflow payload normalization", () => {
     });
 
     // Should not crash — empty body should be handled gracefully
-    expect(res.status).toBeLessThanOrEqual(400);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+});
+
+describe("Concurrent message dedup lock", () => {
+  let app: ReturnType<typeof createTestApp>;
+
+  beforeEach(() => {
+    app = createTestApp();
+    vi.clearAllMocks();
+  });
+
+  it("blocks duplicate concurrent message webhooks for the same contact+body", async () => {
+    // Add a delay to Brain Council so the lock is held while the second request arrives
+    const { runBrainCouncil } = await import("./brain-council-orchestrator");
+    (runBrainCouncil as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      await new Promise(r => setTimeout(r, 100)); // simulate processing time
+      return { message: "Hello!", fromName: "Adorb", framework: "PAS", angle: "intro", extractedDates: [], score: 50, segment: "other", nextEngagementHours: 24, qcScore: 85, strategyReasoning: "Test" };
+    });
+
+    const payload = {
+      contactId: "dedup-concurrent-1",
+      body: "I need 50 t-shirts for our event",
+      type: "InboundMessage",
+      direction: "inbound",
+    };
+
+    const [res1, res2] = await Promise.all([
+      request(app).post("/api/webhooks/ghl").send(payload),
+      request(app).post("/api/webhooks/ghl").send(payload),
+    ]);
+
+    // Both should succeed (200)
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
+
+    // One should be the real handler, the other should be dedup_blocked
+    const actions = [res1.body.action, res2.body.action];
+    expect(actions).toContain("dedup_blocked");
+  });
+
+  it("allows different contacts to process concurrently", async () => {
+    const payload1 = {
+      contactId: "dedup-different-1",
+      body: "I need shirts",
+      type: "InboundMessage",
+      direction: "inbound",
+    };
+    const payload2 = {
+      contactId: "dedup-different-2",
+      body: "I need shirts",
+      type: "InboundMessage",
+      direction: "inbound",
+    };
+
+    const [res1, res2] = await Promise.all([
+      request(app).post("/api/webhooks/ghl").send(payload1),
+      request(app).post("/api/webhooks/ghl").send(payload2),
+    ]);
+
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
+
+    // Neither should be dedup_blocked since they're different contacts
+    const actions = [res1.body.action, res2.body.action];
+    expect(actions).not.toContain("dedup_blocked");
+  });
+
+  it("allows same contact with different messages to process", async () => {
+    const payload1 = {
+      contactId: "dedup-diffmsg-1",
+      body: "First message",
+      type: "InboundMessage",
+      direction: "inbound",
+    };
+    const payload2 = {
+      contactId: "dedup-diffmsg-1",
+      body: "Second different message",
+      type: "InboundMessage",
+      direction: "inbound",
+    };
+
+    const [res1, res2] = await Promise.all([
+      request(app).post("/api/webhooks/ghl").send(payload1),
+      request(app).post("/api/webhooks/ghl").send(payload2),
+    ]);
+
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
+
+    // Neither should be dedup_blocked since messages are different
+    const actions = [res1.body.action, res2.body.action];
+    expect(actions).not.toContain("dedup_blocked");
+  });
+
+  it("blocks duplicate on legacy /api/webhooks/ghl/message endpoint too", async () => {
+    // Add a delay to Brain Council so the lock is held
+    const { runBrainCouncil } = await import("./brain-council-orchestrator");
+    (runBrainCouncil as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      await new Promise(r => setTimeout(r, 100));
+      return { message: "Hello!", fromName: "Adorb", framework: "PAS", angle: "intro", extractedDates: [], score: 50, segment: "other", nextEngagementHours: 24, qcScore: 85, strategyReasoning: "Test" };
+    });
+
+    const payload = {
+      contactId: "dedup-legacy-1",
+      body: "Legacy endpoint test",
+      type: "InboundMessage",
+      direction: "inbound",
+    };
+
+    const [res1, res2] = await Promise.all([
+      request(app).post("/api/webhooks/ghl/message").send(payload),
+      request(app).post("/api/webhooks/ghl/message").send(payload),
+    ]);
+
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
+
+    const actions = [res1.body.action, res2.body.action];
+    expect(actions).toContain("dedup_blocked");
   });
 });

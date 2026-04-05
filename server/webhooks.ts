@@ -21,6 +21,34 @@ import { backfillOutcomes } from "./outcome-engine";
 import { processOverdueFollowUps } from "./follow-up-trigger";
 import { runLookback } from "./lookback-engine";
 
+// --- IN-MEMORY DEDUP LOCK ---
+// Prevents concurrent processing of the same message webhook.
+// Key: contactId + messageBody hash, Value: timestamp of lock acquisition.
+// Locks expire after 30 seconds to handle crashes/timeouts.
+const MESSAGE_DEDUP_LOCK = new Map<string, number>();
+const DEDUP_LOCK_TTL_MS = 30_000;
+
+function acquireMessageLock(contactId: string, messageBody: string): boolean {
+  // Clean expired locks
+  const now = Date.now();
+  Array.from(MESSAGE_DEDUP_LOCK.entries()).forEach(([key, ts]) => {
+    if (now - ts > DEDUP_LOCK_TTL_MS) MESSAGE_DEDUP_LOCK.delete(key);
+  });
+  // Create a simple hash key from contactId + first 100 chars of message body
+  const lockKey = `${contactId}:${(messageBody || "").substring(0, 100)}`;
+  if (MESSAGE_DEDUP_LOCK.has(lockKey)) {
+    console.log(`[Webhook/Dedup] Duplicate message webhook blocked: ${lockKey.substring(0, 60)}...`);
+    return false; // Lock already held — this is a duplicate
+  }
+  MESSAGE_DEDUP_LOCK.set(lockKey, now);
+  return true; // Lock acquired
+}
+
+function releaseMessageLock(contactId: string, messageBody: string): void {
+  const lockKey = `${contactId}:${(messageBody || "").substring(0, 100)}`;
+  MESSAGE_DEDUP_LOCK.delete(lockKey);
+}
+
 export function createWebhookRouter(): Router {
   const router = Router();
 
@@ -151,10 +179,21 @@ export function createWebhookRouter(): Router {
           action = "contact_handler";
           await handleContactWebhook(payload, res);
           break;
-        case "message":
+        case "message": {
           action = "message_handler";
-          await handleMessageWebhook(payload, res);
+          const msgBody = (payload.body || payload.message || "") as string;
+          if (!acquireMessageLock(contactId, msgBody)) {
+            action = "dedup_blocked";
+            res.json({ success: true, action: "dedup_blocked" });
+            break;
+          }
+          try {
+            await handleMessageWebhook(payload, res);
+          } finally {
+            releaseMessageLock(contactId, msgBody);
+          }
           break;
+        }
         case "pipeline":
           action = "pipeline_handler";
           await handlePipelineWebhook(payload, res);
@@ -164,9 +203,19 @@ export function createWebhookRouter(): Router {
           await handleTaskWebhook(payload, res);
           break;
         default:
-          if (payload.body || payload.message || payload.messageType) {
+          if ((typeof payload.body === "string" && payload.body) || (typeof payload.message === "string" && payload.message) || payload.messageType) {
             action = "fallback_message";
-            await handleMessageWebhook(payload, res);
+            const fbMsgBody = String(payload.body || payload.message || "");
+            if (!acquireMessageLock(contactId, fbMsgBody)) {
+              action = "dedup_blocked";
+              res.json({ success: true, action: "dedup_blocked" });
+              break;
+            }
+            try {
+              await handleMessageWebhook(payload, res);
+            } finally {
+              releaseMessageLock(contactId, fbMsgBody);
+            }
           } else if (payload.currentStage || payload.toStage || payload.stageName || payload.pipelineId) {
             action = "fallback_pipeline";
             await handlePipelineWebhook(payload, res);
@@ -215,8 +264,20 @@ export function createWebhookRouter(): Router {
   });
 
   router.post("/api/webhooks/ghl/message", async (req: Request, res: Response) => {
-    try { await handleMessageWebhook(normalizeWorkflowPayload(req.body), res); } catch (err) {
-      console.error("[Webhook] Message error:", err); res.status(500).json({ error: "Internal error" });
+    const legacyPayload = normalizeWorkflowPayload(req.body);
+    const legacyContactId = (legacyPayload.contactId || legacyPayload.id || "") as string;
+    const legacyMsgBody = (legacyPayload.body || legacyPayload.message || "") as string;
+    if (!acquireMessageLock(legacyContactId, legacyMsgBody)) {
+      res.json({ success: true, action: "dedup_blocked" });
+      return;
+    }
+    try {
+      await handleMessageWebhook(legacyPayload, res);
+    } catch (err) {
+      console.error("[Webhook] Message error:", err);
+      if (!res.headersSent) res.status(500).json({ error: "Internal error" });
+    } finally {
+      releaseMessageLock(legacyContactId, legacyMsgBody);
     }
   });
 
