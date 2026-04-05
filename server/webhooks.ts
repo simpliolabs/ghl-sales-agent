@@ -4,46 +4,112 @@ import { classifySegment, shouldHandoffToAgent, generateContactNotes, estimateOr
 import { researchLead } from "./lead-researcher";
 import { runBrainCouncil } from "./brain-council";
 import { calculateNextFollowUp, checkRateLimits, checkLeadRateLimit } from "./scheduling-engine";
-import { sendMessage, updateContactCustomField, createTask, addNote, updateOpportunityValue, updateOpportunityStage, fetchGhlConversationHistory, getContact } from "./ghl";
+import { sendMessage, updateContactCustomField, createTask, addNote, updateOpportunityValue, updateOpportunityStage, fetchGhlConversationHistory, getContact, searchContacts } from "./ghl";
 import { pushContactToOmnisend } from "./omnisend";
 import { upsertAiState, getConversationHistory, getRecentAiOutboundCount } from "./db";
 import { addAgentAssignment, getAgentWorkload, addWebhookLog } from "./db";
 
-// --- GHL API FALLBACK ENRICHMENT ---
-// When webhook payload is missing key fields (name/email/phone), pull from GHL API
-async function enrichLeadFromGhl(leadId: number, ghlContactId: string, currentData: { name?: string | null; email?: string | null; phone?: string | null; businessName?: string | null; website?: string | null; source?: string | null }) {
-  const missing = !currentData.name || !currentData.email || !currentData.phone;
-  if (!missing) return currentData; // All fields present, no enrichment needed
-
+// --- GHL CONTACT ID RESOLUTION ---
+// GHL workflow webhooks often send wrong/mismatched contact IDs.
+// This function resolves the REAL GHL contact ID by:
+// 1. Trying the provided ID directly
+// 2. If that fails, searching by email or phone
+// Returns { resolvedId, contact } or null
+async function resolveGhlContactId(
+  webhookContactId: string,
+  fallbackEmail?: string | null,
+  fallbackPhone?: string | null
+): Promise<{ resolvedId: string; contact: Record<string, unknown> } | null> {
+  // Step 1: Try direct lookup
   try {
-    console.log(`[GHL Fallback] Lead ${leadId} missing data (name=${!!currentData.name}, email=${!!currentData.email}, phone=${!!currentData.phone}). Pulling from GHL API...`);
-    const ghlContact = await getContact(ghlContactId);
-    if (!ghlContact) {
-      console.log(`[GHL Fallback] Contact ${ghlContactId} not found in GHL`);
-      return currentData;
+    const contact = await getContact(webhookContactId);
+    if (contact) {
+      return { resolvedId: webhookContactId, contact };
     }
-
-    const enriched: Record<string, unknown> = {};
-    const ghlName = ghlContact.name || (ghlContact.firstName ? `${ghlContact.firstName} ${ghlContact.lastName || ""}`.trim() : null);
-
-    if (!currentData.name && ghlName) enriched.name = ghlName;
-    if (!currentData.email && ghlContact.email) enriched.email = ghlContact.email;
-    if (!currentData.phone && ghlContact.phone) enriched.phone = ghlContact.phone;
-    if (!currentData.businessName && ghlContact.companyName) enriched.businessName = ghlContact.companyName;
-    if (!currentData.website && ghlContact.website) enriched.website = ghlContact.website;
-    if (!currentData.source && ghlContact.source) enriched.source = ghlContact.source;
-
-    if (Object.keys(enriched).length > 0) {
-      await updateLeadFields(leadId, enriched);
-      console.log(`[GHL Fallback] Enriched lead ${leadId} with: ${Object.keys(enriched).join(", ")}`);
-      return { ...currentData, ...enriched };
+  } catch (err: unknown) {
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    if (status !== 400 && status !== 404) {
+      console.error(`[GHL Resolve] Unexpected error for ${webhookContactId}:`, err);
     } else {
-      console.log(`[GHL Fallback] No additional data found in GHL for lead ${leadId}`);
+      console.log(`[GHL Resolve] Contact ${webhookContactId} not found (${status}), trying search...`);
     }
-  } catch (err) {
-    console.error(`[GHL Fallback] Failed to enrich lead ${leadId} from GHL:`, err);
   }
-  return currentData;
+
+  // Step 2: Search by email
+  if (fallbackEmail) {
+    try {
+      const results = await searchContacts(fallbackEmail, 1);
+      if (results.length > 0) {
+        console.log(`[GHL Resolve] Found contact by email ${fallbackEmail}: ${results[0].id}`);
+        return { resolvedId: results[0].id, contact: results[0] };
+      }
+    } catch (err) {
+      console.error(`[GHL Resolve] Email search failed:`, err);
+    }
+  }
+
+  // Step 3: Search by phone
+  if (fallbackPhone) {
+    try {
+      const results = await searchContacts(fallbackPhone, 1);
+      if (results.length > 0) {
+        console.log(`[GHL Resolve] Found contact by phone ${fallbackPhone}: ${results[0].id}`);
+        return { resolvedId: results[0].id, contact: results[0] };
+      }
+    } catch (err) {
+      console.error(`[GHL Resolve] Phone search failed:`, err);
+    }
+  }
+
+  console.log(`[GHL Resolve] Could not resolve contact for webhook ID ${webhookContactId}`);
+  return null;
+}
+
+// --- GHL API FALLBACK ENRICHMENT ---
+// Enrich lead data from a resolved GHL contact
+function extractContactData(ghlContact: Record<string, unknown>): Record<string, unknown> {
+  const enriched: Record<string, unknown> = {};
+  const ghlName = (ghlContact.name as string) || (ghlContact.firstName ? `${ghlContact.firstName} ${ghlContact.lastName || ""}`.trim() : null);
+  if (ghlName) enriched.name = ghlName;
+  if (ghlContact.email) enriched.email = ghlContact.email;
+  if (ghlContact.phone) enriched.phone = ghlContact.phone;
+  if (ghlContact.companyName) enriched.businessName = ghlContact.companyName;
+  if (ghlContact.website) enriched.website = ghlContact.website;
+  if (ghlContact.source) enriched.source = ghlContact.source;
+  return enriched;
+}
+
+// Send message with automatic contact ID resolution retry
+async function sendMessageWithRetry(
+  contactId: string,
+  opts: Parameters<typeof sendMessage>[1],
+  lead: { email?: string | null; phone?: string | null; id: number }
+): Promise<{ success: boolean; resolvedContactId: string; error?: string }> {
+  try {
+    await sendMessage(contactId, opts);
+    return { success: true, resolvedContactId: contactId };
+  } catch (err: unknown) {
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    if (status === 400 || status === 404) {
+      console.log(`[SendRetry] Contact ${contactId} not found, resolving real ID...`);
+      const resolved = await resolveGhlContactId(contactId, lead.email, lead.phone);
+      if (resolved && resolved.resolvedId !== contactId) {
+        // Update lead with correct GHL contact ID
+        await updateLeadFields(lead.id, { ghlContactId: resolved.resolvedId });
+        console.log(`[SendRetry] Resolved to ${resolved.resolvedId}, retrying send...`);
+        try {
+          await sendMessage(resolved.resolvedId, opts);
+          return { success: true, resolvedContactId: resolved.resolvedId };
+        } catch (retryErr: unknown) {
+          const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+          console.error(`[SendRetry] Retry also failed:`, retryMsg);
+          return { success: false, resolvedContactId: resolved.resolvedId, error: retryMsg };
+        }
+      }
+    }
+    const errMsg = err instanceof Error ? err.message : String(err);
+    return { success: false, resolvedContactId: contactId, error: errMsg };
+  }
 }
 
 // --- TEAM ROSTER ---
@@ -241,17 +307,15 @@ export function createWebhookRouter(): Router {
       // Detect event type from payload
       detectedType = detectEventType(payload);
 
-      // Summarize key payload fields for logging (truncated)
+      // Summarize ALL payload fields for logging (truncated) — capture everything GHL sends
       const payloadSummary = JSON.stringify({
-        type: payload.type,
-        event: payload.event,
-        contactId: contactId,
-        name: payload.name || payload.firstName,
-        direction: payload.direction,
-        messageType: payload.messageType,
-        source: payload.source,
-        body: typeof payload.body === 'string' ? payload.body.substring(0, 200) : undefined,
-      });
+        ...Object.fromEntries(
+          Object.entries(payload).map(([k, v]) => [
+            k,
+            typeof v === 'string' ? v.substring(0, 200) : v
+          ])
+        ),
+      }).substring(0, 2000);
 
       switch (detectedType) {
         case "contact":
@@ -368,14 +432,33 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
     source: (payload.source || (payload.tags as string[])?.[0] || "ghl") as string,
   });
 
-  // GHL API fallback: enrich lead if webhook payload was missing key fields
+  // GHL CONTACT ID RESOLUTION: Resolve the real GHL contact ID
+  // GHL workflow webhooks often send wrong/mismatched IDs
+  let resolvedContactId = contactId;
   if (lead) {
-    const enrichedData = await enrichLeadFromGhl(lead.id, contactId, {
-      name: lead.name, email: lead.email, phone: lead.phone,
-      businessName: lead.businessName, website: lead.website, source: lead.source,
-    });
-    // Update local lead object with enriched data for downstream use
-    lead = { ...lead, ...enrichedData } as typeof lead;
+    const resolved = await resolveGhlContactId(contactId, lead.email || (payload.email as string), lead.phone || (payload.phone as string));
+    if (resolved) {
+      resolvedContactId = resolved.resolvedId;
+      // Update lead with correct GHL contact ID if it changed
+      if (resolvedContactId !== contactId) {
+        console.log(`[Webhook] Contact ID resolved: ${contactId} → ${resolvedContactId}`);
+        await updateLeadFields(lead.id, { ghlContactId: resolvedContactId });
+      }
+      // Enrich lead with data from resolved contact
+      const enriched = extractContactData(resolved.contact);
+      const updates: Record<string, unknown> = {};
+      if (!lead.name && enriched.name) updates.name = enriched.name;
+      if (!lead.email && enriched.email) updates.email = enriched.email;
+      if (!lead.phone && enriched.phone) updates.phone = enriched.phone;
+      if (!lead.businessName && enriched.businessName) updates.businessName = enriched.businessName;
+      if (!lead.website && enriched.website) updates.website = enriched.website;
+      if (!lead.source && enriched.source) updates.source = enriched.source;
+      if (Object.keys(updates).length > 0) {
+        await updateLeadFields(lead.id, updates);
+        console.log(`[Webhook] Enriched lead ${lead.id} with: ${Object.keys(updates).join(", ")}`);
+        lead = { ...lead, ...updates } as typeof lead;
+      }
+    }
   }
 
   if (lead && lead.businessName) {
@@ -516,7 +599,7 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
 
         const allContextParts = [];
         if (genuineInbound.length > 0) {
-          allContextParts.push(genuineInbound.map(m => `[lead/${m.type}] ${m.body}`).join("\n"));
+          allContextParts.push(genuineInbound.map(m => `[lead/${String(m.type || "msg")}] ${m.body}`).join("\n"));
         }
         if (priorOutboundContext) allContextParts.push(priorOutboundContext);
         if (formContextStr) allContextParts.push(formContextStr);
@@ -530,7 +613,7 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
       if (ghlHistory.length > 0) {
         const lastInbound = [...ghlHistory].reverse().find(m => m.direction === "inbound");
         if (lastInbound) {
-          const rawType = (lastInbound.type || "").toLowerCase();
+          const rawType = String(lastInbound.type || "").toLowerCase();
           if (rawType.includes("fb") || rawType.includes("facebook")) detectedChannel = "FB";
           else if (rawType.includes("ig") || rawType.includes("instagram")) detectedChannel = "IG";
           else if (rawType.includes("whatsapp")) detectedChannel = "WhatsApp";
@@ -572,17 +655,27 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
         });
         console.log(`[Webhook] Brain Council for lead ${lead.id}: QC=${aiResponse.qcScore}, strategy=${aiResponse.strategyReasoning.substring(0, 80)}`);
 
-        // Send the AI response on the SAME channel the lead used
+        // Send the AI response on the SAME channel the lead used (with retry on wrong contact ID)
+        let sendOpts: Parameters<typeof sendMessage>[1];
         if (channel === "Email" && lead.email) {
-          await sendMessage(contactId, { type: "Email", subject: aiResponse.fromName, html: aiResponse.message, fromName: aiResponse.fromName });
+          sendOpts = { type: "Email", subject: aiResponse.fromName, html: aiResponse.message, fromName: aiResponse.fromName };
         } else if (channel === "FB") {
-          await sendMessage(contactId, { type: "FB", message: aiResponse.message });
+          sendOpts = { type: "FB", message: aiResponse.message };
         } else if (channel === "IG") {
-          await sendMessage(contactId, { type: "IG", message: aiResponse.message });
+          sendOpts = { type: "IG", message: aiResponse.message };
         } else if (channel === "WhatsApp") {
-          await sendMessage(contactId, { type: "WhatsApp", message: aiResponse.message });
+          sendOpts = { type: "WhatsApp", message: aiResponse.message };
         } else if (lead.phone) {
-          await sendMessage(contactId, { type: "SMS", message: aiResponse.message });
+          sendOpts = { type: "SMS", message: aiResponse.message };
+        }
+        if (sendOpts!) {
+          const sendResult = await sendMessageWithRetry(resolvedContactId, sendOpts!, { email: lead.email, phone: lead.phone, id: lead.id });
+          if (sendResult.resolvedContactId !== resolvedContactId) {
+            resolvedContactId = sendResult.resolvedContactId;
+          }
+          if (!sendResult.success) {
+            console.error(`[Webhook] Failed to send message to lead ${lead.id}: ${sendResult.error}`);
+          }
         }
 
         // Store the conversation
@@ -622,7 +715,7 @@ async function handleContactWebhook(payload: Record<string, unknown>, res: Respo
         // Estimate order value from initial conversation context
         try {
           const leadInfo = `${lead.name || "Unknown"} - ${lead.businessName || "Unknown"} - Stage: ${lead.pipelineStage}`;
-          const convForValue = ghlHistory.length > 0 ? ghlHistory.map(m => `[${m.direction}/${m.type}] ${m.body}`).join("\n") + `\n[ai/${channel}] ${aiResponse.message}` : `[ai/${channel}] ${aiResponse.message}`;
+          const convForValue = ghlHistory.length > 0 ? ghlHistory.map(m => `[${m.direction}/${String(m.type || "msg")}] ${m.body}`).join("\n") + `\n[ai/${channel}] ${aiResponse.message}` : `[ai/${channel}] ${aiResponse.message}`;
           const valueEstimate = await estimateOrderValue(convForValue, leadInfo);
           if (valueEstimate.estimatedValue > 0) {
             await updateLeadFields(lead.id, { pipelineValue: valueEstimate.estimatedValue });
@@ -686,8 +779,8 @@ function extractFormData(payload: Record<string, unknown>): Array<{ label: strin
 }
 
 // --- CHANNEL NORMALIZATION ---
-function normalizeChannel(raw: string): string {
-  const lower = raw.toLowerCase();
+function normalizeChannel(raw: unknown): string {
+  const lower = String(raw || "SMS").toLowerCase();
   if (lower.includes("email")) return "Email";
   if (lower.includes("whatsapp")) return "WhatsApp";
   if (lower.includes("fb") || lower.includes("facebook")) return "FB";
@@ -721,12 +814,30 @@ async function handleMessageWebhook(payload: Record<string, unknown>, res: Respo
     lead = { ...newLead, id: newLead.id, humanTakeover: 0, lastAgentActivityAt: null, pipelineValue: null } as unknown as NonNullable<typeof lead>;
   }
 
-  // GHL API fallback: enrich lead if missing key fields
-  const enrichedData = await enrichLeadFromGhl(lead!.id, contactId, {
-    name: lead!.name, email: lead!.email, phone: lead!.phone,
-    businessName: lead!.businessName, website: (lead as any)?.website, source: lead!.source,
-  });
-  lead = { ...lead!, ...enrichedData } as typeof lead;
+  // GHL CONTACT ID RESOLUTION + ENRICHMENT
+  let resolvedContactId = contactId;
+  {
+    const resolved = await resolveGhlContactId(contactId, lead!.email, lead!.phone);
+    if (resolved) {
+      resolvedContactId = resolved.resolvedId;
+      if (resolvedContactId !== contactId) {
+        console.log(`[Webhook/Msg] Contact ID resolved: ${contactId} → ${resolvedContactId}`);
+        await updateLeadFields(lead!.id, { ghlContactId: resolvedContactId });
+      }
+      const enriched = extractContactData(resolved.contact);
+      const updates: Record<string, unknown> = {};
+      if (!lead!.name && enriched.name) updates.name = enriched.name;
+      if (!lead!.email && enriched.email) updates.email = enriched.email;
+      if (!lead!.phone && enriched.phone) updates.phone = enriched.phone;
+      if (!lead!.businessName && enriched.businessName) updates.businessName = enriched.businessName;
+      if (!lead!.source && enriched.source) updates.source = enriched.source;
+      if (Object.keys(updates).length > 0) {
+        await updateLeadFields(lead!.id, updates);
+        console.log(`[Webhook/Msg] Enriched lead ${lead!.id} with: ${Object.keys(updates).join(", ")}`);
+        lead = { ...lead!, ...updates } as typeof lead;
+      }
+    }
+  }
 
   // Store the message
   await addConversation({
@@ -790,7 +901,7 @@ async function handleMessageWebhook(payload: Record<string, unknown>, res: Respo
 
         const ghlHistoryStr = ghlHistory
           .filter(m => m.body && m.body.trim())
-          .map(m => `[${m.direction === "outbound" ? "agent" : "lead"}/${m.type}] ${m.body}`)
+          .map(m => `[${m.direction === "outbound" ? "agent" : "lead"}/${String(m.type || "msg")}] ${m.body}`)
           .join("\n");
         if (ghlHistoryStr) {
           historyStr = `--- Full GHL conversation history (${ghlHistory.length} messages) ---\n${ghlHistoryStr}\n--- Recent local messages ---\n${historyStr}`;
@@ -924,11 +1035,14 @@ async function handleMessageWebhook(payload: Record<string, unknown>, res: Respo
       } catch { /* best effort */ }
     }
 
-    // Send handoff message
-    if (channel === "Email") {
-      await sendMessage(contactId, { type: "Email", subject: aiResponse.fromName, html: aiResponse.message, fromName: aiResponse.fromName });
-    } else {
-      await sendMessage(contactId, { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message });
+    // Send handoff message (with retry on wrong contact ID)
+    {
+      const handoffOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
+        ? { type: "Email", subject: aiResponse.fromName, html: aiResponse.message, fromName: aiResponse.fromName }
+        : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
+      const sendResult = await sendMessageWithRetry(resolvedContactId, handoffOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
+      if (sendResult.resolvedContactId !== resolvedContactId) resolvedContactId = sendResult.resolvedContactId;
+      if (!sendResult.success) console.error(`[Webhook/Msg] Handoff send failed for lead ${lead!.id}: ${sendResult.error}`);
     }
 
     await addConversation({
@@ -940,11 +1054,14 @@ async function handleMessageWebhook(payload: Record<string, unknown>, res: Respo
     return;
   }
 
-  // --- NORMAL AI RESPONSE ---
-  if (channel === "Email") {
-    await sendMessage(contactId, { type: "Email", subject: aiResponse.fromName, html: aiResponse.message, fromName: aiResponse.fromName });
-  } else {
-    await sendMessage(contactId, { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message });
+  // --- NORMAL AI RESPONSE (with retry on wrong contact ID) ---
+  {
+    const normalOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
+      ? { type: "Email", subject: aiResponse.fromName, html: aiResponse.message, fromName: aiResponse.fromName }
+      : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
+    const sendResult = await sendMessageWithRetry(resolvedContactId, normalOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
+    if (sendResult.resolvedContactId !== resolvedContactId) resolvedContactId = sendResult.resolvedContactId;
+    if (!sendResult.success) console.error(`[Webhook/Msg] Normal send failed for lead ${lead!.id}: ${sendResult.error}`);
   }
 
   await addConversation({
@@ -1062,17 +1179,16 @@ async function handlePipelineWebhook(payload: Record<string, unknown>, res: Resp
     pipelineValue: monetaryValue !== undefined ? Number(monetaryValue) : (lead.pipelineValue ?? null),
   }, opportunityId);
 
-  // --- SEND CUSTOMER NOTIFICATION ---
+  // --- SEND CUSTOMER NOTIFICATION (with retry on wrong contact ID) ---
   const notification = getStageNotification(toStage, lead.name || "");
   if (notification) {
     try {
-      // Try SMS first, fallback to email
-      if (lead.phone) {
-        await sendMessage(contactId, { type: "SMS", message: notification.message });
-      } else if (lead.email) {
-        await sendMessage(contactId, { type: "Email", subject: notification.fromName, html: notification.message, fromName: notification.fromName });
+      const notifOpts: Parameters<typeof sendMessage>[1] = lead.phone
+        ? { type: "SMS", message: notification.message }
+        : { type: "Email", subject: notification.fromName, html: notification.message, fromName: notification.fromName };
+      if (lead.phone || lead.email) {
+        await sendMessageWithRetry(contactId, notifOpts, { email: lead.email, phone: lead.phone, id: lead.id });
       }
-      // Log the notification
       await addConversation({
         leadId: lead.id,
         channel: lead.phone ? "SMS" : "Email",
@@ -1117,7 +1233,7 @@ async function handleTaskWebhook(payload: Record<string, unknown>, res: Response
     const notification = getStageNotification(STAGES.PROOF_SENT, lead.name || "");
     if (notification && lead.phone) {
       try {
-        await sendMessage(contactId, { type: "SMS", message: notification.message });
+        await sendMessageWithRetry(contactId, { type: "SMS", message: notification.message }, { email: lead.email, phone: lead.phone, id: lead.id });
         await addConversation({ leadId: lead.id, channel: "SMS", direction: "outbound", messageBody: notification.message, senderType: "ai", senderName: notification.fromName });
       } catch { /* best effort */ }
     }
@@ -1135,7 +1251,7 @@ async function handleTaskWebhook(payload: Record<string, unknown>, res: Response
     const notification = getStageNotification(STAGES.READY, lead.name || "");
     if (notification && lead.phone) {
       try {
-        await sendMessage(contactId, { type: "SMS", message: notification.message });
+        await sendMessageWithRetry(contactId, { type: "SMS", message: notification.message }, { email: lead.email, phone: lead.phone, id: lead.id });
         await addConversation({ leadId: lead.id, channel: "SMS", direction: "outbound", messageBody: notification.message, senderType: "ai", senderName: notification.fromName });
       } catch { /* best effort */ }
     }

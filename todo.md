@@ -86,3 +86,9 @@
 - [x] Strengthen QC brain to reject generic first-contact messages that don't follow ACA structure
 - [x] Add GHL API fallback: auto-pull full contact data from GHL API when webhook payload is missing name/email/phone
 - [x] Fix Sarah Weiss's incomplete lead record (missing name, email, phone) using GHL API enrichment
+- [x] BUG: New GHL contacts (after webhook URL update) still not being engaged — diagnose and fix end-to-end pipeline
+- [x] FIX: GHL workflow sends wrong/mismatched contact IDs — added resolveGhlContactId with API search fallback
+- [x] FIX: sendMessage fails silently on wrong contact ID — added sendMessageWithRetry with contact resolution
+- [x] FIX: lastInbound.type crash (non-string type from GHL API) — wrapped all .type references with String()
+- [x] FIX: lastAngleUsed column too short for Brain Council angle descriptions — changed to TEXT
+- [x] Re-engaged Tammy Smith and Donna Baker-Johnson with correct GHL contact IDs

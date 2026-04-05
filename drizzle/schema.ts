@@ -73,7 +73,7 @@ export const conversations = mysqlTable("conversations", {
 export const aiState = mysqlTable("ai_state", {
   id: int("id").autoincrement().primaryKey(),
   leadId: int("leadId").notNull().unique(),
-  lastAngleUsed: varchar("lastAngleUsed", { length: 128 }),
+  lastAngleUsed: text("lastAngleUsed"),
   objectionsRaised: json("objectionsRaised"),
   interestSignals: json("interestSignals"),
   unansweredQuestions: json("unansweredQuestions"),

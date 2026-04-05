@@ -32,6 +32,8 @@ vi.mock("./ghl", () => ({
   updateOpportunityValue: vi.fn().mockResolvedValue({}),
   updateOpportunityStage: vi.fn().mockResolvedValue({}),
   fetchGhlConversationHistory: vi.fn().mockResolvedValue([]),
+  getContact: vi.fn().mockResolvedValue({ id: "resolved-123", firstName: "Test", lastName: "Lead", email: "test@test.com", phone: "+1234567890", companyName: "Test Co" }),
+  searchContacts: vi.fn().mockResolvedValue([{ id: "resolved-123", firstName: "Test", lastName: "Lead", email: "test@test.com", phone: "+1234567890" }]),
 }));
 
 vi.mock("./omnisend", () => ({
