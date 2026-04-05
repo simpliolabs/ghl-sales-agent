@@ -21,6 +21,7 @@ import { invokeLLM } from "./_core/llm";
 import { scoreLeadQuick } from "./ai-brain";
 import { getPatternAnalysis, backfillOutcomes } from "./outcome-engine";
 import { processOverdueFollowUps } from "./follow-up-trigger";
+import { runLookback } from "./lookback-engine";
 
 // Auto-synthesize uploaded content using LLM
 async function synthesizeContent(rawText: string, fileName: string): Promise<string> {
@@ -143,6 +144,28 @@ export const appRouter = router({
     triggerFollowUps: adminProcedure.mutation(async () => {
       const result = await processOverdueFollowUps();
       return result;
+    }),
+    triggerLookback: adminProcedure.input(z.object({
+      maxLeads: z.number().optional().default(50),
+      delayBetweenMs: z.number().optional().default(3000),
+      skipResearch: z.boolean().optional().default(false),
+    }).optional()).mutation(async ({ input }) => {
+      const result = await runLookback({
+        maxLeads: input?.maxLeads ?? 50,
+        delayBetweenMs: input?.delayBetweenMs ?? 3000,
+        onlyUnprocessed: true,
+        skipResearch: input?.skipResearch ?? false,
+      });
+      return {
+        total: result.total,
+        processed: result.processed,
+        engage: result.engage,
+        skip: result.skip,
+        caution: result.caution,
+        humanNeeded: result.humanNeeded,
+        researchFetched: result.researchFetched,
+        errors: result.errors,
+      };
     }),
   }),
 

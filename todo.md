@@ -134,3 +134,11 @@
 - [x] FIX: Strategist brain now has full dormancy re-activation rules — Win-Back framework, email-first, curiosity-driven subjects, no stale conversation continuation
 - [x] FIX: Follow-up trigger forces Email channel for dormant leads with email on file, injects dormancy context so Brain Council crafts proper re-activation
 - [x] FIX: Removed hardcoded channel forcing — Brain Council now autonomously decides channel. Orchestrator surfaces strategy.channel in output. Follow-up trigger passes hint + dormancy context, uses aiResponse.channel for sending.
+- [x] ACTIVATE: Tier 3 — 721 contacted leads staggered over 7 days (14 min apart, ~103/day) from Apr 5 to Apr 12
+- [x] ACTIVATE: Tier 4 — 837 new_lead + not_qualified leads staggered over days 8-14 (12 min apart, ~120/day) from Apr 12 to Apr 19
+- [x] BUILD: Lookback engine — pre-process all queued leads before follow-up trigger reaches them (rate-limited, incremental, auto-resume)
+- [x] LOOKBACK: LLM-powered conversation analysis — detect completed orders, DNC signals, angry exits, sentiment
+- [x] LOOKBACK: Pre-tag dormancy tier, lead status flags (skip/engage/caution), and sentiment per lead
+- [x] LOOKBACK: Pre-run Researcher for leads with business names to populate research data
+- [x] LOOKBACK: Recalculate follow-up schedules based on real conversation data (not just pipeline stage)
+- [x] LOOKBACK: Wire admin trigger + run on all 1,582 queued leads (rate-limited: 3s delay, 50/batch, auto-retry on rate limit, incremental resume)

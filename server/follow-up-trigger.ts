@@ -14,7 +14,7 @@
 
 import { getLeadsDueForFollowUp, getConversationHistory, updateLeadFields, addConversation, upsertAiState, getRecentAiOutboundCount, addBrainCouncilAudit, getBrainCouncilAuditForLead } from "./db";
 import { runBrainCouncil } from "./brain-council-orchestrator";
-import { calculateNextFollowUp, checkRateLimits } from "./scheduling-engine";
+import { calculateNextFollowUp, checkRateLimits, capDate } from "./scheduling-engine";
 import { sendMessage, addNote, fetchGhlConversationHistory, getContact } from "./ghl";
 import { sendMessageWithRetry, normalizeChannel, extractFormData } from "./webhook-helpers";
 import { shouldHandoffToAgent, estimateOrderValue, generateContactNotes } from "./ai-brain";
@@ -242,7 +242,7 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
 
         // Schedule next follow-up
         const scheduleResult = await calculateNextFollowUp({ leadId, aiSuggestedHours: aiResponse.nextEngagementHours, triggerEvent: "ai_response" });
-        await updateLeadFields(leadId, { nextFollowUpAt: scheduleResult.nextFollowUpAt, cadencePosition: scheduleResult.cadencePosition, preferredChannel: scheduleResult.channel, lastOutboundChannel: channel });
+        await updateLeadFields(leadId, { nextFollowUpAt: capDate(scheduleResult.nextFollowUpAt), cadencePosition: scheduleResult.cadencePosition, preferredChannel: scheduleResult.channel, lastOutboundChannel: channel });
         console.log(`[FollowUp] Next for lead ${leadId}: ${scheduleResult.reason}`);
 
         // Small delay between sends to avoid GHL rate limits

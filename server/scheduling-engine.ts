@@ -452,7 +452,7 @@ export async function calculateNextFollowUp(input: SchedulingInput): Promise<Sch
   const isDnc = checkDnc(convHistory);
   if (isDnc) {
     return {
-      nextFollowUpAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // Far future
+      nextFollowUpAt: capDate(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)), // Far future, capped
       reason: "Lead opted out — DNC flag active, no outreach scheduled",
       priority: 0,
       channel: "none",
@@ -623,6 +623,12 @@ export async function calculateNextFollowUp(input: SchedulingInput): Promise<Sch
     cadencePosition: 0,
     isDnc: false,
   };
+}
+
+// Cap any date to prevent MySQL TIMESTAMP overflow (max 2038-01-19)
+const MAX_SAFE_DATE = new Date('2029-12-31T23:59:59Z');
+export function capDate(d: Date): Date {
+  return d > MAX_SAFE_DATE ? MAX_SAFE_DATE : d;
 }
 
 // ============================================================
