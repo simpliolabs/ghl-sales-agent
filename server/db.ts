@@ -1,4 +1,4 @@
-import { eq, desc, gte, and, sql } from "drizzle-orm";
+import { eq, desc, asc, gte, and, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users, leads, conversations, aiState, pipelineEvents, agentAssignments, knowledgeFiles, aiTweaks, invites, webhookLogs, brainCouncilAudit } from "../drizzle/schema";
 import type { InsertLead } from "../drizzle/schema";
@@ -80,7 +80,9 @@ export async function getHotLeads(minScore = 80) {
 export async function getAllLeads(limit = 100) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(leads).orderBy(desc(leads.updatedAt)).limit(limit);
+  // Sort by nextFollowUpAt ASC — next lead to contact is always at the top
+  // Leads with null nextFollowUpAt come last (no scheduled outreach)
+  return db.select().from(leads).orderBy(asc(leads.nextFollowUpAt), desc(leads.updatedAt)).limit(limit);
 }
 
 export async function getLeadsDueForFollowUp() {

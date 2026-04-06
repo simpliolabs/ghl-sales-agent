@@ -186,3 +186,5 @@
 - [x] AUDIT: 558 "new_lead" stage leads — VERIFIED: 515 were already contacted (outbound messages exist, GHL stage just never updated). Only 43 were truly never contacted — those 43 reset to fire immediately. The 515 will be updated in GHL via pipeline webhook going forward.
 - [x] BUG: Lookback Engine scheduling non-fit/cold leads 1 year out — FIXED: Changed waitDays from 365 to 90 for all skip leads. All leads now reactivated quarterly with 'Can we help you now?' messaging.
 - [x] BUG: Portal showed Mika as 'Contact today: 4/6/2027' — CLARIFIED: The date was April 6, 2027 (future), not today. Trigger correctly skipped her. Portal display was misleading because year wasn't prominent. Mika's schedule reset to 90 days as part of the far-future fix.
+- [x] BUG: Reactivation schedule uses NOW + 90 days — FIXED: Now uses lastActivityAt + 90 days. If last contact was 60 days ago, reactivation fires in 30 days. If last contact was >90 days ago, fires tomorrow.
+- [x] UX: Leads list (/leads) now sorts by nextFollowUpAt ASC — next lead to contact is always at the top. Null nextFollowUpAt leads come last.

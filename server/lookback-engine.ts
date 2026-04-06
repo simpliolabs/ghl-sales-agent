@@ -332,13 +332,18 @@ export async function runLookback(options?: {
           await updateLeadFields(leadId, { humanTakeover: 1 });
           console.log(`[Lookback] SKIP (DNC) lead ${leadId} ${leadName}: ${analysis.skipReason}`);
         } else {
-          // All leads reactivated quarterly (90 days max) — no lead is ever written off permanently
-          // Even non-fit leads may have new needs in 3 months ("Can you help me NOW?" reactivation)
-          const waitDays = 90;
-          const futureDate = new Date();
-          futureDate.setDate(futureDate.getDate() + waitDays);
+          // Reactivate 90 days from LAST CONTACT — not from today
+          // If last contact was 60 days ago, they get reactivated in 30 days (not 90 days from now)
+          const lastContactMs = lastActivityAt || Date.now();
+          const futureDate = new Date(lastContactMs);
+          futureDate.setDate(futureDate.getDate() + 90);
+          // If that date is already in the past (last contact was >90 days ago), schedule for tomorrow
+          if (futureDate.getTime() < Date.now()) {
+            futureDate.setTime(Date.now() + 24 * 60 * 60 * 1000);
+          }
           await updateLeadFields(leadId, { nextFollowUpAt: futureDate });
-          console.log(`[Lookback] SKIP lead ${leadId} ${leadName}: ${analysis.skipReason} (quarterly reactivation in ${waitDays}d)`);
+          const daysFromNow = Math.round((futureDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+          console.log(`[Lookback] SKIP lead ${leadId} ${leadName}: ${analysis.skipReason} (reactivate in ${daysFromNow}d = 90d from last contact)`);
         }
       }
 
