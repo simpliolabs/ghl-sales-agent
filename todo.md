@@ -175,3 +175,4 @@
 - [x] AUTO-ADVANCE: After first-contact sends, auto-move GHL opportunity from New Lead → Contacted
 - [x] WEBHOOK: GHL Pipeline Stage Changed webhook wired to /api/webhooks/ghl/pipeline
 - [x] FIX: TypeScript implicit any errors in Pipeline.tsx, Home.tsx, Settings.tsx, KnowledgeBase.tsx (0 errors)
+- [x] BUG: Linda Harvey-Williams received same message 3 times at 05:35 PM — triple duplicate from follow-up trigger or Brain Council. Root cause: 3 server restarts in quick succession each fired an "initial run" simultaneously. Fixed with global in-process trigger lock (triggerRunning flag + 5min timeout) + bumped dedup window from 5min to 10min.

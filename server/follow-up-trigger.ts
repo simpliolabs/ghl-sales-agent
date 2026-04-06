@@ -27,9 +27,25 @@ const MIN_MINUTES_BETWEEN_AI = 5;
 
 /** Track consecutive LLM exhaustion events across cycles to avoid spamming notifications */
 let consecutiveLlmExhaustionCycles = 0;
+/** Global lock to prevent concurrent follow-up trigger runs (e.g. on server restart) */
+let triggerRunning = false;
+let triggerRunStartedAt = 0;
+const TRIGGER_LOCK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes max per run
 
 export async function processOverdueFollowUps(): Promise<{ processed: number; sent: number; skipped: number; errors: number; llmExhausted: boolean }> {
   const stats = { processed: 0, sent: 0, skipped: 0, errors: 0, llmExhausted: false };
+
+  // Global lock: prevent concurrent runs (e.g. multiple server restarts in quick succession)
+  if (triggerRunning) {
+    const elapsed = Date.now() - triggerRunStartedAt;
+    if (elapsed < TRIGGER_LOCK_TIMEOUT_MS) {
+      console.log(`[FollowUp] Skipping — trigger already running (started ${Math.round(elapsed / 1000)}s ago)`);
+      return stats;
+    }
+    console.log(`[FollowUp] Previous trigger run timed out after ${Math.round(elapsed / 1000)}s — forcing unlock`);
+  }
+  triggerRunning = true;
+  triggerRunStartedAt = Date.now();
 
   try {
     // Global rate limit check first
@@ -83,10 +99,10 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
           continue;
         }
 
-        // Dedup: skip if AI sent a message in the last 5 minutes
-        const recentAiCount = await getRecentAiOutboundCount(leadId, MIN_MINUTES_BETWEEN_AI);
+        // Dedup: skip if AI sent a message in the last 10 minutes (covers concurrent trigger runs)
+        const recentAiCount = await getRecentAiOutboundCount(leadId, 10);
         if (recentAiCount > 0) {
-          console.log(`[FollowUp] Skipping lead ${leadId} — AI sent ${recentAiCount} msg(s) in last ${MIN_MINUTES_BETWEEN_AI} min`);
+          console.log(`[FollowUp] Skipping lead ${leadId} — AI sent ${recentAiCount} msg(s) in last 10 min`);
           stats.skipped++;
           continue;
         }
@@ -320,10 +336,11 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
       }
     }
 
-    console.log(`[FollowUp] Cycle complete: ${stats.processed} processed, ${stats.sent} sent, ${stats.skipped} skipped, ${stats.errors} errors${stats.llmExhausted ? " (LLM EXHAUSTED — cycle stopped early)" : ""}`);
+     console.log(`[FollowUp] Cycle complete: ${stats.processed} processed, ${stats.sent} sent, ${stats.skipped} skipped, ${stats.errors} errors${stats.llmExhausted ? " (LLM EXHAUSTED — cycle stopped early)" : ""}`);
   } catch (err) {
     console.error("[FollowUp] Fatal error in follow-up trigger:", err);
+  } finally {
+    triggerRunning = false;
   }
-
   return stats;
 }
