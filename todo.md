@@ -188,3 +188,7 @@
 - [x] BUG: Portal showed Mika as 'Contact today: 4/6/2027' — CLARIFIED: The date was April 6, 2027 (future), not today. Trigger correctly skipped her. Portal display was misleading because year wasn't prominent. Mika's schedule reset to 90 days as part of the far-future fix.
 - [x] BUG: Reactivation schedule uses NOW + 90 days — FIXED: Now uses lastActivityAt + 90 days. If last contact was 60 days ago, reactivation fires in 30 days. If last contact was >90 days ago, fires tomorrow.
 - [x] UX: Leads list (/leads) now sorts by nextFollowUpAt ASC — next lead to contact is always at the top. Null nextFollowUpAt leads come last.
+- [x] CRITICAL BUG (10th report): Duplicate/repetitive messages (Bobby Clarner 3 messages at 07:13 PM) — FIXED: DB-level atomic lock (processingLockedAt column) prevents concurrent Brain Council runs across webhook handler + Fast Scanner + Follow-up Trigger + Self-Review. All 4 callers now acquire DB lock before running Brain Council.
+- [x] CRITICAL BUG: Human takeover ignored — AI continues after human agent takes over — FIXED: DB lock prevents any new Brain Council run while another is in progress; humanTakeover=1 check is in all callers.
+- [x] CRITICAL BUG: AI asks for email/phone already on file (Bobby Clarner) — FIXED: Composer now receives lead.email and lead.phone with explicit rule 'NEVER ask for info we already have'.
+- [x] CRITICAL BUG: Self-review 'missed reply' recovery duplicated Fast Scanner — FIXED: detectMissedReplies() disabled in self-review; Fast Scanner is the sole handler for missed replies.
