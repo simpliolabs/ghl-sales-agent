@@ -223,10 +223,38 @@ async function sendDelayedFirstContact(
 
     // --- DETECT CHANNEL (multi-layer) ---
     // Now that 45s have passed, GHL should have the conversation indexed
-    // Layer 1: Check GHL conversation history for inbound message type
+
     let detectedChannel = "";
-    if (ghlHistory.length > 0) {
+    // Track whether form data was extracted from a GHL conversation message body
+    let formExtractedFromConversation = false;
+    if (formFields.length > 0 && ghlHistory.length > 0) {
+      // If we parsed form data from a GHL conversation message body, the lead
+      // came from a Facebook/IG lead form — use that as the strongest signal
+      const inboundMsgs = ghlHistory.filter(m => m.direction === "inbound");
+      for (const msg of inboundMsgs) {
+        const body = String(msg.body || "");
+        if (body.includes(":") && parseFormDataFromMessageBody(body).length > 0) {
+          formExtractedFromConversation = true;
+          break;
+        }
+      }
+    }
+
+    // Layer 0 (STRONGEST): If form data was parsed from conversation message body,
+    // the lead came from a Facebook/IG lead form. This is more reliable than GHL's
+    // type field which may use unexpected values.
+    if (formExtractedFromConversation) {
+      detectedChannel = "FB";
+      console.log(`[Webhook] Channel detection Layer 0 HIT for lead ${leadId}: form data found in conversation body → FB`);
+    }
+
+    // Layer 1: Check GHL conversation history for inbound message type
+    if (!detectedChannel && ghlHistory.length > 0) {
       const lastInbound = [...ghlHistory].reverse().find(m => m.direction === "inbound");
+      // Log raw type for diagnostics
+      if (lastInbound) {
+        console.log(`[Webhook] GHL raw inbound type for lead ${leadId}: "${lastInbound.type}" (typeof=${typeof lastInbound.type})`);
+      }
       if (lastInbound) {
         const rawType = String(lastInbound.type || "").toLowerCase();
         // GHL uses numeric types: 2=SMS, 3=Email, 4=FB, 5=IG, 6=WhatsApp, etc.
@@ -234,7 +262,9 @@ async function sendDelayedFirstContact(
         else if (rawType === "5" || rawType.includes("ig") || rawType.includes("instagram")) detectedChannel = "IG";
         else if (rawType === "6" || rawType.includes("whatsapp")) detectedChannel = "WhatsApp";
         else if (rawType === "3" || rawType.includes("email")) detectedChannel = "Email";
-        else if (rawType === "2" || rawType.includes("sms") || rawType.includes("message")) detectedChannel = "SMS";
+        else if (rawType === "2" || rawType.includes("sms")) detectedChannel = "SMS";
+        // Catch-all: if type contains "message" but nothing else matched, don't default to SMS
+        // This prevents "InboundMessage" or other generic types from overriding later layers
       }
     }
 
