@@ -16,6 +16,10 @@ export const leads = mysqlTable("leads", {
   id: int("id").autoincrement().primaryKey(),
   ghlContactId: varchar("ghlContactId", { length: 128 }).unique(),
   ghlOpportunityId: varchar("ghlOpportunityId", { length: 128 }),
+  ghlPipelineId: varchar("ghlPipelineId", { length: 128 }),
+  ghlStageId: varchar("ghlStageId", { length: 128 }),
+  opportunityStatus: varchar("opportunityStatus", { length: 32 }), // open, won, lost, abandoned
+  opportunityName: varchar("opportunityName", { length: 255 }),
   name: varchar("name", { length: 255 }),
   email: varchar("email", { length: 320 }),
   phone: varchar("phone", { length: 32 }),

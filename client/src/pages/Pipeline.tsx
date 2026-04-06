@@ -59,9 +59,9 @@ export default function Pipeline() {
   const { data: allLeads, isLoading: leadsLoading } = trpc.leads.list.useQuery();
   const [, setLocation] = useLocation();
 
-  const totalLeads = stats?.reduce((sum, s) => sum + s.count, 0) || 0;
-  const totalValue = stats?.reduce((sum, s) => sum + parseFloat(s.totalValue || "0"), 0) || 0;
-  const activeLeads = stats?.filter(s => s.stage !== "not_qualified" && s.stage !== "delivered").reduce((sum, s) => sum + s.count, 0) || 0;
+  const totalLeads = stats?.reduce((sum: number, s: { count: number; stage: string; totalValue?: string }) => sum + s.count, 0) || 0;
+  const totalValue = stats?.reduce((sum: number, s: { count: number; stage: string; totalValue?: string }) => sum + parseFloat(s.totalValue || "0"), 0) || 0;
+  const activeLeads = stats?.filter((s: { stage: string; count: number }) => s.stage !== "not_qualified" && s.stage !== "delivered").reduce((sum: number, s: { count: number }) => sum + s.count, 0) || 0;
 
   // Group leads by stage, sorted by score desc
   const leadsByStage: Record<string, NonNullable<typeof allLeads>> = {};
@@ -78,8 +78,8 @@ export default function Pipeline() {
   }
 
   // Build ordered stages from stats
-  const orderedStages = STAGE_ORDER.filter(s => {
-    const stat = stats?.find(st => st.stage === s);
+  const orderedStages = STAGE_ORDER.filter((s: string) => {
+    const stat = stats?.find((st: { stage: string; count: number }) => st.stage === s);
     return stat && stat.count > 0;
   });
 
@@ -118,9 +118,9 @@ export default function Pipeline() {
                 <TrendingUp className="h-3.5 w-3.5" /> Conversion
               </div>
               <p className="text-2xl font-bold">
-                {totalLeads > 0 ? Math.round(((stats?.find(s => s.stage === "delivered")?.count || 0) / totalLeads) * 100) : 0}%
+                {totalLeads > 0 ? Math.round(((stats?.find((s: { stage: string; count: number }) => s.stage === "delivered")?.count || 0) / totalLeads) * 100) : 0}%
               </p>
-              <p className="text-xs text-muted-foreground">{stats?.find(s => s.stage === "delivered")?.count || 0} delivered</p>
+              <p className="text-xs text-muted-foreground">{stats?.find((s: { stage: string; count: number }) => s.stage === "delivered")?.count || 0} delivered</p>
             </CardContent>
           </Card>
           <Card>
@@ -141,7 +141,7 @@ export default function Pipeline() {
         ) : orderedStages.length > 0 ? (
           <div className="flex gap-3 overflow-x-auto pb-4 -mx-2 px-2">
             {orderedStages.map((stageKey) => {
-              const stat = stats?.find(s => s.stage === stageKey);
+              const stat = stats?.find((s: { stage: string; count: number; totalValue?: string }) => s.stage === stageKey);
               const stageLeads = leadsByStage[stageKey] || [];
               const value = parseFloat(stat?.totalValue || "0");
               const colorClass = STAGE_COLORS[stageKey] || "border-t-gray-300";

@@ -16,7 +16,7 @@ import { upsertLead, updateLeadFields, getLeadById, getRecentAiOutboundCount, ad
 import { classifySegment } from "./ai-brain";
 import { researchLead } from "./lead-researcher";
 import { calculateNextFollowUp, checkRateLimits, checkLeadRateLimit } from "./scheduling-engine";
-import { getContact, fetchGhlConversationHistory } from "./ghl";
+import { getContact, fetchGhlConversationHistory, updateOpportunityStage } from "./ghl";
 import { pushContactToOmnisend } from "./omnisend";
 import {
   SALES_AGENTS,
@@ -443,6 +443,34 @@ async function sendDelayedFirstContact(
       cadencePosition: contactSchedule.cadencePosition, preferredChannel: contactSchedule.channel,
       lastOutboundChannel: channel,
     });
+
+    // Auto-advance GHL opportunity stage from "New Lead" to "Contacted"
+    if (msg1Sent && lead.ghlOpportunityId && lead.ghlStageId) {
+      const NEW_LEAD_STAGE_IDS = new Set([
+        "69534612-6905-413a-a3b9-3c3de2365a6a", // Bulk Printing - New Lead
+        "a54400ac-e9df-44e2-8872-45ccccf9a442", // 100 T-shirt Inquiry - New Lead
+        "305eab1c-7e93-4fbc-b65b-0d3ae733c170", // 100 T-shirt Printing - New Lead
+        "6f959956-f049-4847-b60a-37e568ce5877", // New pipeline - New Lead
+      ]);
+      const CONTACTED_STAGE_IDS: Record<string, string> = {
+        "OpojlMx3cTa0ts0e2pMc": "6dbcb373-9832-4c45-a5e6-176f92685f67", // Bulk Printing
+        "5YIrCvKmzb27yXHP3fBF": "6501f3bf-b2a9-4c0f-935f-fc8441f6deb0", // 100 T-shirt Inquiry
+        "FgRa75sGUcw5lh0kPAwH": "c77cc672-e9df-4d9f-a4d9-518eda6979bf", // 100 T-shirt Printing
+        "xyRhqslao3CnMQHJxLoy": "50ebf4df-0b37-4621-b9d8-1184ab8fbcef", // New pipeline
+      };
+      if (NEW_LEAD_STAGE_IDS.has(lead.ghlStageId)) {
+        const contactedStageId = CONTACTED_STAGE_IDS[lead.ghlPipelineId || ""];
+        if (contactedStageId) {
+          try {
+            await updateOpportunityStage(lead.ghlOpportunityId, contactedStageId);
+            await updateLeadFields(leadId, { pipelineStage: "contacted", ghlStageId: contactedStageId });
+            console.log(`[Webhook] Auto-advanced lead ${leadId} from new_lead → contacted in GHL (opp: ${lead.ghlOpportunityId})`);
+          } catch (stageErr) {
+            console.error(`[Webhook] Failed to auto-advance stage for lead ${leadId}:`, stageErr);
+          }
+        }
+      }
+    }
 
     await upsertAiState(leadId, { lastAngleUsed: "LOCKED_FIRST_CONTACT", lastFrameworkUsed: "HORMOZI_ACA", messageCount: channel === "Email" ? 1 : 2 });
 

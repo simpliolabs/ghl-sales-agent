@@ -64,6 +64,13 @@
       "when": 1775402878375,
       "tag": "0008_strange_living_mummy",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1775511762399,
+      "tag": "0009_thankful_argent",
+      "breakpoints": true
     }
   ]
 }

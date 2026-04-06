@@ -140,10 +140,20 @@ export async function getCustomFields() {
 
 // --- Opportunities / Pipeline ---
 export async function getOpportunities(pipelineId: string, limit = 20, startAfterId?: string) {
-  const params: Record<string, unknown> = { locationId: ENV.ghlLocationId, pipelineId, limit };
+  const params: Record<string, unknown> = { location_id: ENV.ghlLocationId, pipeline_id: pipelineId, limit };
   if (startAfterId) params.startAfterId = startAfterId;
   const { data } = await ghlClient.get("/opportunities/search", { params });
   return data;
+}
+export async function getOpportunitiesByContact(contactId: string) {
+  try {
+    const { data } = await ghlClient.get("/opportunities/search", {
+      params: { location_id: ENV.ghlLocationId, contact_id: contactId, limit: 10 },
+    });
+    return (data.opportunities || []) as Array<{ id: string; pipelineId: string; pipelineStageId: string; name: string; status: string; monetaryValue?: number }>;
+  } catch {
+    return [];
+  }
 }
 
 export async function updateOpportunityStage(opportunityId: string, stageId: string) {

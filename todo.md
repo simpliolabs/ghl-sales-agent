@@ -169,3 +169,9 @@
 - [x] BUG: Belinda Davis (Facebook lead) still got SMS after 7-layer detection deployed. Fixed with Layer 0 (strongest): if parseFormDataFromMessageBody finds form data in GHL conversation body → channel is FB (bulletproof, doesn't depend on GHL type field). Also removed .includes("message") catch-all that was matching "InboundMessage" → SMS. Added raw GHL type diagnostic logging.
 - [x] BUG: Aundrea Tackett — FB channel detection works but said "custom gear". Fixed: Layer 3 now ALWAYS runs as enrichment (merges missing fields from FB message body even when Layer 1 found some fields). Product Type, Purpose, Timeline now always extracted.
 - [x] BUG: Aundrea Tackett — duplicate "Do you have a design ready". Fixed: added in-memory firstContactLocks with 2-minute window in webhook-contact.ts. Lock acquired before sendDelayedFirstContact, released after completion.
+- [x] SCHEMA: Add ghlPipelineId, ghlStageId, opportunityStatus, opportunityName columns to leads table
+- [x] SYNC: Bulk sync all 1,635 GHL opportunities into local DB (stage, pipeline, status, name)
+- [x] FIX: GHL opportunities API uses location_id/pipeline_id (snake_case) not locationId/pipelineId
+- [x] AUTO-ADVANCE: After first-contact sends, auto-move GHL opportunity from New Lead → Contacted
+- [x] WEBHOOK: GHL Pipeline Stage Changed webhook wired to /api/webhooks/ghl/pipeline
+- [x] FIX: TypeScript implicit any errors in Pipeline.tsx, Home.tsx, Settings.tsx, KnowledgeBase.tsx (0 errors)

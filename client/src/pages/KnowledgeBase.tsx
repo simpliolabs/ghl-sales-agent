@@ -100,7 +100,7 @@ export default function KnowledgeBase() {
               <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-12 w-full" />)}</div>
             ) : files && files.length > 0 ? (
               <div className="space-y-2">
-                {files.map((f) => (
+                {files.map((f: { id: number; fileName: string; fileType: string; googleSheetUrl?: string | null }) => (
                   <div key={f.id} className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
                     <div className="flex items-center gap-3 min-w-0">
                       {f.googleSheetUrl ? <Link2 className="h-4 w-4 text-green-600 shrink-0" /> : <FolderOpen className="h-4 w-4 text-blue-600 shrink-0" />}

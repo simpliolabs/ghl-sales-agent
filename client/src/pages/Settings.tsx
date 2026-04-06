@@ -90,7 +90,7 @@ export default function Settings() {
                   <div className="space-y-2">{[1,2].map(i => <Skeleton key={i} className="h-10 w-full" />)}</div>
                 ) : tweaks && tweaks.length > 0 ? (
                   <div className="space-y-2">
-                    {tweaks.map((t) => (
+                    {tweaks.map((t: { id: number; tweakInstruction: string; appliedAt?: Date | null }) => (
                       <div key={t.id} className="p-3 rounded-lg border bg-muted/30 text-sm">
                         <p>{t.tweakInstruction}</p>
                         <p className="text-xs text-muted-foreground mt-1">

@@ -10,7 +10,7 @@ export default function Home() {
   const { data: hotLeads, isLoading: hotLoading } = trpc.leads.hot.useQuery();
   const { data: agentWork, isLoading: agentLoading } = trpc.agents.workload.useQuery();
 
-  const totalPipelineValue = pipelineStats?.reduce((sum, s) => sum + parseFloat(s.totalValue || "0"), 0) || 0;
+  const totalPipelineValue = pipelineStats?.reduce((sum: number, s: { totalValue?: string }) => sum + parseFloat(s.totalValue || "0"), 0) || 0;
   const isLoading = perfLoading || pipeLoading || hotLoading || agentLoading;
 
   return (
@@ -36,7 +36,7 @@ export default function Home() {
                 <div className="space-y-3">{[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
               ) : pipelineStats && pipelineStats.length > 0 ? (
                 <div className="space-y-3">
-                  {pipelineStats.map((stage) => (
+                  {pipelineStats.map((stage: { stage: string; count: number; totalValue?: string }) => (
                     <div key={stage.stage || "unknown"} className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <div className="w-2 h-2 rounded-full bg-primary" />
@@ -62,7 +62,7 @@ export default function Home() {
                 <div className="space-y-3">{[1,2].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
               ) : agentWork && agentWork.length > 0 ? (
                 <div className="space-y-3">
-                  {agentWork.map((a) => (
+                  {agentWork.map((a: { agent: string | null; count: number }) => (
                     <div key={a.agent || "unassigned"} className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <UserCheck className="h-4 w-4 text-muted-foreground" />
