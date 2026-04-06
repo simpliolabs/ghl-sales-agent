@@ -332,12 +332,13 @@ export async function runLookback(options?: {
           await updateLeadFields(leadId, { humanTakeover: 1 });
           console.log(`[Lookback] SKIP (DNC) lead ${leadId} ${leadName}: ${analysis.skipReason}`);
         } else {
-          const waitDays = analysis.hasCompletedOrder ? 90 : 365;
+          // All leads reactivated quarterly (90 days max) — no lead is ever written off permanently
+          // Even non-fit leads may have new needs in 3 months ("Can you help me NOW?" reactivation)
+          const waitDays = 90;
           const futureDate = new Date();
           futureDate.setDate(futureDate.getDate() + waitDays);
-          if (futureDate.getFullYear() > 2029) futureDate.setFullYear(2029);
           await updateLeadFields(leadId, { nextFollowUpAt: futureDate });
-          console.log(`[Lookback] SKIP lead ${leadId} ${leadName}: ${analysis.skipReason} (next check in ${waitDays}d)`);
+          console.log(`[Lookback] SKIP lead ${leadId} ${leadName}: ${analysis.skipReason} (quarterly reactivation in ${waitDays}d)`);
         }
       }
 
