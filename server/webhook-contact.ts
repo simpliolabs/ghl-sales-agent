@@ -30,7 +30,27 @@ import {
 import { handleStageAutomation } from "./webhook-pipeline";
 
 /** Delay before sending first-contact template (ms). Gives GHL time to index conversation data. */
-export const FIRST_CONTACT_DELAY_MS = 45_000; // 45 seconds
+let FIRST_CONTACT_DELAY_MS = 45_000; // 45 seconds
+
+/** In-memory lock to prevent duplicate first-contact sends from concurrent webhooks */
+const firstContactLocks = new Map<number, number>();
+
+function acquireFirstContactLock(leadId: number): boolean {
+  const now = Date.now();
+  const existing = firstContactLocks.get(leadId);
+  if (existing && now - existing < 120_000) return false; // 2-minute lock window
+  firstContactLocks.set(leadId, now);
+  return true;
+}
+
+function releaseFirstContactLock(leadId: number) {
+  firstContactLocks.delete(leadId);
+}
+
+/** For testing: override the delay. DO NOT use in production. */
+export function _setFirstContactDelay(ms: number) { FIRST_CONTACT_DELAY_MS = ms; }
+/** For testing: clear all first-contact locks. DO NOT use in production. */
+export function _clearFirstContactLocks() { firstContactLocks.clear(); }
 
 export async function handleContactWebhook(payload: Record<string, unknown>, res: Response) {
   const contactId = (payload.id || payload.contactId) as string;
@@ -132,8 +152,14 @@ export async function handleContactWebhook(payload: Record<string, unknown>, res
     console.log(`[Webhook] Scheduling delayed first-contact for lead ${leadId} in ${FIRST_CONTACT_DELAY_MS / 1000}s`);
 
     setTimeout(() => {
+      // Acquire lock to prevent duplicate sends from concurrent webhooks
+      if (!acquireFirstContactLock(leadId)) {
+        console.log(`[Webhook] First-contact lock held for lead ${leadId} — skipping duplicate`);
+        return;
+      }
       sendDelayedFirstContact(leadId, leadSnapshot, payloadSnapshot, capturedResolvedContactId)
-        .catch(err => console.error(`[Webhook] Delayed first-contact error for lead ${leadId}:`, err));
+        .catch(err => console.error(`[Webhook] Delayed first-contact error for lead ${leadId}:`, err))
+        .finally(() => releaseFirstContactLock(leadId));
     }, FIRST_CONTACT_DELAY_MS);
   }
 
@@ -197,18 +223,25 @@ async function sendDelayedFirstContact(
       } catch { /* best effort */ }
     }
 
-    // Layer 3: Parse form data from Facebook message body in GHL conversation history
+    // Layer 3: ALWAYS parse form data from Facebook message body in GHL conversation history
+    // as ENRICHMENT — merge any fields not found in earlier layers.
     // Facebook lead forms send form data as a text block in the message body:
     //   "Company name: Calvary Community Church\nWhat type of products...?: T-shirts\n..."
-    if (formFields.length === 0 && ghlHistory.length > 0) {
+    if (ghlHistory.length > 0) {
       const inboundMsgs = ghlHistory.filter(m => m.direction === "inbound");
       for (const msg of inboundMsgs) {
         const body = String(msg.body || "");
         if (body.includes(":")) {
           const parsed = parseFormDataFromMessageBody(body);
           if (parsed.length > 0) {
-            formFields = parsed;
-            console.log(`[Webhook] Extracted ${parsed.length} form fields from FB message body for lead ${leadId}: ${parsed.map(f => `${f.label}=${f.value}`).join(", ")}`);
+            // Merge: add fields from message body that weren't found in earlier layers
+            const existingLabels = new Set(formFields.map(f => f.label));
+            for (const field of parsed) {
+              if (!existingLabels.has(field.label)) {
+                formFields.push(field);
+              }
+            }
+            console.log(`[Webhook] Enriched form data from FB message body for lead ${leadId}: ${parsed.map(f => `${f.label}=${f.value}`).join(", ")}`);
             break;
           }
         }
