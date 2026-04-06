@@ -43,25 +43,39 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   const direction = (payload.direction || "inbound") as string;
 
   // --- ATTACHMENT DETECTION ---
-  // GHL sends attachments with empty/null body. Detect and treat as logo/file received.
-  const hasAttachment = !!(payload.attachments && (payload.attachments as unknown[]).length > 0) ||
-    (typeof payload.body === 'string' && payload.body.trim() === '' && payload.messageType === 'TYPE_ATTACHMENT') ||
-    (!payload.body && !payload.message && payload.attachments);
+  // GHL sends attachments with empty/null body. Detect and treat as logo/design file received.
+  // Instead of pausing, pass the attachment context to the Brain Council so it can respond intelligently.
+  const attachmentUrls = Array.isArray(payload.attachments)
+    ? (payload.attachments as string[]).filter(Boolean)
+    : [];
+  const hasAttachment = attachmentUrls.length > 0 ||
+    (typeof payload.body === 'string' && payload.body.trim() === '' && payload.messageType === 'TYPE_ATTACHMENT');
   if (!contactId) { res.status(400).json({ error: "Missing contactId" }); return; }
-  // If it's an attachment with no text body, log it and set humanTakeover pause
+  // Build the effective message body: use text if present, otherwise synthesize from attachment
+  let effectiveMessageBody = messageBody;
   if (hasAttachment && !messageBody) {
-    let attachLead = await getLeadByGhlContactId(contactId);
-    if (attachLead) {
-      // Pause AI for 2 hours — lead sent a file (likely logo/design)
-      const pauseUntil = new Date(Date.now() + 2 * 60 * 60 * 1000);
-      await updateLeadFields(attachLead.id, { humanTakeover: 1, lastAgentActivityAt: pauseUntil });
-      await addConversation({ leadId: attachLead.id, channel, direction: 'inbound', messageBody: '[Attachment received — logo/design file]', senderType: 'lead' });
-      console.log(`[Webhook/Attachment] Lead ${attachLead.id} sent attachment — AI paused 2 hours`);
+    // Lead sent a file with no text
+    // Check if a human agent has taken over — if so, stay out of it and let the agent handle it
+    const attachLead = await getLeadByGhlContactId(contactId);
+    const agentActive = attachLead?.humanTakeover === 1 && attachLead?.lastAgentActivityAt &&
+      (Date.now() - new Date(attachLead.lastAgentActivityAt).getTime()) < 2 * 60 * 60 * 1000;
+    if (agentActive) {
+      // Human agent is active — log the attachment and stay silent
+      if (attachLead) {
+        await addConversation({ leadId: attachLead.id, channel, direction: 'inbound', messageBody: '[Attachment received — agent handling]', senderType: 'lead' });
+      }
+      console.log(`[Webhook/Attachment] Human agent active for ${attachLead?.id} — AI staying silent`);
+      res.json({ success: true, action: 'attachment_agent_active' });
+      return;
     }
-    res.json({ success: true, action: 'attachment_received_ai_paused' });
-    return;
+    // AI is in control — treat attachment as logo/design submission and route to Brain Council
+    const attachmentDesc = attachmentUrls.length > 0
+      ? `[Lead sent a logo/design file: ${attachmentUrls.join(', ')}]`
+      : '[Lead sent a logo/design file]';
+    effectiveMessageBody = attachmentDesc;
+    console.log(`[Webhook/Attachment] AI in control — routing attachment to Brain Council: ${attachmentDesc}`);
   }
-  if (!messageBody) { res.status(400).json({ error: "Missing data" }); return; }
+  if (!effectiveMessageBody) { res.status(400).json({ error: "Missing data" }); return; }
 
   let lead = await getLeadByGhlContactId(contactId);
   if (!lead) {
@@ -99,7 +113,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   await addConversation({
     leadId: lead!.id, channel,
     direction: direction === "outbound" ? "outbound" : "inbound",
-    messageBody, senderType: direction === "outbound" ? "human" : "lead",
+    messageBody: effectiveMessageBody, senderType: direction === "outbound" ? "human" : "lead",
     ghlMessageId: payload.messageId as string,
   });
 
@@ -110,7 +124,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     try {
       const attribution = await attributeReply({
         leadId: lead!.id,
-        replyMessage: messageBody,
+        replyMessage: effectiveMessageBody,
         replyTimestamp: new Date(),
         channel,
       });
@@ -123,8 +137,8 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   }
 
   // --- AUTO-CORRECTION: Detect confusion in inbound messages ---
-  if (direction === "inbound" && detectConfusion(messageBody)) {
-    console.log(`[Webhook] Confusion detected from lead ${lead!.id}: "${messageBody.substring(0, 100)}"`);
+  if (direction === "inbound" && detectConfusion(effectiveMessageBody)) {
+    console.log(`[Webhook] Confusion detected from lead ${lead!.id}: "${effectiveMessageBody.substring(0, 100)}"`);
     let corrFormData: { productType?: string; purpose?: string; timeline?: string } | undefined;
     try {
       const ghlContact = await getContact(contactId);
@@ -139,7 +153,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     } catch { /* best effort */ }
 
     const corrected = await handleConfusionReply({
-      leadId: lead!.id, contactId, channel, confusionMessage: messageBody, formData: corrFormData,
+      leadId: lead!.id, contactId, channel, confusionMessage: effectiveMessageBody, formData: corrFormData,
     });
     if (corrected) console.log(`[Webhook] Auto-correction sent for lead ${lead!.id}`);
   }
@@ -201,7 +215,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
       try {
         await createTask(contactId, {
           title: `💬 New message from ${lead!.name || "lead"} — you're managing this conversation`,
-          body: `${lead!.name || "Lead"} replied: "${messageBody.substring(0, 200)}"\n\nReason AI is not responding: ${handoffDecision.reason}`,
+          body: `${lead!.name || "Lead"} replied: "${effectiveMessageBody.substring(0, 200)}"\n\nReason AI is not responding: ${handoffDecision.reason}`,
           assignedTo: lead!.assignedAgent,
         });
       } catch { /* best effort */ }
@@ -259,7 +273,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   // --- AI RESPONSE via BRAIN COUNCIL (with LLM failure retry queue) ---
   let aiResponse;
   try {
-    aiResponse = await runBrainCouncil({ leadId: lead!.id, incomingMessage: messageBody, channel, externalHistory: historyStr });
+    aiResponse = await runBrainCouncil({ leadId: lead!.id, incomingMessage: effectiveMessageBody, channel, externalHistory: historyStr });
   } catch (brainErr) {
     if (isLlmExhausted(brainErr)) {
       // LLM credits exhausted — schedule retry instead of dropping the lead
@@ -276,7 +290,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
         leadId: lead!.id,
         leadName: lead!.name || undefined,
         channel,
-        incomingMessage: messageBody?.substring(0, 2000),
+        incomingMessage: effectiveMessageBody?.substring(0, 2000),
         blocked: 1,
         blockReason: `LLM credits exhausted — auto-retry #${currentRetries + 1} scheduled for ${retryAt.toISOString()}`,
         violationCategory: "llm_exhausted",
@@ -289,7 +303,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
         try {
           await notifyOwner({
             title: `⚠️ LLM Credits Exhausted — ${currentRetries === 0 ? "Leads Being Queued" : `${currentRetries} retries so far`}`,
-            content: `Brain Council failed for ${lead!.name || "Lead #" + lead!.id} (${messageBody?.substring(0, 100)}). Error: ${String((brainErr as any)?.message || brainErr).substring(0, 200)}. Lead auto-scheduled for retry at ${retryAt.toLocaleString()}. Credits will auto-replenish on your Manus billing cycle.`,
+            content: `Brain Council failed for ${lead!.name || "Lead #" + lead!.id} (${effectiveMessageBody?.substring(0, 100)}). Error: ${String((brainErr as any)?.message || brainErr).substring(0, 200)}. Lead auto-scheduled for retry at ${retryAt.toLocaleString()}. Credits will auto-replenish on your Manus billing cycle.`,
           });
         } catch { /* best effort */ }
       }
@@ -318,12 +332,12 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   }
 
   // Check if AI wants to hand off
-  const aiHandoff = await shouldHandoffToAgent(historyStr + `\n[lead/${channel}] ${messageBody}`, null);
+  const aiHandoff = await shouldHandoffToAgent(historyStr + `\n[lead/${channel}] ${effectiveMessageBody}`, null);
   if (aiHandoff.handoff) {
     const leadInfo = `${lead!.name || "Unknown"} - ${lead!.businessName || "Unknown"} - ${lead!.email || "N/A"}`;
     const [notes, valueEstimate] = await Promise.all([
-      generateContactNotes(leadInfo, historyStr + `\n[lead/${channel}] ${messageBody}`),
-      estimateOrderValue(historyStr + `\n[lead/${channel}] ${messageBody}`, leadInfo),
+      generateContactNotes(leadInfo, historyStr + `\n[lead/${channel}] ${effectiveMessageBody}`),
+      estimateOrderValue(historyStr + `\n[lead/${channel}] ${effectiveMessageBody}`, leadInfo),
     ]);
     try { await addNote(contactId, `🤖 AI Handoff Notes:\n${notes}`); } catch { /* best effort */ }
     if (valueEstimate.estimatedValue > 0 && payload.opportunityId) {

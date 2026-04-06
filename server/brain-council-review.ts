@@ -68,7 +68,8 @@ async function detectDuplicateSends(): Promise<ReviewIssue[]> {
   const issues: ReviewIssue[] = [];
   const seen = new Set<number>();
 
-  for (const row of (dupes as any[])) {
+  const dupeRows = (dupes as any[])[0] as any[];
+  for (const row of dupeRows) {
     if (seen.has(row.leadId)) continue; // One issue per lead
     seen.add(row.leadId);
 
@@ -141,7 +142,8 @@ async function detectMissedReplies(): Promise<ReviewIssue[]> {
   const issues: ReviewIssue[] = [];
   const seen = new Set<number>();
 
-  for (const row of (missed as any[])) {
+  const missedRows = (missed as any[])[0] as any[];
+  for (const row of missedRows) {
     if (seen.has(row.leadId)) continue;
     seen.add(row.leadId);
 
@@ -335,7 +337,7 @@ export async function runFastMissedReplyScanner(): Promise<number> {
     LIMIT 5
   `);
 
-  const rows = missed as any[];
+  const rows = ((missed as any[])[0] as any[]) || [];
   if (rows.length === 0) return 0;
 
   console.log(`[FastScan] Found ${rows.length} unanswered message(s) in 5-min window`);
