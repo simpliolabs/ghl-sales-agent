@@ -20,7 +20,7 @@ import {
 import { shouldHandoffToAgent, generateContactNotes, estimateOrderValue } from "./ai-brain";
 import { runBrainCouncil } from "./brain-council-orchestrator";
 import { calculateNextFollowUp, checkRateLimits } from "./scheduling-engine";
-import { sendMessage, updateContactCustomField, createTask, addNote, fetchGhlConversationHistory, getContact } from "./ghl";
+import { sendMessage, updateContactCustomField, createTask, addNote, fetchGhlConversationHistory, getContact, updateContactAssignment, AGENT_GHL_USER_IDS } from "./ghl";
 import { detectConfusion, handleConfusionReply, postSendValidation } from "./auto-correction";
 import { attributeReply } from "./outcome-engine";
 import { notifyOwner } from "./_core/notification";
@@ -42,7 +42,26 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   const channel = normalizeChannel(rawChannel);
   const direction = (payload.direction || "inbound") as string;
 
-  if (!contactId || !messageBody) { res.status(400).json({ error: "Missing data" }); return; }
+  // --- ATTACHMENT DETECTION ---
+  // GHL sends attachments with empty/null body. Detect and treat as logo/file received.
+  const hasAttachment = !!(payload.attachments && (payload.attachments as unknown[]).length > 0) ||
+    (typeof payload.body === 'string' && payload.body.trim() === '' && payload.messageType === 'TYPE_ATTACHMENT') ||
+    (!payload.body && !payload.message && payload.attachments);
+  if (!contactId) { res.status(400).json({ error: "Missing contactId" }); return; }
+  // If it's an attachment with no text body, log it and set humanTakeover pause
+  if (hasAttachment && !messageBody) {
+    let attachLead = await getLeadByGhlContactId(contactId);
+    if (attachLead) {
+      // Pause AI for 2 hours — lead sent a file (likely logo/design)
+      const pauseUntil = new Date(Date.now() + 2 * 60 * 60 * 1000);
+      await updateLeadFields(attachLead.id, { humanTakeover: 1, lastAgentActivityAt: pauseUntil });
+      await addConversation({ leadId: attachLead.id, channel, direction: 'inbound', messageBody: '[Attachment received — logo/design file]', senderType: 'lead' });
+      console.log(`[Webhook/Attachment] Lead ${attachLead.id} sent attachment — AI paused 2 hours`);
+    }
+    res.json({ success: true, action: 'attachment_received_ai_paused' });
+    return;
+  }
+  if (!messageBody) { res.status(400).json({ error: "Missing data" }); return; }
 
   let lead = await getLeadByGhlContactId(contactId);
   if (!lead) {
@@ -312,6 +331,11 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     }
     await updateLeadFields(lead!.id, { humanTakeover: 1, lastAgentActivityAt: new Date(), pipelineValue: valueEstimate.estimatedValue });
     if (lead!.assignedAgent) {
+      // Assign agent in GHL contact record
+      const ghlUserId = AGENT_GHL_USER_IDS[lead!.assignedAgent];
+      if (ghlUserId) {
+        updateContactAssignment(resolvedContactId, ghlUserId).catch(() => {});
+      }
       try {
         await createTask(contactId, {
           title: `🔥 Quote needed: ${lead!.name || lead!.businessName || "Lead"} — Est. $${valueEstimate.estimatedValue}`,

@@ -189,6 +189,29 @@ export async function getLocationUsers() {
   }
 }
 
+// --- Contact Assignment ---
+// Maps agent display names to their GHL user IDs
+export const AGENT_GHL_USER_IDS: Record<string, string> = {
+  "Abby Bouwer": "reGz7il08jq8SUsY7m6H",
+  "Chris McHendry": "MaGoC5SwkdJdYw5AK6vj",
+  "Cindy Muchnick": "r8wBqdXjV0GneQxcW47R",
+  "César Vásquez": "TGiY13S3TJFFL7Khth8D",
+  "Glydel Lloren": "ob9AgYJkcLmgNWDUNQ5G",
+};
+
+export async function updateContactAssignment(contactId: string, assignedUserId: string) {
+  try {
+    const { data } = await ghlClient.put(`/contacts/${contactId}`, {
+      assignedTo: assignedUserId,
+    });
+    console.log(`[GHL] Assigned contact ${contactId} to user ${assignedUserId}`);
+    return data;
+  } catch (err: any) {
+    console.error(`[GHL] updateContactAssignment failed for ${contactId}:`, err?.response?.data || err?.message);
+    return null;
+  }
+}
+
 // --- Internal Notes ---
 export async function addNote(contactId: string, body: string) {
   const { data } = await ghlClient.post(`/contacts/${contactId}/notes`, {

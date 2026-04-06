@@ -144,6 +144,24 @@ export function createWebhookRouter(): Router {
     }
   }, 2 * 60 * 1000);
 
+  // --- FAST MISSED-REPLY SCANNER: Catch unanswered inbound messages within 3 minutes ---
+  // This runs every 2 minutes and only looks at messages from the last 5 minutes
+  // to ensure the Council responds like a live agent within 3 minutes
+  let fastScanRunning = false;
+  setInterval(async () => {
+    if (fastScanRunning) return;
+    fastScanRunning = true;
+    try {
+      const { runFastMissedReplyScanner } = await import('./brain-council-review');
+      const count = await runFastMissedReplyScanner();
+      if (count > 0) console.log(`[FastScan/Timer] Responded to ${count} missed message(s) within 3-min window`);
+    } catch (err) {
+      console.error('[FastScan/Timer] Error:', err);
+    } finally {
+      fastScanRunning = false;
+    }
+  }, 2 * 60 * 1000);
+
   // --- BRAIN COUNCIL SELF-REVIEW: Detect and recover from mistakes every 30 minutes ---
   let councilReviewRunning = false;
   setInterval(async () => {

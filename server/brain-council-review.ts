@@ -292,3 +292,91 @@ function buildSendOpts(channel: string, message: string, fromName: string) {
       return { type: "SMS" as const, message };
   }
 }
+
+/**
+ * FAST MISSED-REPLY SCANNER — Runs every 2 minutes to catch unanswered messages
+ * within a 5-minute window, ensuring the Council responds like a live agent within 3 minutes.
+ * Only processes leads that sent an inbound message in the last 5 minutes with no AI reply.
+ */
+export async function runFastMissedReplyScanner(): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+
+  // Only look at messages from the last 5 minutes with no AI reply
+  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+
+  const missed = await db.execute(sql`
+    SELECT 
+      c.leadId,
+      l.ghlContactId,
+      l.name as leadName,
+      c.channel,
+      c.messageBody as lastInbound,
+      c.timestamp as inboundAt
+    FROM conversations c
+    JOIN leads l ON l.id = c.leadId
+    WHERE c.direction = 'inbound'
+      AND c.senderType = 'lead'
+      AND c.timestamp >= ${fiveMinAgo}
+      AND l.humanTakeover = 0
+      AND NOT EXISTS (
+        SELECT 1 FROM conversations c2
+        WHERE c2.leadId = c.leadId
+          AND c2.direction = 'outbound'
+          AND c2.senderType = 'ai'
+          AND c2.timestamp > c.timestamp
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM brain_council_audit bca
+        WHERE bca.leadId = c.leadId
+          AND bca.createdAt > c.timestamp
+      )
+    ORDER BY c.timestamp ASC
+    LIMIT 5
+  `);
+
+  const rows = missed as any[];
+  if (rows.length === 0) return 0;
+
+  console.log(`[FastScan] Found ${rows.length} unanswered message(s) in 5-min window`);
+  let recovered = 0;
+  const seen = new Set<number>();
+
+  for (const row of rows) {
+    if (seen.has(row.leadId)) continue;
+    seen.add(row.leadId);
+
+    try {
+      const result = await runBrainCouncil({
+        leadId: row.leadId,
+        incomingMessage: row.lastInbound,
+        channel: row.channel || "SMS",
+        overrideReason: "FAST_SCAN: Lead sent a message and received no reply within 3 minutes. Respond immediately.",
+      });
+
+      if (!result.blocked && result.message) {
+        const sendOpts = buildSendOpts(result.channel || row.channel || "SMS", result.message, result.fromName);
+        const sendResult = await sendMessage(row.ghlContactId, sendOpts);
+        if (sendResult) {
+          await addConversation({
+            leadId: row.leadId,
+            channel: result.channel || row.channel || "SMS",
+            direction: "outbound",
+            messageBody: result.message,
+            senderType: "ai",
+            senderName: result.fromName,
+          });
+          await updateLeadFields(row.leadId, { lastMessageAt: new Date() });
+          console.log(`[FastScan] ✅ Responded to ${row.leadName} (lead ${row.leadId}) within 3-min window`);
+          recovered++;
+        }
+      }
+      // Small delay between sends
+      await new Promise(r => setTimeout(r, 2000));
+    } catch (err) {
+      console.error(`[FastScan] Error responding to lead ${row.leadId}:`, err);
+    }
+  }
+
+  return recovered;
+}
