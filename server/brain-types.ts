@@ -12,7 +12,7 @@ export interface BrainCouncilInput {
 }
 
 export interface StrategyDecision {
-  approach: "first_contact" | "follow_up" | "reactivation" | "post_delivery" | "seasonal" | "value_add";
+  approach: "first_contact" | "follow_up" | "reactivation" | "post_delivery" | "seasonal" | "value_add" | "recovery";
   channel: string;
   angle: string;
   framework: "PAS" | "BAB" | "AIDA" | "HORMOZI_ACA" | "HORMOZI_INDIRECT" | "SOCIAL_PROOF" | "CASE_STUDY" | "SOAP_OPERA" | "EMB_WELCOME" | "EMB_WINBACK" | "EMB_POST_PURCHASE" | "EMB_COLD";

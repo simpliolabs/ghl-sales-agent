@@ -20,6 +20,7 @@ import { retroactiveCorrectionScan } from "./auto-correction";
 import { backfillOutcomes } from "./outcome-engine";
 import { processOverdueFollowUps } from "./follow-up-trigger";
 import { runLookback } from "./lookback-engine";
+import { runBrainCouncilSelfReview } from "./brain-council-review";
 
 // --- IN-MEMORY DEDUP LOCK ---
 // Prevents concurrent processing of the same message webhook.
@@ -142,6 +143,34 @@ export function createWebhookRouter(): Router {
       lookbackRunning = false;
     }
   }, 2 * 60 * 1000);
+
+  // --- BRAIN COUNCIL SELF-REVIEW: Detect and recover from mistakes every 30 minutes ---
+  let councilReviewRunning = false;
+  setInterval(async () => {
+    if (councilReviewRunning) return;
+    councilReviewRunning = true;
+    try {
+      const stats = await runBrainCouncilSelfReview();
+      if (stats.recovered > 0) console.log(`[CouncilReview/Timer] ${stats.reviewed} reviewed, ${stats.recovered} recovered, ${stats.skipped} skipped, ${stats.errors} errors`);
+    } catch (err) {
+      console.error('[CouncilReview/Timer] Error:', err);
+    } finally {
+      councilReviewRunning = false;
+    }
+  }, 30 * 60 * 1000);
+  // Run initial Council review 5 minutes after startup (give system time to settle)
+  setTimeout(async () => {
+    if (councilReviewRunning) return;
+    councilReviewRunning = true;
+    try {
+      const stats = await runBrainCouncilSelfReview();
+      console.log(`[CouncilReview/Timer] Initial review: ${stats.reviewed} reviewed, ${stats.recovered} recovered, ${stats.skipped} skipped, ${stats.errors} errors`);
+    } catch (err) {
+      console.error('[CouncilReview/Timer] Initial review error:', err);
+    } finally {
+      councilReviewRunning = false;
+    }
+  }, 5 * 60 * 1000);
 
   // --- WEBHOOK HEALTH CHECK ---
   router.get("/api/webhooks/health", (_req: Request, res: Response) => {

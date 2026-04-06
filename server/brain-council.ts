@@ -30,7 +30,7 @@ export interface BrainCouncilInput {
 }
 
 export interface StrategyDecision {
-  approach: "first_contact" | "follow_up" | "reactivation" | "post_delivery" | "seasonal" | "value_add";
+  approach: "first_contact" | "follow_up" | "reactivation" | "post_delivery" | "seasonal" | "value_add" | "recovery";
   channel: string;
   angle: string;
   framework: "PAS" | "BAB" | "AIDA" | "HORMOZI_ACA" | "HORMOZI_INDIRECT" | "SOCIAL_PROOF" | "CASE_STUDY" | "SOAP_OPERA" | "EMB_WELCOME" | "EMB_WINBACK" | "EMB_POST_PURCHASE" | "EMB_COLD";
@@ -278,9 +278,17 @@ Deliverability (from EMB Chapter 7):
 - Apologetic language ("sorry to bother")
 - Easy outs ("if not relevant, no problem")
 
+=== RECOVERY MODE ===
+If the overrideReason starts with "RECOVERY MODE:", you are in recovery mode. This means the system made a mistake (duplicate message, missed reply, etc.) and you must compose a recovery strategy. In recovery mode:
+- Use approach = "recovery"
+- Do NOT repeat any message already sent
+- Acknowledge the issue briefly and naturally (1 sentence max), then pivot to helping the lead
+- If the lead asked a question, answer it
+- Keep it warm, human, and forward-moving — not robotic or over-apologetic
+- Choose the framework that best moves the conversation forward
+
 === YOUR OUTPUT ===
 Analyze the lead context and produce a strategic directive. Be specific and actionable.`;
-
 async function runStrategist(input: BrainCouncilInput, context: Awaited<ReturnType<typeof buildLeadContext>>): Promise<StrategyDecision> {
   const { lead, state, historyStr, isFirstResponse, leadAgeDays, urgencyStage, unansweredCount } = context;
 
@@ -333,7 +341,7 @@ Produce your strategic directive now.`;
         schema: {
           type: "object",
           properties: {
-            approach: { type: "string", description: "first_contact|follow_up|reactivation|post_delivery|seasonal|value_add" },
+            approach: { type: "string", description: "first_contact|follow_up|reactivation|post_delivery|seasonal|value_add|recovery" },
             channel: { type: "string", description: "SMS|Email|FB|IG|WhatsApp" },
             angle: { type: "string", description: "The specific angle/hook to use" },
             framework: { type: "string", description: "PAS|BAB|AIDA|HORMOZI_ACA|HORMOZI_INDIRECT|SOCIAL_PROOF|CASE_STUDY" },

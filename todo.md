@@ -176,3 +176,4 @@
 - [x] WEBHOOK: GHL Pipeline Stage Changed webhook wired to /api/webhooks/ghl/pipeline
 - [x] FIX: TypeScript implicit any errors in Pipeline.tsx, Home.tsx, Settings.tsx, KnowledgeBase.tsx (0 errors)
 - [x] BUG: Linda Harvey-Williams received same message 3 times at 05:35 PM — triple duplicate from follow-up trigger or Brain Council. Root cause: 3 server restarts in quick succession each fired an "initial run" simultaneously. Fixed with global in-process trigger lock (triggerRunning flag + 5min timeout) + bumped dedup window from 5min to 10min.
+- [x] FEATURE: Brain Council Self-Review Workflow — Council detects its own mistakes (duplicates, bad messages, missed responses), composes recovery messages using full lead context, and sends them autonomously. Runs every 30 min + 5 min after startup. Recovery approach added to Strategist brain.
