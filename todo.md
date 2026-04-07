@@ -264,3 +264,10 @@
 - [x] 6.2: Added lastInteractionSummary column to ai_state (migration applied). Orchestrator writes 1-sentence summary after each successful send using upsertAiState(). buildLeadContext() reads it into LeadContext. Strategist and Composer prompts inject it as LAST INTERACTION SUMMARY section for continuity.
 - [x] 6.3: Added system.healthMonitor admin procedure to systemRouter. Returns 6 indicators: Last Brain Council Send, Framework Diversity, DNC Leads Active, Email Formatting, Block Rate (1h), AI Status. Each with green/yellow/red status, value, and detail. Overall status derived from worst indicator.
 - [x] 6.4: Added invalidateLeadCache() call in orchestrator after successful send. Ensures next Brain Council run for same lead sees the message just approved. All 197 tests passing.
+
+## Knowledge Base Inline Editor
+- [x] Audit KB tRPC procedures for existing updateContent mutation
+- [x] Add inline editor UI to KB page (expand/collapse per file, editable textarea, save button)
+- [x] Wire editor to tRPC mutation with optimistic update and success/error feedback
+- [x] Add "last edited" timestamp display per KB entry
+- [x] Write tests for the update flow (9 tests in knowledge.test.ts)

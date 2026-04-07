@@ -224,6 +224,16 @@ export const appRouter = router({
       await updateKnowledgeFile(input.id, { contentText: input.contentText, lastSyncedAt: new Date() });
       return { success: true };
     }),
+    resynthesize: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      const files = await getKnowledgeFiles();
+      const file = files.find((f: any) => f.id === input.id);
+      if (!file) throw new Error("Knowledge file not found");
+      const rawText = file.contentText || "";
+      if (!rawText.trim()) throw new Error("No content to re-synthesize");
+      const synthesized = await synthesizeContent(rawText, file.fileName);
+      await updateKnowledgeFile(input.id, { contentText: synthesized, lastSyncedAt: new Date() });
+      return { success: true };
+    }),
     delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => { await deleteKnowledgeFile(input.id); return { success: true }; }),
   }),
 
