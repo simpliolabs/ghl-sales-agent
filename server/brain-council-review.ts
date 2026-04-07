@@ -347,9 +347,22 @@ export async function runFastMissedReplyScanner(): Promise<number> {
   let recovered = 0;
   const seen = new Set<number>();
 
+  // Check if AI is offline before processing
+  if (await isAiOffline()) {
+    console.log('[FastScan] AI is OFFLINE — skipping all missed replies');
+    return 0;
+  }
+
   for (const row of rows) {
     if (seen.has(row.leadId)) continue;
     seen.add(row.leadId);
+
+    // Acquire DB-level lock to prevent concurrent Brain Council runs
+    const lockAcquired = await acquireDbBrainCouncilLock(row.leadId);
+    if (!lockAcquired) {
+      console.log(`[FastScan] Skipping lead ${row.leadId} (${row.leadName}) — Brain Council already in progress`);
+      continue;
+    }
 
     try {
       const result = await runBrainCouncil({
@@ -380,6 +393,8 @@ export async function runFastMissedReplyScanner(): Promise<number> {
       await new Promise(r => setTimeout(r, 2000));
     } catch (err) {
       console.error(`[FastScan] Error responding to lead ${row.leadId}:`, err);
+    } finally {
+      await releaseDbBrainCouncilLock(row.leadId);
     }
   }
 

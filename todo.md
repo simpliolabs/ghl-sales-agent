@@ -193,3 +193,5 @@
 - [x] CRITICAL BUG: AI asks for email/phone already on file (Bobby Clarner) — FIXED: Composer now receives lead.email and lead.phone with explicit rule 'NEVER ask for info we already have'.
 - [x] CRITICAL BUG: Self-review 'missed reply' recovery duplicated Fast Scanner — FIXED: detectMissedReplies() disabled in self-review; Fast Scanner is the sole handler for missed replies.
 - [x] FEATURE: Go Offline / Go Online toggle button added to sidebar footer (admin only). Red banner shown when AI is offline. DB-backed via systemSettings table. All 4 autonomous senders check isAiOffline() before running Brain Council.
+- [ ] BUG: Go Offline button turns system off but red banner doesn't appear, pressing again just shows 'system is offline' toast instead of toggling back online
+- [ ] AUDIT: Complete system review — assess all components against the vision of a smart, autonomous, self-learning system

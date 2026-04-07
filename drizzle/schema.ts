@@ -248,8 +248,8 @@ export type BrainCouncilAuditEntry = typeof brainCouncilAudit.$inferSelect;
 // System settings — key-value store for global toggles (e.g., ai_online)
 export const systemSettings = mysqlTable("system_settings", {
   id: int("id").autoincrement().primaryKey(),
-  settingKey: varchar("settingKey", { length: 64 }).notNull().unique(),
-  settingValue: text("settingValue"),
+  settingKey: varchar("key", { length: 64 }).notNull().unique(),
+  settingValue: text("value").notNull(),
   updatedBy: varchar("updatedBy", { length: 128 }),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

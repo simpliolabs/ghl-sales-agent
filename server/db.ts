@@ -1,6 +1,6 @@
 import { eq, desc, asc, gte, and, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, leads, conversations, aiState, pipelineEvents, agentAssignments, knowledgeFiles, aiTweaks, invites, webhookLogs, brainCouncilAudit } from "../drizzle/schema";
+import { InsertUser, users, leads, conversations, aiState, pipelineEvents, agentAssignments, knowledgeFiles, aiTweaks, invites, webhookLogs, brainCouncilAudit, systemSettings } from "../drizzle/schema";
 import type { InsertLead } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { cached, conversationCache, contextCache, generalCache, patternCache } from './cache';
@@ -474,10 +474,12 @@ export async function getSystemSetting(key: string): Promise<string | null> {
   try {
     const db = await getDb();
     if (!db) return null;
-    const rows = await db.execute(sql`SELECT settingValue FROM system_settings WHERE settingKey = ${key} LIMIT 1`);
-    const data = (rows as any)[0];
-    if (!data || !Array.isArray(data) || data.length === 0) return null;
-    return (data[0] as any).settingValue ?? null;
+    const rows = await db.select({ value: systemSettings.settingValue })
+      .from(systemSettings)
+      .where(eq(systemSettings.settingKey, key))
+      .limit(1);
+    if (!rows || rows.length === 0) return null;
+    return rows[0].value ?? null;
   } catch (err) {
     console.error('[DB/Settings] getSystemSetting error:', err);
     return null;
@@ -489,7 +491,7 @@ export async function setSystemSetting(key: string, value: string, updatedBy = '
     const db = await getDb();
     if (!db) return;
     await db.execute(
-      sql`INSERT INTO system_settings (settingKey, settingValue, updatedBy) VALUES (${key}, ${value}, ${updatedBy}) ON DUPLICATE KEY UPDATE settingValue = ${value}, updatedBy = ${updatedBy}`
+      sql`INSERT INTO \`system_settings\` (\`key\`, \`value\`, \`updatedBy\`) VALUES (${key}, ${value}, ${updatedBy}) ON DUPLICATE KEY UPDATE \`value\` = ${value}, \`updatedBy\` = ${updatedBy}`
     );
   } catch (err) {
     console.error('[DB/Settings] setSystemSetting error:', err);
