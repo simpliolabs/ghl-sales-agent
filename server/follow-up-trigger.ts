@@ -16,9 +16,9 @@
 
 import { getLeadsDueForFollowUp, getConversationHistory, updateLeadFields, addConversation, upsertAiState, getRecentAiOutboundCount, addBrainCouncilAudit, getBrainCouncilAuditForLead, isAiOffline } from "./db";
 import { runBrainCouncil } from "./brain-council-orchestrator";
-import { calculateNextFollowUp, checkRateLimits, capDate } from "./scheduling-engine";
+import { calculateNextFollowUp, checkRateLimits, capDate, checkDnc } from "./scheduling-engine";
 import { sendMessage, addNote, fetchGhlConversationHistory, getContact } from "./ghl";
-import { sendMessageWithRetry, normalizeChannel, extractFormData, isLlmExhausted, LLM_RETRY_DELAY_MS } from "./webhook-helpers";
+import { sendMessageWithRetry, normalizeChannel, extractFormData, isLlmExhausted, LLM_RETRY_DELAY_MS, formatEmailHtml } from "./webhook-helpers";
 import { shouldHandoffToAgent, estimateOrderValue, generateContactNotes } from "./ai-brain";
 import { notifyOwner } from "./_core/notification";
 
@@ -118,6 +118,23 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
         if (!perLeadRate.allowed) {
           console.log(`[FollowUp] Rate limit hit mid-cycle: ${perLeadRate.reason}`);
           break;
+        }
+
+        // DNC CHECK: Scan recent inbound messages BEFORE building context (saves LLM cost)
+        try {
+          const recentInbound = await getConversationHistory(leadId, 10);
+          const inboundOnly = recentInbound.filter((c: any) => c.direction === "inbound");
+          if (checkDnc(inboundOnly)) {
+            console.log(`[FollowUp] \u{1F6AB} DNC keyword detected for lead ${leadId} (${leadName}) \u2014 setting humanTakeover=1 and skipping`);
+            await updateLeadFields(leadId, { humanTakeover: 1 });
+            stats.skipped++;
+            continue;
+          }
+        } catch (dncErr) {
+          console.error(`[FollowUp] DNC check failed for lead ${leadId}:`, dncErr);
+          // Fail CLOSED: skip this lead rather than risk messaging an opted-out person
+          stats.skipped++;
+          continue;
         }
 
         // Build conversation context
@@ -282,7 +299,7 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
           console.log(`[FollowUp] ⚠️ BLOCKED follow-up for lead ${leadId}: ${aiResponse.blockReason}`);
           if (aiResponse.fallbackUsed && aiResponse.fallbackMessage) {
             const fallbackOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
-              ? { type: "Email", subject: "Adorb Custom Tees", html: aiResponse.fallbackMessage, fromName: aiResponse.fromName }
+              ? { type: "Email", subject: "Adorb Custom Tees", html: formatEmailHtml(aiResponse.fallbackMessage), fromName: aiResponse.fromName }
               : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.fallbackMessage };
             const sendResult = await sendMessageWithRetry(ghlContactId, fallbackOpts, { email: (lead as any).email, phone: (lead as any).phone, id: leadId });
             if (sendResult.success) {
@@ -301,7 +318,7 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
 
         // --- SEND MESSAGE ---
         const msgOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
-          ? { type: "Email", subject: aiResponse.subject || `${aiResponse.fromName} from Adorb`, html: aiResponse.message, fromName: aiResponse.fromName }
+          ? { type: "Email", subject: aiResponse.subject || `${aiResponse.fromName} from Adorb`, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName }
           : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
         const sendResult = await sendMessageWithRetry(ghlContactId, msgOpts, { email: (lead as any).email, phone: (lead as any).phone, id: leadId });
 

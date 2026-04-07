@@ -33,6 +33,7 @@ import {
   isLlmExhausted,
   LLM_RETRY_DELAY_MS,
   MAX_LLM_RETRIES,
+  formatEmailHtml,
 } from "./webhook-helpers";
 
 export async function handleMessageWebhook(payload: Record<string, unknown>, res: Response) {
@@ -323,7 +324,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   if (aiResponse.blocked && aiResponse.fallbackUsed && aiResponse.fallbackMessage) {
     console.log(`[Webhook] ⚠️ BLOCKED message for lead ${lead!.id}: ${aiResponse.blockReason}. Sending fallback.`);
     const fallbackOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
-      ? { type: "Email", subject: "Adorb Custom Tees", html: aiResponse.fallbackMessage, fromName: aiResponse.fromName }
+      ? { type: "Email", subject: "Adorb Custom Tees", html: formatEmailHtml(aiResponse.fallbackMessage), fromName: aiResponse.fromName }
       : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.fallbackMessage };
     const sendResult = await sendMessageWithRetry(resolvedContactId, fallbackOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
     if (!sendResult.success) console.error(`[Webhook/Msg] Fallback send failed for lead ${lead!.id}: ${sendResult.error}`);
@@ -368,7 +369,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     }
     {
       const handoffOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
-        ? { type: "Email", subject: aiResponse.subject || `${aiResponse.fromName} from Adorb`, html: aiResponse.message, fromName: aiResponse.fromName }
+        ? { type: "Email", subject: aiResponse.subject || `${aiResponse.fromName} from Adorb`, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName }
         : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
       const sendResult = await sendMessageWithRetry(resolvedContactId, handoffOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
       if (sendResult.resolvedContactId !== resolvedContactId) resolvedContactId = sendResult.resolvedContactId;
@@ -382,7 +383,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   // --- NORMAL AI RESPONSE ---
   {
     const normalOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
-      ? { type: "Email", subject: aiResponse.subject || `${aiResponse.fromName} from Adorb`, html: aiResponse.message, fromName: aiResponse.fromName }
+      ? { type: "Email", subject: aiResponse.subject || `${aiResponse.fromName} from Adorb`, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName }
       : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
     const sendResult = await sendMessageWithRetry(resolvedContactId, normalOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
     if (sendResult.resolvedContactId !== resolvedContactId) resolvedContactId = sendResult.resolvedContactId;

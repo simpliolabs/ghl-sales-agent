@@ -9,6 +9,7 @@
  *  2. DB-level send cooldown: was an AI message sent/attempted for this lead in the last 90 seconds? → abort
  *  3. Can we acquire the DB lock for this lead? → abort if locked (another run in progress)
  *  4. Is humanTakeover active for this lead? → abort
+ *  4.5. DNC keyword detection: scan last 5 inbound messages for opt-out keywords → auto-flag humanTakeover=1 and abort
  *  5. Did we already respond to this lead's last inbound message? → abort (conversations check)
  * 
  * Only after ALL pre-flight checks pass does the 4-brain pipeline run:
@@ -22,7 +23,8 @@
  * and the Brain decides everything.
  */
 
-import { addBrainCouncilAudit, acquireDbBrainCouncilLock, releaseDbBrainCouncilLock, isAiOffline, getDb } from "./db";
+import { addBrainCouncilAudit, acquireDbBrainCouncilLock, releaseDbBrainCouncilLock, isAiOffline, getDb, isChannelDnd, getBlockedChannels } from "./db";
+import { checkDnc } from "./scheduling-engine";
 import { conversations, leads } from "../drizzle/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
 import { buildLeadContext } from "./brain-context";
@@ -163,6 +165,62 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     } catch (err) {
       console.error(`[BrainCouncil] humanTakeover check failed:`, err);
       // Don't abort on check failure — proceed with caution
+    }
+
+    // ================================================================
+    // PRE-FLIGHT CHECK 4.5: DNC keyword detection
+    // Scan the lead's last 5 inbound messages for opt-out keywords.
+    // If found, auto-flag humanTakeover=1 and abort.
+    // This prevents messaging people who explicitly opted out.
+    // ================================================================
+    try {
+      const db2 = await getDb();
+      if (db2) {
+        const recentInbound = await db2.select({
+          messageBody: conversations.messageBody,
+          direction: conversations.direction,
+          senderType: conversations.senderType,
+        })
+          .from(conversations)
+          .where(and(
+            eq(conversations.leadId, input.leadId),
+            eq(conversations.direction, "inbound")
+          ))
+          .orderBy(desc(conversations.timestamp))
+          .limit(5);
+
+        if (checkDnc(recentInbound)) {
+          // Auto-flag the lead so future checks are instant via humanTakeover check
+          await db2.update(leads)
+            .set({ humanTakeover: 1 })
+            .where(eq(leads.id, input.leadId));
+          console.log(`[BrainCouncil] 🚫 DNC keyword detected for lead ${input.leadId} — set humanTakeover=1`);
+          return abortResult("DNC keyword detected — lead opted out. humanTakeover set to 1.", input.leadId);
+        }
+      }
+    } catch (err) {
+      console.error(`[BrainCouncil] DNC check failed:`, err);
+      // Fail CLOSED for DNC — if we can't check, don't risk messaging an opted-out lead
+      return abortResult("DNC check failed — blocking as precaution", input.leadId);
+    }
+
+    // ================================================================
+    // PRE-FLIGHT CHECK 4.7: Per-channel GHL DND check
+    // If the requested channel is DND-blocked in GHL, abort.
+    // This prevents wasting 4 LLM calls composing a message that
+    // GHL will reject at send time.
+    // ================================================================
+    try {
+      if (await isChannelDnd(input.leadId, input.channel)) {
+        const blockedChannels = await getBlockedChannels(input.leadId);
+        return abortResult(
+          `GHL DND: channel ${input.channel} is blocked for this lead. All blocked channels: ${blockedChannels.join(', ')}`,
+          input.leadId
+        );
+      }
+    } catch (err) {
+      console.error(`[BrainCouncil] DND channel check failed:`, err);
+      // Don't abort on check failure — other gates will catch at send time
     }
 
     // ================================================================

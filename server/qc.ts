@@ -101,7 +101,7 @@ You are the LAST LINE OF DEFENSE before a message goes to a real customer. Your 
       * Email print@adorbcustomtees.com
       * Website adorbcustomtees.com
       * Google reviews line (4.9 Stars · 867+ Verified Reviews)
-    - Does it include a Google reviews link? Score 0 if missing from signature.
+    - Does it include a reviews link (adorbcustomtees.com/pages/reviews)? Score 0 if missing from email signature.
     - Hormozi/Martell style: reads like a text message, not a business letter. Score 0 if it reads like a formal email.
     - NO walls of text. NO run-on sentences. NO compound sentences joined by semicolons.
 

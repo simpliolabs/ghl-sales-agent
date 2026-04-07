@@ -15,6 +15,7 @@
 
 import { notifyOwner } from "./_core/notification";
 import { sendMessage } from "./ghl";
+import { formatEmailHtml } from "./webhook-helpers";
 import { 
   updateAuditCorrection, 
   getUncorrectedViolations,
@@ -308,7 +309,7 @@ function buildSendOpts(
 ): Parameters<typeof sendMessage>[1] | undefined {
   switch (channel) {
     case "Email":
-      return { type: "Email", subject: `${fromName.split(" ")[0]} from Adorb Custom Tees`, html: `<p>${message}</p>`, fromName };
+      return { type: "Email", subject: `${fromName.split(" ")[0]} from Adorb Custom Tees`, html: formatEmailHtml(message), fromName };
     case "FB":
       return { type: "FB", message };
     case "IG":

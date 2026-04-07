@@ -213,3 +213,21 @@
   - Comprehensive dedup test suite (server/dedup.test.ts)
 - [x] ARCHITECTURE: Brain Orchestrator pre-flight checks: already-responded check, human takeover, system offline, conversation freshness
 - [x] ARCHITECTURE: Brain should check "did I already respond to this exact inbound message?" before composing
+
+## Layer 0: Safety Gates (Core Architecture Fix)
+- [ ] 0.1 DNC Pre-flight Check: Export DNC_KEYWORDS/checkDnc from scheduling-engine.ts, add DNC pre-flight gate to brain-council-orchestrator.ts, webhook-contact.ts, follow-up-trigger.ts
+- [ ] 0.2 Flag Existing DNC Leads: SQL migration to set humanTakeover=1 on all 124 leads with DNC signals
+- [ ] 0.3 DNC Check in Follow-up Trigger: Add early DNC check before context building in follow-up-trigger.ts
+
+## Layer 0: Safety Gates (Updated — GHL DND Sync Approach)
+- [x] 0.1a: Export DNC_KEYWORDS/checkDnc from scheduling-engine.ts
+- [x] 0.1b: Add DNC keyword pre-flight gate to brain-council-orchestrator.ts (Check 4.5)
+- [x] 0.1c: Add DNC keyword check to follow-up-trigger.ts (before context building)
+- [x] 0.1d: Add DNC keyword check to webhook-contact.ts (before first-contact send)
+- [x] 0.1e: Add dndSms, dndEmail, dndFb, dndWhatsapp, dndCall, dndGmb columns to leads schema
+- [x] 0.1f: Sync GHL dndSettings during contact enrichment (webhook-contact.ts getContact call) — syncGhlDnd() in db.ts
+- [x] 0.1g: Update Brain Council pre-flight to check per-channel DND (Check 4.7 in orchestrator)
+- [x] 0.1h: Detect GHL DND rejection in sendMessage and auto-flag humanTakeover=1
+- [x] 0.2: Backfill GHL DND status for all 1,653 existing leads — 124 with DND, 1 auto-flagged humanTakeover
+- [x] 0.3: P0-B — Email HTML formatting — formatEmailHtml() in webhook-helpers.ts, wired into all 9 email senders (webhook-message, follow-up-trigger, brain-council-review, auto-correction, webhook-contact, webhook-pipeline, webhook-helpers buildSendOpts)
+- [x] 0.4: P0-C — Correct review links: replaced g.co/kgs/adorb with correct URLs in composer.ts (3 places) and qc.ts (1 place). Added Trustpilot + Website Reviews + Google Share links.

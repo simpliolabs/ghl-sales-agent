@@ -53,7 +53,7 @@ const US_HOLIDAYS_2026 = [
   "2026-12-25", // Christmas
 ];
 
-const DNC_KEYWORDS = [
+export const DNC_KEYWORDS = [
   "stop", "unsubscribe", "remove me", "opt out", "opt-out",
   "do not contact", "don't contact", "leave me alone",
   "take me off", "no more messages", "stop texting",
@@ -151,7 +151,7 @@ function pushToNextBusinessHour(date: Date, channel: string): Date {
 // DNC DETECTION
 // ============================================================
 
-function checkDnc(messages: Array<{ messageBody: string | null; direction: string; senderType: string }>): boolean {
+export function checkDnc(messages: Array<{ messageBody: string | null; direction: string; senderType: string }>): boolean {
   // Check the last 5 inbound messages for DNC keywords
   const inbound = messages.filter(m => m.direction === "inbound").slice(0, 5);
   for (const msg of inbound) {

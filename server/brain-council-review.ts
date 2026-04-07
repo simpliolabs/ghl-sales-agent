@@ -18,6 +18,7 @@
 
 import { getDb, isAiOffline } from "./db";
 import { leads, conversations, brainCouncilAudit } from "../drizzle/schema";
+import { formatEmailHtml } from "./webhook-helpers";
 import { eq, desc, and, gte, sql } from "drizzle-orm";
 import { runBrainCouncil } from "./brain-council-orchestrator";
 import { sendMessage } from "./ghl";
@@ -291,7 +292,7 @@ export async function runBrainCouncilSelfReview(): Promise<{
 function buildSendOpts(channel: string, message: string, fromName: string) {
   switch (channel) {
     case "Email":
-      return { type: "Email" as const, subject: `${fromName.split(" ")[0]} from Adorb Custom Tees`, html: `<p>${message}</p>`, fromName };
+      return { type: "Email" as const, subject: `${fromName.split(" ")[0]} from Adorb Custom Tees`, html: formatEmailHtml(message), fromName };
     case "FB":
       return { type: "FB" as const, message };
     case "IG":

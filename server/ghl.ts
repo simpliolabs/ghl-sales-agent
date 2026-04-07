@@ -132,9 +132,26 @@ export async function sendMessage(contactId: string, opts: {
   } catch (err: any) {
     const errData = err?.response?.data;
     const errStatus = err?.response?.status;
+    const errMsg = JSON.stringify(errData || {}).toLowerCase();
     console.error(`[GHL] sendMessage FAILED (${errStatus}):`, JSON.stringify(errData));
     console.error(`[GHL] Payload was:`, JSON.stringify(payload));
-    // On failure, release the gate so a retry can go through
+
+    // --- DND REJECTION DETECTION ---
+    // If GHL rejects with a DND-related error, log it clearly.
+    // The caller should handle flagging humanTakeover if needed.
+    if (errMsg.includes('dnd') || errMsg.includes('do not disturb') ||
+        errMsg.includes('unsubscribed') || errMsg.includes('opted out') ||
+        errMsg.includes('stop') || errStatus === 403) {
+      console.error(`[GHL] \u{1F6AB} DND REJECTION detected for contact ${contactId} on ${opts.type}: ${errMsg}`);
+      // Don't release the gate — this is a permanent block, not a transient error
+      const dndError = new Error(`GHL DND rejection: ${opts.type} blocked for contact ${contactId}`);
+      (dndError as any).isDndRejection = true;
+      (dndError as any).channel = opts.type;
+      (dndError as any).contactId = contactId;
+      throw dndError;
+    }
+
+    // On non-DND failure, release the gate so a retry can go through
     lastSendTimestamps.delete(contactId);
     throw err;
   }

@@ -13,6 +13,7 @@ import {
   PRODUCTION_MANAGER,
   STAGES,
   sendMessageWithRetry,
+  formatEmailHtml,
 } from "./webhook-helpers";
 
 // --- CUSTOMER NOTIFICATION MESSAGES ---
@@ -181,7 +182,7 @@ export async function handlePipelineWebhook(payload: Record<string, unknown>, re
     try {
       const notifOpts: Parameters<typeof import("./ghl").sendMessage>[1] = lead.phone
         ? { type: "SMS", message: notification.message }
-        : { type: "Email", subject: notification.fromName, html: notification.message, fromName: notification.fromName };
+        : { type: "Email", subject: notification.fromName, html: formatEmailHtml(notification.message), fromName: notification.fromName };
       if (lead.phone || lead.email) {
         await sendMessageWithRetry(contactId, notifOpts, { email: lead.email, phone: lead.phone, id: lead.id });
       }

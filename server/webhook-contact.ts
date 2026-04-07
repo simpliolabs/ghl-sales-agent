@@ -12,10 +12,10 @@
  */
 
 import { Response } from "express";
-import { upsertLead, updateLeadFields, getLeadById, getRecentAiOutboundCount, addConversation, upsertAiState, addBrainCouncilAudit, addAgentAssignment, getAgentWorkload } from "./db";
+import { upsertLead, updateLeadFields, getLeadById, getRecentAiOutboundCount, addConversation, upsertAiState, addBrainCouncilAudit, addAgentAssignment, getAgentWorkload, getConversationHistory, syncGhlDnd } from "./db";
 import { classifySegment } from "./ai-brain";
 import { researchLead } from "./lead-researcher";
-import { calculateNextFollowUp, checkRateLimits, checkLeadRateLimit } from "./scheduling-engine";
+import { calculateNextFollowUp, checkRateLimits, checkLeadRateLimit, checkDnc } from "./scheduling-engine";
 import { getContact, fetchGhlConversationHistory, updateOpportunityStage } from "./ghl";
 import { pushContactToOmnisend } from "./omnisend";
 import {
@@ -26,6 +26,7 @@ import {
   sendMessageWithRetry,
   extractFormData,
   parseFormDataFromMessageBody,
+  formatEmailHtml,
 } from "./webhook-helpers";
 import { handleStageAutomation } from "./webhook-pipeline";
 
@@ -88,6 +89,15 @@ export async function handleContactWebhook(payload: Record<string, unknown>, res
         await updateLeadFields(lead.id, updates);
         console.log(`[Webhook] Enriched lead ${lead.id} with: ${Object.keys(updates).join(", ")}`);
         lead = { ...lead, ...updates } as typeof lead;
+      }
+
+      // --- SYNC GHL DND STATUS ---
+      // Extract per-channel DND from the GHL contact and persist to leads table.
+      // This runs during enrichment so the Brain Council knows which channels are blocked.
+      try {
+        await syncGhlDnd(lead.id, resolved.contact);
+      } catch (dndErr) {
+        console.error(`[Webhook] DND sync failed for lead ${lead.id}:`, dndErr);
       }
     }
   }
@@ -203,6 +213,21 @@ async function sendDelayedFirstContact(
     const recentAiCount = await getRecentAiOutboundCount(leadId, 15);
     if (recentAiCount > 0) {
       console.log(`[Webhook] Skipping first-contact for lead ${leadId} — ${recentAiCount} message(s) sent in last 15 min`);
+      return;
+    }
+
+    // --- DNC CHECK: Scan recent inbound messages before sending first contact ---
+    try {
+      const recentInbound = await getConversationHistory(leadId, 10);
+      const inboundOnly = recentInbound.filter((c: any) => c.direction === "inbound");
+      if (checkDnc(inboundOnly)) {
+        console.log(`[Webhook] \u{1F6AB} DNC keyword detected for lead ${leadId} — setting humanTakeover=1, skipping first-contact`);
+        await updateLeadFields(leadId, { humanTakeover: 1 });
+        return;
+      }
+    } catch (dncErr) {
+      console.error(`[Webhook] DNC check failed for lead ${leadId}:`, dncErr);
+      // Fail CLOSED: skip first-contact rather than risk messaging an opted-out person
       return;
     }
 
@@ -392,7 +417,7 @@ async function sendDelayedFirstContact(
     // --- SEND MESSAGE 1 ---
     const buildSendOpts = (message: string): Parameters<typeof import("./ghl").sendMessage>[1] | undefined => {
       if (channel === "Email" && lead.email) {
-        return { type: "Email", subject: `${agentName.split(" ")[0]} from Adorb Custom Tees`, html: `<p>${message}</p><p>${msg2}</p>`, fromName: agentName };
+        return { type: "Email", subject: `${agentName.split(" ")[0]} from Adorb Custom Tees`, html: formatEmailHtml(`${message}\n\n${msg2}`), fromName: agentName };
       } else if (channel === "FB") { return { type: "FB", message }; }
       else if (channel === "IG") { return { type: "IG", message }; }
       else if (channel === "WhatsApp") { return { type: "WhatsApp", message }; }

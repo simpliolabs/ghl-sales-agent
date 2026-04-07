@@ -62,6 +62,14 @@ export const leads = mysqlTable("leads", {
   lastAiSendAttemptAt: timestamp("lastAiSendAttemptAt"),
   // DB-level Brain Council processing lock (prevents concurrent runs across webhook + fast scanner + follow-up trigger)
   processingLockedAt: timestamp("processingLockedAt"),
+  // GHL DND per-channel status — synced from GHL API dndSettings
+  // "active" or "permanent" means blocked; null/empty means allowed
+  dndSms: varchar("dndSms", { length: 32 }),
+  dndEmail: varchar("dndEmail", { length: 32 }),
+  dndFb: varchar("dndFb", { length: 32 }),
+  dndWhatsapp: varchar("dndWhatsapp", { length: 32 }),
+  dndGmb: varchar("dndGmb", { length: 32 }),
+  dndSyncedAt: timestamp("dndSyncedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

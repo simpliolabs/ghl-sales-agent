@@ -504,3 +504,153 @@ export async function isAiOffline(): Promise<boolean> {
   // Default is online (val === null means never set = online)
   return val === '0';
 }
+
+// ============================================================
+// GHL DND (Do Not Disturb) SYNC
+// Extracts per-channel DND status from GHL contact data and
+// persists it in the leads table. Used by pre-flight checks
+// to block sends on DND channels BEFORE wasting LLM calls.
+// ============================================================
+
+/**
+ * Maps GHL dndSettings object to per-channel DND status strings.
+ * GHL dndSettings format:
+ * {
+ *   "SMS": { "status": "active"|"permanent"|"inactive", "code": "STOP_KEYWORD"|"unsubscribe"|null },
+ *   "Email": { "status": "active"|"permanent"|"inactive", "code": "unsubscribe"|null },
+ *   ...
+ * }
+ * Returns null for channels that are not blocked.
+ */
+function extractDndStatus(dndSettings: Record<string, any>): {
+  dndSms: string | null;
+  dndEmail: string | null;
+  dndFb: string | null;
+  dndWhatsapp: string | null;
+  dndGmb: string | null;
+} {
+  const result = { dndSms: null as string | null, dndEmail: null as string | null, dndFb: null as string | null, dndWhatsapp: null as string | null, dndGmb: null as string | null };
+  if (!dndSettings || typeof dndSettings !== 'object') return result;
+
+  const channelMap: Record<string, keyof typeof result> = {
+    'SMS': 'dndSms',
+    'Email': 'dndEmail',
+    'FB': 'dndFb',
+    'GMB': 'dndGmb',
+    'WhatsApp': 'dndWhatsapp',
+  };
+
+  for (const [ghlChannel, field] of Object.entries(channelMap)) {
+    const setting = dndSettings[ghlChannel];
+    if (setting && typeof setting === 'object') {
+      const status = (setting.status || '').toLowerCase();
+      if (status === 'active' || status === 'permanent') {
+        const code = setting.code || setting.message || '';
+        result[field] = `${status}/${code}`.substring(0, 32);
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * Syncs GHL DND settings for a lead. Call this during contact enrichment
+ * (webhook-contact.ts) and during the backfill script.
+ * @param leadId - Our internal lead ID
+ * @param ghlContact - The raw GHL contact object (must have dndSettings)
+ */
+export async function syncGhlDnd(leadId: number, ghlContact: Record<string, any>): Promise<void> {
+  const dndSettings = ghlContact?.dndSettings;
+  if (!dndSettings || typeof dndSettings !== 'object') return;
+
+  const dndFields = extractDndStatus(dndSettings);
+  const hasAnyDnd = Object.values(dndFields).some(v => v !== null);
+
+  const db = await getDb();
+  if (!db) return;
+
+  try {
+    await db.update(leads)
+      .set({ ...dndFields, dndSyncedAt: new Date() })
+      .where(eq(leads.id, leadId));
+
+    if (hasAnyDnd) {
+      const blocked = Object.entries(dndFields)
+        .filter(([_, v]) => v !== null)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(', ');
+      console.log(`[DND-Sync] Lead ${leadId}: DND active on channels: ${blocked}`);
+    }
+  } catch (err) {
+    console.error(`[DND-Sync] Failed to sync DND for lead ${leadId}:`, err);
+  }
+}
+
+/**
+ * Checks if a specific channel is DND-blocked for a lead.
+ * Returns true if the channel is blocked (should NOT send).
+ * @param leadId - Our internal lead ID
+ * @param channel - The channel to check: "SMS", "Email", "FB", "IG", "WhatsApp"
+ */
+export async function isChannelDnd(leadId: number, channel: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false; // fail open if DB unavailable — other gates will catch
+
+  try {
+    const [lead] = await db.select({
+      dndSms: leads.dndSms,
+      dndEmail: leads.dndEmail,
+      dndFb: leads.dndFb,
+      dndWhatsapp: leads.dndWhatsapp,
+    })
+      .from(leads)
+      .where(eq(leads.id, leadId))
+      .limit(1);
+
+    if (!lead) return false;
+
+    const ch = channel.toUpperCase();
+    if (ch === 'SMS' && lead.dndSms) return true;
+    if (ch === 'EMAIL' && lead.dndEmail) return true;
+    if ((ch === 'FB' || ch === 'IG') && lead.dndFb) return true; // IG uses FB Messenger in GHL
+    if (ch === 'WHATSAPP' && lead.dndWhatsapp) return true;
+    return false;
+  } catch (err) {
+    console.error(`[DND-Check] isChannelDnd error for lead ${leadId}:`, err);
+    return false; // fail open — other gates will catch
+  }
+}
+
+/**
+ * Gets all DND-blocked channels for a lead.
+ * Returns an array of blocked channel names, e.g. ["SMS", "Email"].
+ * Used by the Brain Council to know which channels are available.
+ */
+export async function getBlockedChannels(leadId: number): Promise<string[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  try {
+    const [lead] = await db.select({
+      dndSms: leads.dndSms,
+      dndEmail: leads.dndEmail,
+      dndFb: leads.dndFb,
+      dndWhatsapp: leads.dndWhatsapp,
+    })
+      .from(leads)
+      .where(eq(leads.id, leadId))
+      .limit(1);
+
+    if (!lead) return [];
+
+    const blocked: string[] = [];
+    if (lead.dndSms) blocked.push('SMS');
+    if (lead.dndEmail) blocked.push('Email');
+    if (lead.dndFb) blocked.push('FB', 'IG');
+    if (lead.dndWhatsapp) blocked.push('WhatsApp');
+    return blocked;
+  } catch (err) {
+    console.error(`[DND-Check] getBlockedChannels error for lead ${leadId}:`, err);
+    return [];
+  }
+}

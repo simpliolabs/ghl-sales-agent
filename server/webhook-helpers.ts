@@ -318,6 +318,38 @@ export const LLM_RETRY_DELAY_MS = 15 * 60 * 1000;
 /** Max consecutive LLM retries before pausing a lead (prevents infinite retry loops) */
 export const MAX_LLM_RETRIES = 10;
 
+// --- EMAIL HTML FORMATTING ---
+/**
+ * Converts a plain-text message into properly formatted HTML for email.
+ * This is the SINGLE source of truth for email HTML formatting.
+ * ALL email senders MUST use this function instead of raw `<p>${message}</p>`.
+ *
+ * Handles:
+ * - Newlines → <br> tags
+ * - Double newlines → paragraph breaks
+ * - Preserves existing HTML if the message already contains tags
+ */
+export function formatEmailHtml(message: string): string {
+  if (!message) return '';
+
+  // If the message already contains HTML tags, return as-is
+  if (/<[a-z][\s\S]*>/i.test(message)) return message;
+
+  // Split on double newlines for paragraphs, then convert single newlines to <br>
+  const paragraphs = message.split(/\n\n+/);
+  if (paragraphs.length === 1) {
+    // Single paragraph — just convert newlines to <br>
+    return `<p>${message.replace(/\n/g, '<br>')}</p>`;
+  }
+
+  // Multiple paragraphs
+  return paragraphs
+    .map(p => p.trim())
+    .filter(p => p.length > 0)
+    .map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`)
+    .join('\n');
+}
+
 // --- SEND OPTIONS BUILDER ---
 export function buildSendOpts(
   channel: string,
@@ -326,7 +358,7 @@ export function buildSendOpts(
   extra?: { subject?: string; fromName?: string; html?: string }
 ): Parameters<typeof sendMessage>[1] | undefined {
   if (channel === "Email" && lead.email) {
-    return { type: "Email", subject: extra?.subject || "Adorb Custom Tees", html: extra?.html || `<p>${message}</p>`, fromName: extra?.fromName };
+    return { type: "Email", subject: extra?.subject || "Adorb Custom Tees", html: extra?.html || formatEmailHtml(message), fromName: extra?.fromName };
   } else if (channel === "FB") {
     return { type: "FB", message };
   } else if (channel === "IG") {
