@@ -1,5 +1,6 @@
 import axios from "axios";
 import { ENV } from "./_core/env";
+import { isAiOffline } from "./db";
 
 const GHL_BASE = "https://services.leadconnectorhq.com";
 
@@ -11,6 +12,46 @@ const ghlClient = axios.create({
     "Content-Type": "application/json",
   },
 });
+
+// ============================================================
+// SEND GATE — The nuclear option for duplicate message prevention
+// ============================================================
+// This is the SINGLE chokepoint where ALL outbound messages pass through.
+// No matter how many callers (webhook, fast scanner, follow-up trigger,
+// self-review) fire simultaneously, only ONE message per contact per
+// COOLDOWN_SECONDS will actually be sent to GHL.
+// ============================================================
+
+const COOLDOWN_SECONDS = 60; // Block duplicate sends within 60 seconds
+const lastSendTimestamps = new Map<string, number>(); // contactId -> epoch ms
+
+// Cleanup old entries every 5 minutes to prevent memory leak
+setInterval(() => {
+  const cutoff = Date.now() - COOLDOWN_SECONDS * 1000 * 2;
+  const keysToDelete: string[] = [];
+  lastSendTimestamps.forEach((ts, key) => {
+    if (ts < cutoff) keysToDelete.push(key);
+  });
+  keysToDelete.forEach(k => lastSendTimestamps.delete(k));
+}, 5 * 60 * 1000);
+
+/**
+ * Check if a send to this contact is allowed (not within cooldown).
+ * If allowed, atomically marks the timestamp so no other concurrent caller can pass.
+ * Returns true if send is allowed, false if blocked by cooldown.
+ */
+function acquireSendGate(contactId: string): boolean {
+  const now = Date.now();
+  const lastSend = lastSendTimestamps.get(contactId);
+  if (lastSend && (now - lastSend) < COOLDOWN_SECONDS * 1000) {
+    const secondsAgo = Math.round((now - lastSend) / 1000);
+    console.log(`[SEND-GATE] ❌ BLOCKED send to ${contactId} — last send was ${secondsAgo}s ago (cooldown: ${COOLDOWN_SECONDS}s)`);
+    return false;
+  }
+  // Atomically set the timestamp — JavaScript is single-threaded so this is safe
+  lastSendTimestamps.set(contactId, now);
+  return true;
+}
 
 // --- Contacts ---
 export async function getContact(contactId: string) {
@@ -47,6 +88,27 @@ export async function sendMessage(contactId: string, opts: {
   html?: string;
   fromName?: string;
 }) {
+  // ========== GATE 1: AI Offline check ==========
+  // This is the LAST LINE OF DEFENSE. Even if all caller-level checks
+  // failed, this will block the message from going out.
+  try {
+    if (await isAiOffline()) {
+      console.log(`[SEND-GATE] ❌ BLOCKED send to ${contactId} — AI is OFFLINE`);
+      return { blocked: true, reason: "AI_OFFLINE", messageId: null };
+    }
+  } catch (err) {
+    // If we can't check, fail CLOSED — block the send
+    console.error(`[SEND-GATE] isAiOffline check failed, blocking send as precaution:`, err);
+    return { blocked: true, reason: "OFFLINE_CHECK_FAILED", messageId: null };
+  }
+
+  // ========== GATE 2: Per-contact cooldown ==========
+  // Only ONE message per contact per 60 seconds. Period.
+  if (!acquireSendGate(contactId)) {
+    return { blocked: true, reason: "COOLDOWN", messageId: null };
+  }
+
+  // ========== SEND ==========
   const payload: Record<string, unknown> = {
     type: opts.type,
     contactId,
@@ -72,6 +134,8 @@ export async function sendMessage(contactId: string, opts: {
     const errStatus = err?.response?.status;
     console.error(`[GHL] sendMessage FAILED (${errStatus}):`, JSON.stringify(errData));
     console.error(`[GHL] Payload was:`, JSON.stringify(payload));
+    // On failure, release the gate so a retry can go through
+    lastSendTimestamps.delete(contactId);
     throw err;
   }
 }
