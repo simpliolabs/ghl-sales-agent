@@ -1,6 +1,9 @@
 import axios from "axios";
 import { ENV } from "./_core/env";
 import { isAiOffline } from "./db";
+import { BRAND } from "../shared/brand-assets";
+
+const BRAND_EMAIL = BRAND.email;
 
 const GHL_BASE = "https://services.leadconnectorhq.com";
 
@@ -117,8 +120,8 @@ export async function sendMessage(contactId: string, opts: {
     payload.subject = opts.subject || "";
     payload.html = opts.html || opts.message || "";
     payload.message = opts.message || "";
-    payload.emailFrom = "print@adorbcustomtees.com";
-    if (opts.fromName) payload.emailFrom = `${opts.fromName} <print@adorbcustomtees.com>`;
+    payload.emailFrom = BRAND_EMAIL;
+    if (opts.fromName) payload.emailFrom = `${opts.fromName} <${BRAND_EMAIL}>`;
   } else {
     payload.message = opts.message || "";
   }

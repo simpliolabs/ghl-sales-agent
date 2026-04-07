@@ -15,11 +15,14 @@ import { getDb } from "./db";
 import { brainCouncilAudit, messageOutcomes, leads, conversations, pipelineEvents } from "../drizzle/schema";
 import { invokeLLM } from "./_core/llm";
 import { cached, patternCache } from "./cache";
+import { DNC_KEYWORDS } from "./scheduling-engine";
+import { STAGES } from "./webhook-helpers";
 
 // --- CONSTANTS ---
 const ATTRIBUTION_WINDOW_HOURS = 72;
-const CONVERSION_STAGES = ["Paid - Proof Needed", "Approved + Deposit", "Delivered"];
-const POSITIVE_STAGES = ["Qualified", "Quote Sent", "Paid - Proof Needed", "Proof Sent", "Approved + Deposit", "In Production", "Ready", "Delivered"];
+// Use STAGES from webhook-helpers to stay in sync with GHL pipeline
+const CONVERSION_STAGES: string[] = [STAGES.PAID_PROOF_NEEDED, STAGES.APPROVED, STAGES.DELIVERED];
+const POSITIVE_STAGES: string[] = [STAGES.QUALIFIED, STAGES.QUOTE_SENT, STAGES.PAID_PROOF_NEEDED, STAGES.PROOF_SENT, STAGES.APPROVED, STAGES.IN_PRODUCTION, STAGES.READY, STAGES.DELIVERED];
 
 // =================================================================
 // 1. ATTRIBUTION — Link inbound replies to the AI message that caused them
@@ -60,6 +63,9 @@ export async function attributeReply(opts: {
   // Quick sentiment classification (lightweight — no LLM call for speed)
   const sentiment = classifySentimentFast(opts.replyMessage);
 
+  // DNC detection — flag if the reply contains DNC keywords
+  const isDnc = isDncReply(opts.replyMessage);
+
   // Check if we already have an outcome for this audit entry
   const existing = await db.select()
     .from(messageOutcomes)
@@ -70,7 +76,7 @@ export async function attributeReply(opts: {
     // Update existing outcome with reply data if it didn't have one
     if (!existing[0].gotReply) {
       await db.update(messageOutcomes)
-        .set({ gotReply: 1, replyMinutes, replySentiment: sentiment, attributedAt: opts.replyTimestamp })
+        .set({ gotReply: 1, replyMinutes, replySentiment: sentiment, dncTriggered: isDnc ? 1 : 0, attributedAt: opts.replyTimestamp })
         .where(eq(messageOutcomes.id, existing[0].id));
     }
     return { auditId: audit.id, replyMinutes, sentiment };
@@ -90,6 +96,7 @@ export async function attributeReply(opts: {
     gotReply: 1,
     replyMinutes,
     replySentiment: sentiment,
+    dncTriggered: isDnc ? 1 : 0,
     attributedAt: opts.replyTimestamp,
   });
 
@@ -177,6 +184,8 @@ export interface FrameworkStats {
   conversions: number;
   conversionRate: number;
   stageAdvances: number;
+  dncCount: number;
+  dncRate: number;
 }
 
 export interface SegmentStats {
@@ -233,6 +242,7 @@ async function _getPatternAnalysisUncached(): Promise<LearningInsights> {
     positiveReplies: sql<number>`SUM(CASE WHEN ${messageOutcomes.replySentiment} = 'positive' THEN 1 ELSE 0 END)`,
     conversions: sql<number>`SUM(CASE WHEN ${messageOutcomes.converted} = 1 THEN 1 ELSE 0 END)`,
     stageAdvances: sql<number>`SUM(CASE WHEN ${messageOutcomes.stageAdvanced} = 1 THEN 1 ELSE 0 END)`,
+    dncCount: sql<number>`SUM(CASE WHEN ${messageOutcomes.dncTriggered} = 1 THEN 1 ELSE 0 END)`,
   }).from(messageOutcomes)
     .where(sql`${messageOutcomes.framework} IS NOT NULL`)
     .groupBy(messageOutcomes.framework);
@@ -248,6 +258,8 @@ async function _getPatternAnalysisUncached(): Promise<LearningInsights> {
     conversions: r.conversions,
     conversionRate: r.totalSent > 0 ? Math.round((r.conversions / r.totalSent) * 100) : 0,
     stageAdvances: r.stageAdvances,
+    dncCount: r.dncCount,
+    dncRate: r.totalSent > 0 ? Math.round((r.dncCount / r.totalSent) * 100) : 0,
   }));
 
   // --- Channel stats ---
@@ -365,7 +377,8 @@ async function _buildLearningContextUncached(segment?: string): Promise<string> 
     lines.push("");
     lines.push("FRAMEWORK PERFORMANCE (min 3 messages):");
     for (const f of ranked) {
-      lines.push(`  ${f.framework}: ${f.replyRate}% reply rate (${f.replies}/${f.totalSent}), ${f.positiveRate}% positive, ${f.conversionRate}% conversion, avg reply ${f.avgReplyMinutes}min`);
+      const dncWarning = f.dncRate > 5 ? ` ⚠️ ${f.dncRate}% DNC rate` : '';
+      lines.push(`  ${f.framework}: ${f.replyRate}% reply rate (${f.replies}/${f.totalSent}), ${f.positiveRate}% positive, ${f.conversionRate}% conversion, avg reply ${f.avgReplyMinutes}min${dncWarning}`);
     }
   }
 
@@ -385,6 +398,16 @@ async function _buildLearningContextUncached(segment?: string): Promise<string> 
     if (segData && segData.bestFramework) {
       lines.push("");
       lines.push(`SEGMENT-SPECIFIC (${segment}): Best framework = ${segData.bestFramework} (${segData.bestReplyRate}% reply rate). Overall: ${segData.overallReplyRate}% reply rate from ${segData.totalMessages} messages.`);
+    }
+  }
+
+  // DNC warnings — frameworks with high opt-out rates
+  const dncRisky = insights.frameworkStats.filter(f => f.dncCount > 0 && f.totalSent >= 3).sort((a, b) => b.dncRate - a.dncRate);
+  if (dncRisky.length > 0) {
+    lines.push("");
+    lines.push("DNC/OPT-OUT RISK (frameworks that triggered unsubscribe replies):");
+    for (const f of dncRisky.slice(0, 5)) {
+      lines.push(`  ${f.framework}: ${f.dncCount} DNC replies out of ${f.totalSent} messages (${f.dncRate}%) — REDUCE USAGE if >5%`);
     }
   }
 
@@ -461,6 +484,7 @@ export async function backfillOutcomes(): Promise<number> {
       ? Math.round((new Date(replies[0].timestamp).getTime() - sentAt.getTime()) / (1000 * 60))
       : undefined;
     const sentiment = gotReply ? classifySentimentFast(replies[0].messageBody || "") : undefined;
+    const dncTriggered = gotReply ? isDncReply(replies[0].messageBody || "") : false;
 
     // Check if pipeline advanced after this message
     const stageEvents = await db.select()
@@ -496,6 +520,7 @@ export async function backfillOutcomes(): Promise<number> {
       stageAdvanced: stageAdvanced ? 1 : 0,
       toStage,
       converted: converted ? 1 : 0,
+      dncTriggered: dncTriggered ? 1 : 0,
       attributedAt: gotReply ? new Date(replies[0].timestamp) : (stageAdvanced ? new Date(stageEvents[0].timestamp) : undefined),
     });
     created++;
@@ -534,4 +559,13 @@ function classifySentimentFast(message: string): "positive" | "neutral" | "negat
   if (negScore > posScore) return "negative";
   if (posScore > negScore) return "positive";
   return "neutral";
+}
+
+/**
+ * Check if a reply message contains DNC (Do Not Contact) keywords.
+ * Used to track which AI messages triggered opt-out responses.
+ */
+function isDncReply(message: string): boolean {
+  const lower = message.toLowerCase().trim();
+  return DNC_KEYWORDS.some(kw => lower === kw || lower.startsWith(kw + " ") || lower.endsWith(" " + kw) || lower.includes(" " + kw + " "));
 }

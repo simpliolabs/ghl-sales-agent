@@ -112,7 +112,7 @@ export interface BrainCouncilOutput {
   fallbackMessage?: string;
 }
 
-export type ViolationCategory = "irrelevant_research" | "form_data_ignored" | "wrong_business" | "generic_opener" | "missing_framework" | "safety_violation" | "unanswered_question" | "info_not_acknowledged";
+export type ViolationCategory = "irrelevant_research" | "form_data_ignored" | "wrong_business" | "generic_opener" | "missing_framework" | "safety_violation" | "unanswered_question" | "info_not_acknowledged" | "repeated_question" | "ignored_request" | "channel_mismatch" | "unverified_claim";
 
 export type LeadContext = {
   lead: any;
@@ -127,4 +127,5 @@ export type LeadContext = {
   urgencyStage: string;
   unansweredCount: number;
   lookbackContext: string;  // Lookback engine analysis: keyContext, recommendedApproach, status, sentiment
+  lastInteractionSummary: string; // Cross-session memory: 1-sentence summary of last Brain Council interaction
 };

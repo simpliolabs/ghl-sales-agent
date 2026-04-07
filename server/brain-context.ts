@@ -103,6 +103,7 @@ export async function buildLeadContext(leadId: number): Promise<LeadContext> {
     urgencyStage,
     unansweredCount,
     lookbackContext,
+    lastInteractionSummary: state?.lastInteractionSummary ? String(state.lastInteractionSummary) : "",
   };
 }
 

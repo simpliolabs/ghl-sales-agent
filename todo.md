@@ -243,3 +243,24 @@
 - [x] 2.2: Composer rewritten with framework-specific message structures for DIRECT_RESPONSE (answer first, then CTA) and VALUE_FIRST (lead with value, then ask). Pricing rules added: must reference knowledge base, never invent prices, provide ranges when exact price unavailable.
 - [x] 2.3: First-contact template replaced with full Brain Council call in webhook-contact.ts. Form data passed as both incomingMessage context and formData array. Channel detection, rate limiting, DNC checks all preserved. Brain Council pre-flight provides second safety layer.
 - [x] 2.4: Framework diversity enforced at two levels: (1) Strategist prompt includes FRAMEWORK DIVERSITY RULE with last framework surfaced, (2) Programmatic override in orchestrator queries last 3 audit entries and forces different framework if same one used 2+ times consecutively. Responsive frameworks (DIRECT_RESPONSE, VALUE_FIRST) exempt from diversity rule. 31 tests passing in brain-prompts.test.ts.
+
+## Layer 3: Quality Control (Substance Checks)
+- [x] 3.1: Added Question-Answer Check (#13) and Information-Acknowledgment Check (#14) to QC prompt. Lowered auto-approve threshold from 70 to 75. Added score normalization instruction for 16-check (non-email) and 18-check (email) scales.
+- [x] 3.2: Added repeated_question (60% word overlap detection against prior outbound), ignored_request (pricing keyword detection in inbound vs response), channel_mismatch (SMS for >60 day dormant leads). Added all 4 new categories to ViolationCategory type. Updated auto-correction CRITICAL_VIOLATIONS to include ignored_request and repeated_question.
+- [x] 3.3: Added Gate 2 — External Message Safety (#15) to QC prompt: internal system language detection, email subject requirement, key info placement, unresolved placeholder token detection.
+- [x] 3.4: Added Factual Verification (#16) to QC prompt with -5 per unverified claim. Knowledge base content now passed to QC input for verification. Added unverified_claim to ViolationCategory type. 17 new tests in qc.test.ts, 196 total tests passing.
+
+## Layer 4: Send Path Consolidation
+- [x] 4.1: formatEmailHtml() enhanced with: HTML injection sanitization (entity escaping), --- → <hr> signature separator, URL → clickable <a> links, styled container wrapper with proper font/line-height, paragraph margin styling. Existing HTML pass-through preserved.
+- [x] 4.2: formatEmailHtml() confirmed wired into all 8 email send paths: webhook-helpers.ts (buildSendOpts), webhook-contact.ts, brain-council-review.ts, follow-up-trigger.ts (2 paths), webhook-message.ts (3 paths), webhook-pipeline.ts, auto-correction.ts. All 196 tests passing.
+
+## Layer 5: Learning Loop
+- [x] 5.1: Framework diversity enforcement verified — done in Layer 2 with orchestrator enforcement, strategist prompt rules, and audit tracking.
+- [x] 5.2: DNC tracking added to outcome engine. New dncTriggered column in message_outcomes table (migration applied). isDncReply() helper uses DNC_KEYWORDS from scheduling-engine. attributeReply() and backfillOutcomes() both set dncTriggered flag. FrameworkStats now includes dncCount/dncRate. buildLearningContext() outputs DNC/OPT-OUT RISK section with per-framework DNC rates. Strategist brain receives DNC warnings to reduce usage of high-DNC frameworks. All 196 tests passing.
+- [x] 5.3: CONVERSION_STAGES and POSITIVE_STAGES now imported from STAGES constant in webhook-helpers.ts (single source of truth). Verified stage names match GHL pipeline: "Paid - Proof Needed", "Approved + Deposit", "Delivered". attributeStageAdvance() confirmed wired into webhook-pipeline.ts.
+
+## Layer 6: Self-Healing and Observability
+- [x] 6.1: Created shared/brand-assets.ts with BRAND constant, getBrandContext(), getSignatureBlock(). Replaced hardcoded brand info in composer.ts (ADORB FACTS section), qc.ts (signature block checks), ghl.ts (emailFrom). All brain prompts now reference BRAND constants. Updated safety-gates test to verify centralization.
+- [x] 6.2: Added lastInteractionSummary column to ai_state (migration applied). Orchestrator writes 1-sentence summary after each successful send using upsertAiState(). buildLeadContext() reads it into LeadContext. Strategist and Composer prompts inject it as LAST INTERACTION SUMMARY section for continuity.
+- [x] 6.3: Added system.healthMonitor admin procedure to systemRouter. Returns 6 indicators: Last Brain Council Send, Framework Diversity, DNC Leads Active, Email Formatting, Block Rate (1h), AI Status. Each with green/yellow/red status, value, and detail. Overall status derived from worst indicator.
+- [x] 6.4: Added invalidateLeadCache() call in orchestrator after successful send. Ensures next Brain Council run for same lead sees the message just approved. All 197 tests passing.

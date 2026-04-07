@@ -218,6 +218,10 @@ ${lookbackContext ? `
 LOOKBACK ANALYSIS (pre-processed intelligence about this lead):
 ${lookbackContext}
 IMPORTANT: Use this lookback analysis to inform your strategy. It contains key context about the lead's history, sentiment, and recommended approach from a prior deep analysis of their full conversation.` : ""}
+${context.lastInteractionSummary ? `
+LAST INTERACTION SUMMARY (cross-session memory):
+${context.lastInteractionSummary}
+IMPORTANT: This is a summary of the last AI interaction with this lead. Use it to maintain continuity — do NOT repeat what was already discussed or offered.` : ""}
 
 FORM DATA (if any):
 ${input.formData?.map(f => `- ${f.label}: ${f.value}`).join("\n") || "None"}

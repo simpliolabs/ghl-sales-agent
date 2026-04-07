@@ -31,6 +31,8 @@ const CRITICAL_VIOLATIONS = [
   "irrelevant_research",   // Talked about wrong business (like Chick-fil-A for a church)
   "wrong_business",        // Referenced wrong company entirely
   "form_data_ignored",     // Ignored what the lead actually asked for
+  "ignored_request",       // Lead asked for pricing/quote but response didn't address it
+  "repeated_question",     // Asked a question already asked in prior outbound
 ];
 
 // --- CONFUSION SIGNALS FROM LEAD REPLIES ---

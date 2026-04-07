@@ -335,19 +335,33 @@ export function formatEmailHtml(message: string): string {
   // If the message already contains HTML tags, return as-is
   if (/<[a-z][\s\S]*>/i.test(message)) return message;
 
-  // Split on double newlines for paragraphs, then convert single newlines to <br>
-  const paragraphs = message.split(/\n\n+/);
-  if (paragraphs.length === 1) {
-    // Single paragraph — just convert newlines to <br>
-    return `<p>${message.replace(/\n/g, '<br>')}</p>`;
-  }
+  // 1. Sanitize against HTML injection — escape angle brackets in plain text
+  let safe = message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-  // Multiple paragraphs
-  return paragraphs
+  // 2. Convert --- signature separator to <hr> (keep it on its own double-newline-separated block)
+  safe = safe.replace(/\n---\n/g, '\n\n<hr style="border:none;border-top:1px solid #ddd;margin:16px 0">\n\n');
+  safe = safe.replace(/^---$/gm, '<hr style="border:none;border-top:1px solid #ddd;margin:16px 0">');
+
+  // 3. Convert URLs to clickable <a> links
+  safe = safe.replace(
+    /(https?:\/\/[^\s<]+)/g,
+    '<a href="$1" style="color:#2563eb;text-decoration:underline" target="_blank">$1</a>'
+  );
+
+  // 4. Split on double newlines for paragraphs, then convert single newlines to <br>
+  const paragraphs = safe.split(/\n\n+/);
+  const body = paragraphs
     .map(p => p.trim())
     .filter(p => p.length > 0)
-    .map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`)
+    .map(p => {
+      // Don't wrap <hr> in <p>
+      if (p.startsWith('<hr')) return p;
+      return `<p style="margin:0 0 12px 0">${p.replace(/\n/g, '<br>')}</p>`;
+    })
     .join('\n');
+
+  // 5. Wrap in styled container
+  return `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a">${body}</div>`;
 }
 
 // --- SEND OPTIONS BUILDER ---

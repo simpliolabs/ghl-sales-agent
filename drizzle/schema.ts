@@ -103,6 +103,7 @@ export const aiState = mysqlTable("ai_state", {
   lastStrategyApproach: varchar("lastStrategyApproach", { length: 32 }),
   lastResearchSummary: text("lastResearchSummary"),
   consecutiveRejects: int("consecutiveRejects").default(0), // QC rejections in a row
+  lastInteractionSummary: text("lastInteractionSummary"), // 1-sentence summary of last Brain Council interaction for cross-session memory
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
@@ -241,6 +242,7 @@ export const messageOutcomes = mysqlTable("message_outcomes", {
   toStage: varchar("toStage", { length: 64 }), // which stage they moved to
   scoreChange: int("scoreChange"), // opportunity score delta
   converted: tinyint("converted").default(0), // 1 = reached Paid/Approved/Delivered
+  dncTriggered: tinyint("dncTriggered").default(0), // 1 = lead replied with DNC keywords within attribution window
   // Metadata
   attributedAt: timestamp("attributedAt"), // when the outcome was recorded
   createdAt: timestamp("createdAt").defaultNow().notNull(),

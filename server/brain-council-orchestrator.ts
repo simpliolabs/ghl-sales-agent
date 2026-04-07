@@ -23,11 +23,11 @@
  * and the Brain decides everything.
  */
 
-import { addBrainCouncilAudit, acquireDbBrainCouncilLock, releaseDbBrainCouncilLock, isAiOffline, getDb, isChannelDnd, getBlockedChannels } from "./db";
+import { addBrainCouncilAudit, acquireDbBrainCouncilLock, releaseDbBrainCouncilLock, isAiOffline, getDb, isChannelDnd, getBlockedChannels, upsertAiState } from "./db";
 import { checkDnc } from "./scheduling-engine";
-import { conversations, leads, brainCouncilAudit } from "../drizzle/schema";
+import { conversations, leads, brainCouncilAudit, aiState } from "../drizzle/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
-import { buildLeadContext } from "./brain-context";
+import { buildLeadContext, invalidateLeadCache } from "./brain-context";
 import { runStrategist } from "./strategist";
 import { runResearcher, emptyResearch } from "./researcher";
 import { runComposer } from "./composer";
@@ -543,6 +543,17 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
       });
     } catch (auditErr) {
       console.error('[BrainCouncil] Audit log error (non-fatal):', auditErr);
+    }
+
+    // --- CACHE INVALIDATION: Ensure next Brain Council run sees the message we just approved ---
+    invalidateLeadCache(input.leadId);
+
+    // --- CROSS-SESSION MEMORY: Write 1-sentence interaction summary ---
+    try {
+      const summary = `[${strategy.approach}/${strategy.framework}] ${strategy.angle}. Sent via ${strategy.channel}. Key: ${composed.message.substring(0, 150).replace(/\n/g, ' ')}...`;
+      await upsertAiState(input.leadId, { lastInteractionSummary: summary.substring(0, 500) });
+    } catch (summaryErr) {
+      console.error('[BrainCouncil] Interaction summary error (non-fatal):', summaryErr);
     }
 
     console.log(`[BrainCouncil] === COMPLETE for lead ${input.leadId}: approved, QC=${qc.score} ===`);

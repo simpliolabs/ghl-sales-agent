@@ -140,12 +140,18 @@ describe("Review links correctness", () => {
     expect(composerContent).not.toContain("g.co/kgs/adorb");
   });
 
-  it("composer.ts should contain correct review URLs", async () => {
+  it("brand-assets.ts should contain correct review URLs (centralized source of truth)", async () => {
+    const fs = await import("fs");
+    const brandContent = fs.readFileSync("shared/brand-assets.ts", "utf-8");
+    expect(brandContent).toContain("https://share.google/Bl291vQ1iaSRs9jmG");
+    expect(brandContent).toContain("https://www.trustpilot.com/review/adorbcustomtees.com");
+    expect(brandContent).toContain("https://adorbcustomtees.com/pages/reviews");
+  });
+
+  it("composer.ts should import from brand-assets (not hardcode URLs)", async () => {
     const fs = await import("fs");
     const composerContent = fs.readFileSync("server/composer.ts", "utf-8");
-    expect(composerContent).toContain("https://share.google/Bl291vQ1iaSRs9jmG");
-    expect(composerContent).toContain("https://www.trustpilot.com/review/adorbcustomtees.com");
-    expect(composerContent).toContain("https://adorbcustomtees.com/pages/reviews");
+    expect(composerContent).toContain("from \"../shared/brand-assets\"");
   });
 
   it("qc.ts should not contain g.co/kgs/adorb", async () => {

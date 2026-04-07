@@ -16,6 +16,7 @@ import type {
   LeadContext,
   ViolationCategory,
 } from "./brain-types";
+import { BRAND } from "../shared/brand-assets";
 
 // ============================================================
 // QC REVIEWER
@@ -96,19 +97,56 @@ You are the LAST LINE OF DEFENSE before a message goes to a real customer. Your 
     - Does the email use SHORT PUNCHY LINES with blank lines between them? Score 0 if it's one long paragraph.
     - Each thought on its own line? Max ~15 words per line? Score 0 if any line exceeds 25 words.
     - Does it have a SIGNATURE BLOCK? Score 0 if missing. Must include:
-      * Agent name + "Adorb Custom Printing"
-      * Phone number (954) 932-8543
-      * Email print@adorbcustomtees.com
-      * Website adorbcustomtees.com
-      * Google reviews line (4.9 Stars · 867+ Verified Reviews)
-    - Does it include a reviews link (adorbcustomtees.com/pages/reviews)? Score 0 if missing from email signature.
+      * Agent name + "${BRAND.printingBrand}"
+      * Phone number ${BRAND.phone}
+      * Email ${BRAND.email}
+      * Website ${BRAND.website}
+      * Google reviews line (${BRAND.reviewStars} Stars · ${BRAND.reviewCount} Verified Reviews)
+    - Does it include a reviews link (${BRAND.websiteReviews})? Score 0 if missing from email signature.
     - Hormozi/Martell style: reads like a text message, not a business letter. Score 0 if it reads like a formal email.
     - NO walls of text. NO run-on sentences. NO compound sentences joined by semicolons.
 
+13. QUESTION-ANSWER CHECK (0-10) — SUBSTANCE:
+    - Did the lead ask a DIRECT QUESTION in their last message?
+    - If yes: does this response ANSWER that question? Not deflect, not redirect, not ask another question — ANSWER it.
+    - Score 0 if a direct question goes unanswered.
+    - Score 0 if the response says "let me check" or "I'll get back to you" when the answer is available in the knowledge base.
+    - Score 5 if the answer is partial but acknowledges the question.
+    - Score 10 if the question is fully answered with specific information.
+    - If no question was asked, score 8 (neutral).
+
+14. INFORMATION-ACKNOWLEDGMENT CHECK (0-10) — SUBSTANCE:
+    - Did the lead provide SPECIFIC information in their last message? (quantity, product type, timeline, budget, event date, design details)
+    - If yes: does this response ACKNOWLEDGE that information without re-asking for it?
+    - Score 0 if the message asks for information the lead ALREADY provided.
+    - Score 0 if the lead said "I need 50 t-shirts for a church event" and the response asks "What kind of products are you interested in?"
+    - Score 5 if the information is partially acknowledged.
+    - Score 10 if all provided information is referenced and built upon.
+    - If no specific information was provided, score 8 (neutral).
+
+15. GATE 2 — EXTERNAL MESSAGE SAFETY (0-10):
+    - Does the message contain ANY internal system language, JSON structures, debug text, or system prompt fragments? Score 0 if yes.
+    - Does the message contain phrases like "Brain Council", "QC score", "framework", "approach", "pipeline", "orchestrator", or "violation"? Score 0 if yes.
+    - If channel is Email: is there a subject line? Score 0 if missing.
+    - Does key information (the reason the lead should care) appear in the first 2 lines? Score 3 if buried.
+    - Are there any unresolved placeholder tokens like {name}, {{variable}}, [PLACEHOLDER], or similar template syntax? Score 0 if yes.
+    - Does the message reference internal concepts the customer wouldn't understand? Score 0 if yes.
+
+16. FACTUAL VERIFICATION (0-10):
+    - For any SPECIFIC factual claim in the message (pricing, product details, URLs, review ratings, turnaround times, minimum quantities):
+      * Can it be traced to the knowledge base provided in the context?
+      * If a claim cannot be verified against the knowledge base, flag it.
+    - Score 10 if all claims are verifiable or no specific claims are made.
+    - Score -5 per unverified factual claim (minimum score 0).
+    - Common unverifiable claims to watch for: made-up prices, invented turnaround times, fake review counts, URLs not in the knowledge base.
+    - Note: general statements like "we have great reviews" are fine; specific claims like "$8 per shirt" or "3-day turnaround" must be in the KB.
+
 === VERDICT ===
-- Score >= 70: APPROVED — send as-is
-- Score 50-69: APPROVED WITH EDITS — fix the issues and send your revised version. For emails, you MUST add the signature block if missing.
+- Score >= 75: APPROVED — send as-is
+- Score 50-74: APPROVED WITH EDITS — fix the issues and send your revised version. For emails, you MUST add the signature block if missing.
 - Score < 50: REJECTED — do not send, explain why
+
+IMPORTANT: The total quality score is now out of 160 for non-email (16 checks × 10) or 180 for email (18 checks × 10). Normalize to 0-100 scale before reporting.
 
 If you approve with edits, provide the revised message in revisedMessage.
 For emails: if the message is missing the signature block or is formatted as one long paragraph, you MUST fix it in revisedMessage even if the content is otherwise good.`;
@@ -141,6 +179,9 @@ ${input.externalHistory ? input.externalHistory + "\n" + historyStr : historyStr
 
 === FORM DATA ===
 ${input.formData?.map(f => `- ${f.label}: ${f.value}`).join("\n") || "None"}
+
+=== KNOWLEDGE BASE (for factual verification) ===
+${context.kbContent || "No knowledge base content available"}
 
 === INCOMING MESSAGE BEING RESPONDED TO ===
 ${input.incomingMessage}
@@ -260,6 +301,50 @@ export function detectViolations(
   const safetyPatterns = ["guarantee", "money back", "100% free", "no cost ever", "unlimited"];
   if (safetyPatterns.some(p => msg.includes(p))) {
     return { category: "safety_violation", reason: `Message contains potentially unsafe promise: ${safetyPatterns.find(p => msg.includes(p))}` };
+  }
+
+  // 7. REPEATED QUESTION — composed message asks something already asked in prior outbound
+  if (context.priorOutbound && context.priorOutbound.length > 0) {
+    // Extract questions from composed message
+    const composedQs = composed.message.match(/[^.!?]*\?/g) || [];
+    // Extract questions from prior outbound messages
+    const priorQuestions: string[] = [];
+    for (const prior of context.priorOutbound) {
+      const body = (prior.messageBody || "").toLowerCase();
+      const qs = body.match(/[^.!?]*\?/g) || [];
+      priorQuestions.push(...qs.map((q: string) => q.trim()));
+    }
+    // Check for overlap: if any composed question's core words match a prior question
+    for (const cq of composedQs) {
+      const cqWords = cq.toLowerCase().trim().split(/\s+/).filter(w => w.length > 3);
+      if (cqWords.length < 2) continue; // skip very short questions
+      for (const pq of priorQuestions) {
+        const matchCount = cqWords.filter(w => pq.includes(w)).length;
+        if (matchCount >= Math.ceil(cqWords.length * 0.6)) {
+          return { category: "repeated_question", reason: `Composed message asks "${cq.trim()}" which overlaps with prior outbound question "${pq.trim()}"` };
+        }
+      }
+    }
+  }
+
+  // 8. IGNORED REQUEST — lead asked for pricing/quote but response doesn't address it
+  const incomingLower = (input.incomingMessage || "").toLowerCase();
+  const pricingKeywords = ["price", "pricing", "quote", "cost", "how much", "rate", "estimate", "budget"];
+  const leadAskedForPricing = pricingKeywords.some(k => incomingLower.includes(k));
+  if (leadAskedForPricing) {
+    const responseAddressesPricing = pricingKeywords.some(k => msg.includes(k)) ||
+      /\$\d/.test(composed.message) || // contains dollar amount
+      msg.includes("range") || msg.includes("depends on") || msg.includes("starting at") ||
+      msg.includes("per shirt") || msg.includes("per piece") || msg.includes("per unit");
+    if (!responseAddressesPricing) {
+      return { category: "ignored_request", reason: `Lead asked about pricing/quote but response does not contain any pricing information or acknowledgment of the request` };
+    }
+  }
+
+  // 9. CHANNEL MISMATCH — SMS for highly dormant leads should be Email
+  if (strategy.channel === "SMS" && context.leadAgeDays > 60) {
+    // Strategist's own dormancy rules say 60+ day dormant leads should use Email
+    return { category: "channel_mismatch", reason: `Strategy chose SMS for a lead dormant ${context.leadAgeDays} days (>60). Per dormancy rules, Email should be used for re-engagement of highly dormant leads.` };
   }
 
   return { category: null, reason: "" };

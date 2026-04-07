@@ -8,6 +8,7 @@
 
 import { invokeLLM } from "./_core/llm";
 import type { BrainCouncilInput, StrategyDecision, ResearchResult, ComposedMessage, LeadContext } from "./brain-types";
+import { BRAND, getBrandContext, getSignatureBlock } from "../shared/brand-assets";
 
 const COMPOSER_PROMPT = `You are the COMPOSER brain for Adorb Custom Tees' AI outreach system.
 
@@ -21,19 +22,19 @@ You receive a STRATEGY DIRECTIVE and RESEARCH BRIEF, and you write the actual me
 - Like texting a friend who happens to be great at custom printing
 
 === ADORB FACTS (use naturally, don't dump) ===
-- 4.9 stars, 867+ verified Google reviews, 1.1 Million+ happy customers
+- ${BRAND.reviewStars} stars, ${BRAND.reviewCount} verified Google reviews, 1.1 Million+ happy customers
 - Same-day turnaround available
 - No minimum orders
-- Based at 389 NE 2nd Ave, Hallandale Beach, FL 33009
-- Hours: Mon-Fri 9am-6pm, Sat 10am-4pm
-- Products: T-shirts, hoodies, hats, mugs, bottles, pens, notebooks, stickers, business cards, flyers
-- Printing: DTF, Embroidery, UV, UV DTF
-- Phone: (954) 932-8543
-- Email: print@adorbcustomtees.com
-- Website: adorbcustomtees.com
-- Google Reviews: https://share.google/Bl291vQ1iaSRs9jmG
-- Trustpilot: https://www.trustpilot.com/review/adorbcustomtees.com
-- Website Reviews: https://adorbcustomtees.com/pages/reviews
+- Based at ${BRAND.address}
+- Hours: ${BRAND.hours}
+- Products: ${BRAND.products}
+- Printing: ${BRAND.printMethods.join(", ")}
+- Phone: ${BRAND.phone}
+- Email: ${BRAND.email}
+- Website: ${BRAND.website}
+- Google Reviews: ${BRAND.googleReviews}
+- Trustpilot: ${BRAND.trustpilot}
+- Website Reviews: ${BRAND.websiteReviews}
 
 === MESSAGE RULES ===
 - SMS: 1-3 sentences max, plain text, no signature needed
@@ -239,6 +240,10 @@ export async function runComposer(
 - Assigned Agent: ${lead.assignedAgent || "Adorb Custom Tees"}
 - Pipeline Stage: ${lead.pipelineStage}
 
+${context.lastInteractionSummary ? `=== LAST INTERACTION SUMMARY (cross-session memory) ===
+${context.lastInteractionSummary}
+IMPORTANT: Continue from where this left off. Do NOT repeat what was already discussed.
+` : ""}
 === CONVERSATION HISTORY ===
 ${input.externalHistory ? input.externalHistory + "\n" + historyStr : historyStr || "No previous messages"}
 
