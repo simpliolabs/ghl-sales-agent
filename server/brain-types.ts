@@ -85,4 +85,5 @@ export type LeadContext = {
   leadAgeDays: number;
   urgencyStage: string;
   unansweredCount: number;
+  lookbackContext: string;  // Lookback engine analysis: keyContext, recommendedApproach, status, sentiment
 };

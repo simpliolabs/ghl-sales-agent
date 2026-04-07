@@ -3,12 +3,13 @@
  * Uses TTL caching to avoid redundant DB queries across brain modules.
  */
 
-import { getDb } from "./db";
-import { aiState, aiTweaks, knowledgeFiles, conversations, leads } from "../drizzle/schema";
-import { eq, desc, type InferSelectModel } from "drizzle-orm";
+import { getDb, getConversationHistory } from "./db";
+import { aiState, aiTweaks, knowledgeFiles, leads } from "../drizzle/schema";
+import { eq, type InferSelectModel } from "drizzle-orm";
 import type { LeadContext } from "./brain-types";
 import { cached, contextCache, conversationCache, generalCache } from "./cache";
 
+import { conversations } from "../drizzle/schema";
 type ConversationRow = InferSelectModel<typeof conversations>;
 type AiStateRow = InferSelectModel<typeof aiState>;
 type AiTweakRow = InferSelectModel<typeof aiTweaks>;
@@ -24,13 +25,10 @@ export async function buildLeadContext(leadId: number): Promise<LeadContext> {
   const lead = leadRows[0];
   if (!lead) throw new Error("Lead not found");
 
-  // Cache conversation history per lead (2 min TTL)
-  const convHistory: ConversationRow[] = await cached(conversationCache, `conv:${leadId}`, async () =>
-    db.select().from(conversations)
-      .where(eq(conversations.leadId, leadId))
-      .orderBy(desc(conversations.timestamp))
-      .limit(30)
-  );
+  // Use canonical getConversationHistory from db.ts (cached under convH:${leadId}:30, 2 min TTL)
+  // This avoids the previous cache-key mismatch where brain-context used conv:${leadId}
+  // and db.ts used convH:${leadId}:${limit} — now both go through the same path.
+  const convHistory = await getConversationHistory(leadId, 30) as ConversationRow[];
 
   // Cache AI state per lead (5 min TTL)
   const stateRows: AiStateRow[] = await cached(contextCache, `state:${leadId}`, async () =>
@@ -73,6 +71,25 @@ export async function buildLeadContext(leadId: number): Promise<LeadContext> {
     else break;
   }
 
+  // Extract lookback context from AI state and lead fields
+  // The lookback engine stores analysis in state.lastResearchSummary (format: "[LOOKBACK] keyContext | Status: X | Approach: Y")
+  // and lead.lastStrategyReasoning (format: "[LOOKBACK] approach | keyContext")
+  let lookbackContext = "";
+  const lookbackParts: string[] = [];
+  if (state?.lastResearchSummary && String(state.lastResearchSummary).includes("[LOOKBACK]")) {
+    lookbackParts.push(String(state.lastResearchSummary).replace("[LOOKBACK] ", ""));
+  }
+  if (lead.lastStrategyReasoning && String(lead.lastStrategyReasoning).includes("[LOOKBACK]")) {
+    const reasoning = String(lead.lastStrategyReasoning).replace("[LOOKBACK] ", "");
+    if (!lookbackParts.some(p => p.includes(reasoning))) {
+      lookbackParts.push(reasoning);
+    }
+  }
+  if (state?.sentimentTrend) {
+    lookbackParts.push(`Sentiment: ${state.sentimentTrend}`);
+  }
+  lookbackContext = lookbackParts.length > 0 ? lookbackParts.join(" | ") : "";
+
   return {
     lead,
     convHistory,
@@ -85,6 +102,7 @@ export async function buildLeadContext(leadId: number): Promise<LeadContext> {
     leadAgeDays,
     urgencyStage,
     unansweredCount,
+    lookbackContext,
   };
 }
 

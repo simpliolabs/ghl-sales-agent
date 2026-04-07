@@ -231,3 +231,9 @@
 - [x] 0.2: Backfill GHL DND status for all 1,653 existing leads — 124 with DND, 1 auto-flagged humanTakeover
 - [x] 0.3: P0-B — Email HTML formatting — formatEmailHtml() in webhook-helpers.ts, wired into all 9 email senders (webhook-message, follow-up-trigger, brain-council-review, auto-correction, webhook-contact, webhook-pipeline, webhook-helpers buildSendOpts)
 - [x] 0.4: P0-C — Correct review links: replaced g.co/kgs/adorb with correct URLs in composer.ts (3 places) and qc.ts (1 place). Added Trustpilot + Website Reviews + Google Share links.
+
+## Layer 1: Context Assembly (Core Fix)
+- [x] 1.1: All Brain Council callers now pass externalHistory — added GHL history fetch to brain-council-review.ts (fast scanner + self-review). Both fetch local history via getConversationHistory() and GHL history via fetchGhlConversationHistory(), then merge and pass as externalHistory.
+- [x] 1.2: Lookback context surfaced — added lookbackContext field to LeadContext type, extracted from state.lastResearchSummary + lead.lastStrategyReasoning + state.sentimentTrend in brain-context.ts, and injected as LOOKBACK ANALYSIS section in strategist.ts prompt.
+- [x] 1.3: brain-context.ts refactored to use canonical getConversationHistory() from db.ts instead of duplicating the query. Eliminates cache-key mismatch (was conv:${leadId} vs convH:${leadId}:${limit}).
+- [x] 1.4: Cache invalidation already works correctly — addConversation() invalidates prefix "conv" which catches both cache keys. Verified legacy brain-council.ts is dead code (no imports). 16 tests passing in context-assembly.test.ts.

@@ -21,8 +21,8 @@ import { leads, conversations, brainCouncilAudit } from "../drizzle/schema";
 import { formatEmailHtml } from "./webhook-helpers";
 import { eq, desc, and, gte, sql } from "drizzle-orm";
 import { runBrainCouncil } from "./brain-council-orchestrator";
-import { sendMessage } from "./ghl";
-import { addConversation, updateLeadFields } from "./db";
+import { sendMessage, fetchGhlConversationHistory } from "./ghl";
+import { addConversation, updateLeadFields, getConversationHistory } from "./db";
 import { notifyOwner } from "./_core/notification";
 
 const REVIEW_WINDOW_HOURS = 24; // Look back 24 hours for issues
@@ -227,10 +227,28 @@ export async function runBrainCouncilSelfReview(): Promise<{
         const incomingMessage = issue.lastInboundMessage || 
           `[System: ${issue.issueDetail} Please compose a recovery message.]`;
 
+        // Fetch GHL external history so Brain Council has full conversation context
+        let externalHistory = "";
+        try {
+          const localHistory = await getConversationHistory(issue.leadId, 20);
+          externalHistory = localHistory.map((c: any) => `[${c.senderType}/${c.channel}] ${c.messageBody}`).join("\n");
+          if (issue.contactId) {
+            const ghlHistory = await fetchGhlConversationHistory(issue.contactId);
+            if (ghlHistory && ghlHistory.length > 0) {
+              const ghlHistoryStr = ghlHistory.filter((m: any) => m.body && m.body.trim())
+                .map((m: any) => `[${m.direction === "outbound" ? "agent" : "lead"}/${String(m.type || "msg")}] ${m.body}`).join("\n");
+              if (ghlHistoryStr) externalHistory = `--- Full GHL conversation history ---\n${ghlHistoryStr}\n--- Recent local messages ---\n${externalHistory}`;
+            }
+          }
+        } catch (histErr) {
+          console.error(`[CouncilReview] Failed to fetch history for lead ${issue.leadId}:`, histErr);
+        }
+
         const result = await runBrainCouncil({
           leadId: issue.leadId,
           incomingMessage,
           channel: issue.channel,
+          externalHistory,
           overrideReason: recoveryContext,
         });
 
@@ -368,10 +386,28 @@ export async function runFastMissedReplyScanner(): Promise<number> {
     seen.add(row.leadId);
 
     try {
+      // Fetch GHL external history so Brain Council has full conversation context
+      let externalHistory = "";
+      try {
+        const localHistory = await getConversationHistory(row.leadId, 20);
+        externalHistory = localHistory.map((c: any) => `[${c.senderType}/${c.channel}] ${c.messageBody}`).join("\n");
+        if (row.ghlContactId) {
+          const ghlHistory = await fetchGhlConversationHistory(row.ghlContactId);
+          if (ghlHistory && ghlHistory.length > 0) {
+            const ghlHistoryStr = ghlHistory.filter((m: any) => m.body && m.body.trim())
+              .map((m: any) => `[${m.direction === "outbound" ? "agent" : "lead"}/${String(m.type || "msg")}] ${m.body}`).join("\n");
+            if (ghlHistoryStr) externalHistory = `--- Full GHL conversation history ---\n${ghlHistoryStr}\n--- Recent local messages ---\n${externalHistory}`;
+          }
+        }
+      } catch (histErr) {
+        console.error(`[FastScan] Failed to fetch history for lead ${row.leadId}:`, histErr);
+      }
+
       const result = await runBrainCouncil({
         leadId: row.leadId,
         incomingMessage: row.lastInbound,
         channel: row.channel || "SMS",
+        externalHistory,
         overrideReason: "FAST_SCAN: Lead sent a message and received no reply within 3 minutes. Respond immediately.",
       });
 
