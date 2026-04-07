@@ -20,6 +20,7 @@ import { getDb } from "./db";
 import { leads, conversations, brainCouncilAudit } from "../drizzle/schema";
 import { eq, desc, and, gte, sql } from "drizzle-orm";
 import { runBrainCouncil } from "./brain-council-orchestrator";
+import { acquireDbBrainCouncilLock, releaseDbBrainCouncilLock, isAiOffline } from "./db";
 import { sendMessage } from "./ghl";
 import { addConversation, updateLeadFields } from "./db";
 import { notifyOwner } from "./_core/notification";
@@ -193,7 +194,9 @@ export async function runBrainCouncilSelfReview(): Promise<{
     // Collect all issues
     const [dupeIssues, missedIssues] = await Promise.all([
       detectDuplicateSends(),
-      detectMissedReplies(),
+      // detectMissedReplies() — DISABLED: Fast Scanner (every 2 min) is the sole handler for missed replies.
+      // Enabling this caused triple-duplicate messages (webhook + fast scanner + self-review all firing simultaneously).
+      Promise.resolve([]),
     ]);
 
     const allIssues = [...dupeIssues, ...missedIssues];

@@ -232,6 +232,8 @@ export async function runComposer(
 === LEAD CONTEXT ===
 - Name: ${lead.name || "Unknown"}
 - Business: ${lead.businessName || "Unknown"}
+- Email on file: ${lead.email || "none"} ⚠️ NEVER ask for this if it is not "none"
+- Phone on file: ${lead.phone || "none"} ⚠️ NEVER ask for this if it is not "none"
 - Assigned Agent: ${lead.assignedAgent || "Adorb Custom Tees"}
 - Pipeline Stage: ${lead.pipelineStage}
 

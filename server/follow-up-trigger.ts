@@ -16,6 +16,7 @@
 
 import { getLeadsDueForFollowUp, getConversationHistory, updateLeadFields, addConversation, upsertAiState, getRecentAiOutboundCount, addBrainCouncilAudit, getBrainCouncilAuditForLead } from "./db";
 import { runBrainCouncil } from "./brain-council-orchestrator";
+import { acquireDbBrainCouncilLock, releaseDbBrainCouncilLock, isAiOffline } from "./db";
 import { calculateNextFollowUp, checkRateLimits, capDate } from "./scheduling-engine";
 import { sendMessage, addNote, fetchGhlConversationHistory, getContact } from "./ghl";
 import { sendMessageWithRetry, normalizeChannel, extractFormData, isLlmExhausted, LLM_RETRY_DELAY_MS } from "./webhook-helpers";
@@ -201,6 +202,18 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
 
         // --- RUN BRAIN COUNCIL (with LLM exhaustion detection) ---
         let aiResponse;
+        // DB-level lock + offline check
+        if (await isAiOffline()) {
+          console.log(`[FollowUp] AI is OFFLINE — skipping Brain Council for lead ${lead.id}`);
+          stats.skipped++;
+          continue;
+        }
+        const ftLockAcquired = await acquireDbBrainCouncilLock(lead.id);
+        if (!ftLockAcquired) {
+          console.log(`[FollowUp] Brain Council already running for lead ${lead.id} — skipping (DB lock held)`);
+          stats.skipped++;
+          continue;
+        }
         try {
           aiResponse = await runBrainCouncil({
             leadId,
@@ -209,6 +222,7 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
             externalHistory: historyStr,
           });
         } catch (brainErr) {
+          await releaseDbBrainCouncilLock(lead.id);
           if (isLlmExhausted(brainErr)) {
             // LLM credits exhausted — reschedule this lead and STOP the entire cycle
             // (no point trying more leads if the LLM is down)
@@ -258,6 +272,9 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
 
           // Non-LLM error — handle normally
           throw brainErr;
+        } finally {
+          // Always release the DB lock (success path or non-LLM error)
+          await releaseDbBrainCouncilLock(lead.id);
         }
 
         // Reset exhaustion counter on successful Brain Council call

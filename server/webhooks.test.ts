@@ -15,6 +15,11 @@ vi.mock("./db", () => ({
   addWebhookLog: vi.fn().mockResolvedValue(undefined),
   getLeadById: vi.fn().mockResolvedValue({ id: 1, name: "Test Lead", businessName: "Test Co", email: "test@test.com", phone: "+1234567890", assignedAgent: "Abby Bouwer", humanTakeover: 0, pipelineValue: 500 }),
   addBrainCouncilAudit: vi.fn().mockResolvedValue(undefined),
+  acquireDbBrainCouncilLock: vi.fn().mockResolvedValue(true),
+  releaseDbBrainCouncilLock: vi.fn().mockResolvedValue(undefined),
+  isAiOffline: vi.fn().mockResolvedValue(false),
+  getSystemSetting: vi.fn().mockResolvedValue(null),
+  setSystemSetting: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./ai-brain", () => ({

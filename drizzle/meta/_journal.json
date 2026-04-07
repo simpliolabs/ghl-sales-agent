@@ -71,6 +71,13 @@
       "when": 1775511762399,
       "tag": "0009_thankful_argent",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1775520914769,
+      "tag": "0010_certain_earthquake",
+      "breakpoints": true
     }
   ]
 }

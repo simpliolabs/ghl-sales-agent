@@ -58,6 +58,8 @@ export const leads = mysqlTable("leads", {
   // Channel preference
   preferredChannel: varchar("preferredChannel", { length: 32 }),
   lastOutboundChannel: varchar("lastOutboundChannel", { length: 32 }),
+  // DB-level Brain Council processing lock (prevents concurrent runs across webhook + fast scanner + follow-up trigger)
+  processingLockedAt: timestamp("processingLockedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -242,3 +244,14 @@ export type Invite = typeof invites.$inferSelect;
 export type InsertInvite = typeof invites.$inferInsert;
 export type WebhookLog = typeof webhookLogs.$inferSelect;
 export type BrainCouncilAuditEntry = typeof brainCouncilAudit.$inferSelect;
+
+// System settings — key-value store for global toggles (e.g., ai_online)
+export const systemSettings = mysqlTable("system_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  settingKey: varchar("settingKey", { length: 64 }).notNull().unique(),
+  settingValue: text("settingValue"),
+  updatedBy: varchar("updatedBy", { length: 128 }),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type SystemSetting = typeof systemSettings.$inferSelect;

@@ -431,3 +431,74 @@ export async function getUncorrectedViolations(limit = 10) {
     .orderBy(desc(brainCouncilAudit.createdAt))
     .limit(limit);
 }
+
+// ============================================================
+// DB-LEVEL BRAIN COUNCIL PROCESSING LOCK
+// Prevents concurrent Brain Council runs for the same lead
+// across webhook handler, fast scanner, follow-up trigger, and self-review.
+// Uses atomic UPDATE WHERE processingLockedAt IS NULL OR expired.
+// Lock expires after 90 seconds to prevent permanent deadlocks.
+// ============================================================
+const BRAIN_COUNCIL_LOCK_TTL_SECONDS = 90;
+
+export async function acquireDbBrainCouncilLock(leadId: number): Promise<boolean> {
+  try {
+    const db = await getDb();
+    if (!db) return true; // fail open if DB unavailable
+    // Atomic acquire: only succeeds if no lock or lock expired
+    const result = await db.execute(
+      sql`UPDATE leads SET processingLockedAt = NOW() WHERE id = ${leadId} AND (processingLockedAt IS NULL OR processingLockedAt < DATE_SUB(NOW(), INTERVAL ${BRAIN_COUNCIL_LOCK_TTL_SECONDS} SECOND))`
+    );
+    const affectedRows = (result as any)[0]?.affectedRows ?? (result as any).affectedRows ?? 0;
+    return affectedRows > 0;
+  } catch (err) {
+    console.error('[DB/Lock] acquireDbBrainCouncilLock error (fail open):', err);
+    return true; // fail open — better to risk a duplicate than to block all AI
+  }
+}
+
+export async function releaseDbBrainCouncilLock(leadId: number): Promise<void> {
+  try {
+    const db = await getDb();
+    if (!db) return;
+    await db.execute(sql`UPDATE leads SET processingLockedAt = NULL WHERE id = ${leadId}`);
+  } catch (err) {
+    console.error('[DB/Lock] releaseDbBrainCouncilLock error:', err);
+  }
+}
+
+// ============================================================
+// SYSTEM SETTINGS — key-value store for global toggles
+// ============================================================
+export async function getSystemSetting(key: string): Promise<string | null> {
+  try {
+    const db = await getDb();
+    if (!db) return null;
+    const rows = await db.execute(sql`SELECT settingValue FROM system_settings WHERE settingKey = ${key} LIMIT 1`);
+    const data = (rows as any)[0];
+    if (!data || !Array.isArray(data) || data.length === 0) return null;
+    return (data[0] as any).settingValue ?? null;
+  } catch (err) {
+    console.error('[DB/Settings] getSystemSetting error:', err);
+    return null;
+  }
+}
+
+export async function setSystemSetting(key: string, value: string, updatedBy = 'system'): Promise<void> {
+  try {
+    const db = await getDb();
+    if (!db) return;
+    await db.execute(
+      sql`INSERT INTO system_settings (settingKey, settingValue, updatedBy) VALUES (${key}, ${value}, ${updatedBy}) ON DUPLICATE KEY UPDATE settingValue = ${value}, updatedBy = ${updatedBy}`
+    );
+  } catch (err) {
+    console.error('[DB/Settings] setSystemSetting error:', err);
+  }
+}
+
+// Returns true if AI is offline (should NOT send messages)
+export async function isAiOffline(): Promise<boolean> {
+  const val = await getSystemSetting('ai_online');
+  // Default is online (val === null means never set = online)
+  return val === '0';
+}

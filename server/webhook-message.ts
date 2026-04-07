@@ -16,6 +16,7 @@ import { Response } from "express";
 import {
   upsertLead, getLeadByGhlContactId, updateLeadFields, addConversation, upsertAiState,
   getConversationHistory, getRecentAiOutboundCount, addBrainCouncilAudit, getBrainCouncilAuditForLead,
+  acquireDbBrainCouncilLock, releaseDbBrainCouncilLock, isAiOffline,
 } from "./db";
 import { shouldHandoffToAgent, generateContactNotes, estimateOrderValue } from "./ai-brain";
 import { runBrainCouncil } from "./brain-council-orchestrator";
@@ -270,6 +271,19 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     }
   }
 
+  // --- SYSTEM OFFLINE CHECK ---
+  if (await isAiOffline()) {
+    console.log(`[Webhook] AI is OFFLINE — skipping Brain Council for lead ${lead!.id}`);
+    res.json({ success: true, action: "ai_offline" });
+    return;
+  }
+  // --- DB-LEVEL BRAIN COUNCIL LOCK (prevents concurrent runs from fast scanner / follow-up trigger) ---
+  const lockAcquired = await acquireDbBrainCouncilLock(lead!.id);
+  if (!lockAcquired) {
+    console.log(`[Webhook] Brain Council already running for lead ${lead!.id} — skipping (DB lock held)`);
+    res.json({ success: true, action: "brain_council_locked" });
+    return;
+  }
   // --- AI RESPONSE via BRAIN COUNCIL (with LLM failure retry queue) ---
   let aiResponse;
   try {
@@ -313,7 +327,11 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     }
 
     // Non-LLM error — rethrow so the router's catch block handles it
+    await releaseDbBrainCouncilLock(lead!.id);
     throw brainErr;
+  } finally {
+    // Always release the DB lock when Brain Council completes (success or LLM exhaustion handled above)
+    await releaseDbBrainCouncilLock(lead!.id);
   }
 
   console.log(`[Webhook] Brain Council for lead ${lead!.id}: QC=${aiResponse.qcScore}, blocked=${aiResponse.blocked}, strategy=${aiResponse.strategyReasoning.substring(0, 80)}`);
