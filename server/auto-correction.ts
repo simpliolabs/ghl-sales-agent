@@ -22,6 +22,7 @@ import {
   getLeadById,
   getBrainCouncilAuditForLead,
   updateLeadFields,
+  isAiOffline,
 } from "./db";
 
 // --- VIOLATION PATTERNS THAT REQUIRE CORRECTION ---
@@ -97,6 +98,12 @@ export async function sendAutoCorrection(params: {
   const { auditId, leadId, contactId, channel, reason, formData } = params;
 
   try {
+    // Check if AI is offline before sending corrections
+    if (await isAiOffline()) {
+      console.log(`[AutoCorrect] AI offline — skipping correction for lead ${leadId}`);
+      return { success: false, error: "AI is offline" };
+    }
+
     const lead = await getLeadById(leadId);
     if (!lead) return { success: false, error: "Lead not found" };
 
@@ -254,6 +261,12 @@ export async function handleConfusionReply(params: {
  * Should be called periodically (e.g., every 15 minutes)
  */
 export async function retroactiveCorrectionScan(): Promise<number> {
+  // Check if AI is offline before running the scan
+  if (await isAiOffline()) {
+    console.log(`[AutoCorrect/Scan] AI offline — skipping retroactive scan`);
+    return 0;
+  }
+
   const violations = await getUncorrectedViolations(10);
   let corrected = 0;
 

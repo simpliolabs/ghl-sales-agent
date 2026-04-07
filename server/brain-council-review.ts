@@ -16,7 +16,7 @@
  * This runs every 30 minutes via the cron timer in webhooks.ts
  */
 
-import { getDb } from "./db";
+import { getDb, isAiOffline } from "./db";
 import { leads, conversations, brainCouncilAudit } from "../drizzle/schema";
 import { eq, desc, and, gte, sql } from "drizzle-orm";
 import { runBrainCouncil } from "./brain-council-orchestrator";
@@ -189,6 +189,12 @@ export async function runBrainCouncilSelfReview(): Promise<{
 }> {
   const stats = { reviewed: 0, recovered: 0, skipped: 0, errors: 0 };
 
+  // Check if AI is offline before running self-review
+  if (await isAiOffline()) {
+    console.log(`[CouncilReview] AI offline — skipping self-review`);
+    return stats;
+  }
+
   try {
     // Collect all issues
     const [dupeIssues, missedIssues] = await Promise.all([
@@ -303,10 +309,17 @@ function buildSendOpts(channel: string, message: string, fromName: string) {
  * Only processes leads that sent an inbound message in the last 5 minutes with no AI reply.
  */
 export async function runFastMissedReplyScanner(): Promise<number> {
+  // Check if AI is offline before scanning
+  if (await isAiOffline()) {
+    console.log(`[FastScan] AI offline — skipping scan`);
+    return 0;
+  }
+
   const db = await getDb();
   if (!db) return 0;
 
   // Only look at messages from the last 5 minutes with no AI reply
+  // ALSO exclude leads that have an active processing lock or recent AI send attempt
   const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
 
   const missed = await db.execute(sql`
@@ -323,6 +336,8 @@ export async function runFastMissedReplyScanner(): Promise<number> {
       AND c.senderType = 'lead'
       AND c.timestamp >= ${fiveMinAgo}
       AND l.humanTakeover = 0
+      AND (l.lastAiSendAttemptAt IS NULL OR l.lastAiSendAttemptAt < DATE_SUB(NOW(), INTERVAL 90 SECOND))
+      AND (l.processingLockedAt IS NULL OR l.processingLockedAt < DATE_SUB(NOW(), INTERVAL 300 SECOND))
       AND NOT EXISTS (
         SELECT 1 FROM conversations c2
         WHERE c2.leadId = c.leadId

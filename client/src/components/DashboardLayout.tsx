@@ -198,7 +198,7 @@ function DashboardLayoutContent({
         </div>
       )}
 
-      <div className={`flex h-screen ${!isAiOnline ? "pt-9" : ""}`}>
+      <div className={`flex h-screen w-full ${!isAiOnline ? "pt-9" : ""}`}>
         <div className="relative" ref={sidebarRef}>
           <Sidebar
             collapsible="icon"
@@ -332,7 +332,7 @@ function DashboardLayoutContent({
               </div>
             </div>
           )}
-          <main className="flex-1 p-4">{children}</main>
+          <main className="flex-1 w-full p-6 overflow-auto">{children}</main>
         </SidebarInset>
       </div>
     </>

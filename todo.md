@@ -203,3 +203,13 @@
 - [x] FIX: webhook-message.ts now returns immediately when Brain aborts (blocked=true without fallback) — no longer falls through to sendMessage
 - [x] FIX: Removed double-locking bug where caller acquired lock then Brain tried to acquire same lock and always failed
 - [x] BUG FIX: Go Offline button — system_settings column name mismatch (settingKey vs key) fixed. Schema now matches actual DB columns.
+- [x] UI: Make dashboard content area full width instead of constrained narrow center column — added w-full to flex h-screen div in DashboardLayout.tsx
+- [x] CRITICAL BUG FIX: Triple duplicate messages — Root cause: webhook handler + Fast Scanner + Self-Review all firing simultaneously on same lead. Fixed with:
+  - DB-level send cooldown: lastAiSendAttemptAt column on leads table, checked in Brain Council pre-flight (90s cooldown)
+  - Extended DB lock TTL from 90s to 300s (5 minutes) to cover worst-case 4-LLM-call pipeline
+  - Changed DB lock fail mode from fail-open to fail-CLOSED (better to skip than duplicate)
+  - Fast Scanner SQL now excludes leads with active processing lock or recent AI send attempt
+  - isAiOffline() check added to ALL non-Brain-Council senders: webhook-task.ts, webhook-pipeline.ts, auto-correction.ts, follow-up-trigger.ts, brain-council-review.ts (fast scanner + self-review)
+  - Comprehensive dedup test suite (server/dedup.test.ts)
+- [x] ARCHITECTURE: Brain Orchestrator pre-flight checks: already-responded check, human takeover, system offline, conversation freshness
+- [x] ARCHITECTURE: Brain should check "did I already respond to this exact inbound message?" before composing

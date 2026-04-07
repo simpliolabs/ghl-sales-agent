@@ -8,7 +8,7 @@
  */
 
 import { Response } from "express";
-import { getLeadByGhlContactId, updateLeadFields, addConversation } from "./db";
+import { getLeadByGhlContactId, updateLeadFields, addConversation, isAiOffline } from "./db";
 import { addNote } from "./ghl";
 import { DESIGNER, PRODUCTION_MANAGER, STAGES, sendMessageWithRetry } from "./webhook-helpers";
 import { handleStageAutomation } from "./webhook-pipeline";
@@ -40,6 +40,9 @@ export async function handleTaskWebhook(payload: Record<string, unknown>, res: R
 
   const titleLower = taskTitle.toLowerCase();
 
+  // Check if AI is offline before sending any customer notifications
+  const aiOffline = await isAiOffline();
+
   if (titleLower.includes("design proof") || titleLower.includes("create proof")) {
     await updateLeadFields(lead.id, { pipelineStage: STAGES.PROOF_SENT });
     await handleStageAutomation(STAGES.PROOF_SENT, {
@@ -48,11 +51,13 @@ export async function handleTaskWebhook(payload: Record<string, unknown>, res: R
       assignedAgent: lead.assignedAgent, pipelineValue: lead.pipelineValue ?? null,
     });
     const notification = getStageNotification(STAGES.PROOF_SENT, lead.name || "");
-    if (notification && lead.phone) {
+    if (notification && lead.phone && !aiOffline) {
       try {
         await sendMessageWithRetry(contactId, { type: "SMS", message: notification.message }, { email: lead.email, phone: lead.phone, id: lead.id });
         await addConversation({ leadId: lead.id, channel: "SMS", direction: "outbound", messageBody: notification.message, senderType: "ai", senderName: notification.fromName });
       } catch { /* best effort */ }
+    } else if (aiOffline) {
+      console.log(`[Task] AI offline — skipping proof notification for lead ${lead.id}`);
     }
     try { await addNote(contactId, `🤖 Design proof completed by ${DESIGNER}. Sent to customer for approval.`); } catch { /* best effort */ }
   }
@@ -65,11 +70,13 @@ export async function handleTaskWebhook(payload: Record<string, unknown>, res: R
       assignedAgent: lead.assignedAgent, pipelineValue: lead.pipelineValue ?? null,
     });
     const notification = getStageNotification(STAGES.READY, lead.name || "");
-    if (notification && lead.phone) {
+    if (notification && lead.phone && !aiOffline) {
       try {
         await sendMessageWithRetry(contactId, { type: "SMS", message: notification.message }, { email: lead.email, phone: lead.phone, id: lead.id });
         await addConversation({ leadId: lead.id, channel: "SMS", direction: "outbound", messageBody: notification.message, senderType: "ai", senderName: notification.fromName });
       } catch { /* best effort */ }
+    } else if (aiOffline) {
+      console.log(`[Task] AI offline — skipping ready notification for lead ${lead.id}`);
     }
     try { await addNote(contactId, `🤖 Production completed by ${PRODUCTION_MANAGER}. Order ready for pickup/shipping.`); } catch { /* best effort */ }
   }

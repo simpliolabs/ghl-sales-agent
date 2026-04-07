@@ -439,7 +439,7 @@ export async function getUncorrectedViolations(limit = 10) {
 // Uses atomic UPDATE WHERE processingLockedAt IS NULL OR expired.
 // Lock expires after 90 seconds to prevent permanent deadlocks.
 // ============================================================
-const BRAIN_COUNCIL_LOCK_TTL_SECONDS = 90;
+const BRAIN_COUNCIL_LOCK_TTL_SECONDS = 300; // 5 minutes — covers worst-case 4-LLM-call pipeline
 
 export async function acquireDbBrainCouncilLock(leadId: number): Promise<boolean> {
   try {
@@ -452,8 +452,8 @@ export async function acquireDbBrainCouncilLock(leadId: number): Promise<boolean
     const affectedRows = (result as any)[0]?.affectedRows ?? (result as any).affectedRows ?? 0;
     return affectedRows > 0;
   } catch (err) {
-    console.error('[DB/Lock] acquireDbBrainCouncilLock error (fail open):', err);
-    return true; // fail open — better to risk a duplicate than to block all AI
+    console.error('[DB/Lock] acquireDbBrainCouncilLock error (fail CLOSED):', err);
+    return false; // fail CLOSED — better to skip one message than risk a duplicate
   }
 }
 

@@ -6,12 +6,17 @@
  * 
  * PRE-FLIGHT CHECKS (before any LLM call):
  *  1. Is AI offline? → abort
- *  2. Can we acquire the DB lock for this lead? → abort if locked (another run in progress)
- *  3. Is humanTakeover active for this lead? → abort
- *  4. Did we already respond to this lead's last inbound message? → abort
+ *  2. DB-level send cooldown: was an AI message sent/attempted for this lead in the last 90 seconds? → abort
+ *  3. Can we acquire the DB lock for this lead? → abort if locked (another run in progress)
+ *  4. Is humanTakeover active for this lead? → abort
+ *  5. Did we already respond to this lead's last inbound message? → abort (conversations check)
  * 
  * Only after ALL pre-flight checks pass does the 4-brain pipeline run:
  *  Context → Strategist → Researcher → Composer → QC → (Recompose?) → Return
+ * 
+ * IMPORTANT: Before returning an approved message, the orchestrator sets
+ * `lastAiSendAttemptAt = NOW()` in the DB. This is a DB-level cooldown that
+ * survives server restarts and prevents ALL concurrent senders from firing.
  * 
  * Callers are DUMB DISPATCHERS — they just say "this lead needs attention"
  * and the Brain decides everything.
@@ -39,6 +44,13 @@ import type {
 
 // Re-export types so callers only need one import
 export type { BrainCouncilInput, BrainCouncilOutput } from "./brain-types";
+
+// DB-level send cooldown: minimum seconds between AI messages to the same lead
+const SEND_COOLDOWN_SECONDS = 90;
+
+// DB lock TTL: how long a Brain Council run can hold the lock before it's considered stale
+// Set to 5 minutes to cover worst-case 4-LLM-call pipeline duration
+const BRAIN_COUNCIL_LOCK_TTL_SECONDS = 300;
 
 /**
  * Pre-flight abort result — returned when the Brain decides NOT to compose.
@@ -89,7 +101,36 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
   }
 
   // ================================================================
-  // PRE-FLIGHT CHECK 2: Acquire DB lock (prevent concurrent runs)
+  // PRE-FLIGHT CHECK 2: DB-level send cooldown
+  // Check if an AI message was sent/attempted for this lead recently.
+  // This is the STRONGEST duplicate prevention — it's in the DB, survives
+  // restarts, and is checked before the lock is even acquired.
+  // ================================================================
+  try {
+    const db = await getDb();
+    if (db) {
+      const [lead] = await db.select({ lastAiSendAttemptAt: leads.lastAiSendAttemptAt })
+        .from(leads)
+        .where(eq(leads.id, input.leadId))
+        .limit(1);
+      if (lead?.lastAiSendAttemptAt) {
+        const secondsSinceLastSend = (Date.now() - new Date(lead.lastAiSendAttemptAt).getTime()) / 1000;
+        if (secondsSinceLastSend < SEND_COOLDOWN_SECONDS) {
+          return abortResult(
+            `DB send cooldown: last AI send attempt was ${Math.round(secondsSinceLastSend)}s ago (cooldown: ${SEND_COOLDOWN_SECONDS}s)`,
+            input.leadId
+          );
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`[BrainCouncil] DB send cooldown check failed:`, err);
+    // Don't abort on check failure — proceed with other checks
+  }
+
+  // ================================================================
+  // PRE-FLIGHT CHECK 3: Acquire DB lock (prevent concurrent runs)
+  // Lock TTL is 5 minutes to cover worst-case pipeline duration.
   // ================================================================
   let lockAcquired = false;
   try {
@@ -106,7 +147,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
   // From here on, we MUST release the lock in a finally block
   try {
     // ================================================================
-    // PRE-FLIGHT CHECK 3: Is humanTakeover active?
+    // PRE-FLIGHT CHECK 4: Is humanTakeover active?
     // ================================================================
     try {
       const db = await getDb();
@@ -125,7 +166,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     }
 
     // ================================================================
-    // PRE-FLIGHT CHECK 4: Already responded to this lead's last inbound?
+    // PRE-FLIGHT CHECK 5: Already responded to this lead's last inbound?
     // Check if there's an AI outbound message in the last 90 seconds for this lead.
     // This catches the case where the webhook handler already sent a response
     // and the fast scanner fires for the same inbound message.
@@ -140,14 +181,14 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
               eq(conversations.leadId, input.leadId),
               eq(conversations.senderType, "ai"),
               eq(conversations.direction, "outbound"),
-              sql`${conversations.timestamp} > DATE_SUB(NOW(), INTERVAL 90 SECOND)`
+              sql`${conversations.timestamp} > DATE_SUB(NOW(), INTERVAL ${SEND_COOLDOWN_SECONDS} SECOND)`
             )
           )
           .orderBy(desc(conversations.timestamp))
           .limit(1);
 
         if (recentAiOutbound.length > 0) {
-          return abortResult(`Already responded to this lead within 90 seconds (msg id: ${recentAiOutbound[0].id})`, input.leadId);
+          return abortResult(`Already responded to this lead within ${SEND_COOLDOWN_SECONDS} seconds (msg id: ${recentAiOutbound[0].id})`, input.leadId);
         }
       }
     } catch (err) {
@@ -345,6 +386,24 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
 
     // --- MESSAGE APPROVED — reset circuit breaker ---
     await updateCircuitBreaker(input.leadId, false);
+
+    // ================================================================
+    // CRITICAL: Set lastAiSendAttemptAt BEFORE returning the approved message.
+    // This is the DB-level cooldown that prevents ALL concurrent senders
+    // (webhook, fast scanner, follow-up trigger, self-review) from sending
+    // another message to this lead within SEND_COOLDOWN_SECONDS.
+    // ================================================================
+    try {
+      const db = await getDb();
+      if (db) {
+        await db.update(leads)
+          .set({ lastAiSendAttemptAt: new Date() })
+          .where(eq(leads.id, input.leadId));
+        console.log(`[BrainCouncil] 🔒 Set lastAiSendAttemptAt for lead ${input.leadId} — ${SEND_COOLDOWN_SECONDS}s cooldown active`);
+      }
+    } catch (err) {
+      console.error(`[BrainCouncil] Failed to set lastAiSendAttemptAt (non-fatal):`, err);
+    }
 
     // Score the lead
     const urgencyScore = context.urgencyStage.includes("first") ? 1.0 :

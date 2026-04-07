@@ -14,7 +14,7 @@
  * - Logs every engagement attempt
  */
 
-import { getLeadsDueForFollowUp, getConversationHistory, updateLeadFields, addConversation, upsertAiState, getRecentAiOutboundCount, addBrainCouncilAudit, getBrainCouncilAuditForLead } from "./db";
+import { getLeadsDueForFollowUp, getConversationHistory, updateLeadFields, addConversation, upsertAiState, getRecentAiOutboundCount, addBrainCouncilAudit, getBrainCouncilAuditForLead, isAiOffline } from "./db";
 import { runBrainCouncil } from "./brain-council-orchestrator";
 import { calculateNextFollowUp, checkRateLimits, capDate } from "./scheduling-engine";
 import { sendMessage, addNote, fetchGhlConversationHistory, getContact } from "./ghl";
@@ -48,6 +48,12 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
   triggerRunStartedAt = Date.now();
 
   try {
+    // AI offline check — skip entire cycle if AI is paused
+    if (await isAiOffline()) {
+      console.log(`[FollowUp] AI offline — skipping follow-up cycle`);
+      return stats;
+    }
+
     // Global rate limit check first
     const rateCheck = await checkRateLimits();
     if (!rateCheck.allowed) {

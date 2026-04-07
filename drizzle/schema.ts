@@ -58,6 +58,8 @@ export const leads = mysqlTable("leads", {
   // Channel preference
   preferredChannel: varchar("preferredChannel", { length: 32 }),
   lastOutboundChannel: varchar("lastOutboundChannel", { length: 32 }),
+  // DB-level duplicate send prevention: set BEFORE sending, checked by all senders
+  lastAiSendAttemptAt: timestamp("lastAiSendAttemptAt"),
   // DB-level Brain Council processing lock (prevents concurrent runs across webhook + fast scanner + follow-up trigger)
   processingLockedAt: timestamp("processingLockedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

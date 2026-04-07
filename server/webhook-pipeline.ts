@@ -3,7 +3,7 @@
  */
 
 import { Response } from "express";
-import { getLeadByGhlContactId, addPipelineEvent, updateLeadFields, addConversation, addAgentAssignment, getAgentWorkload } from "./db";
+import { getLeadByGhlContactId, addPipelineEvent, updateLeadFields, addConversation, addAgentAssignment, getAgentWorkload, isAiOffline } from "./db";
 import { calculateNextFollowUp } from "./scheduling-engine";
 import { createTask, addNote } from "./ghl";
 import { attributeStageAdvance } from "./outcome-engine";
@@ -174,8 +174,10 @@ export async function handlePipelineWebhook(payload: Record<string, unknown>, re
     pipelineValue: monetaryValue !== undefined ? Number(monetaryValue) : (lead.pipelineValue ?? null),
   }, opportunityId);
 
+  // Check if AI is offline before sending customer notifications
+  const aiOffline = await isAiOffline();
   const notification = getStageNotification(toStage, lead.name || "");
-  if (notification) {
+  if (notification && !aiOffline) {
     try {
       const notifOpts: Parameters<typeof import("./ghl").sendMessage>[1] = lead.phone
         ? { type: "SMS", message: notification.message }
@@ -188,6 +190,8 @@ export async function handlePipelineWebhook(payload: Record<string, unknown>, re
         messageBody: notification.message, senderType: "ai", senderName: notification.fromName,
       });
     } catch (err) { console.error("[Webhook] Failed to send stage notification:", err); }
+  } else if (aiOffline && notification) {
+    console.log(`[Pipeline] AI offline — skipping stage notification for lead ${lead.id} (${toStage})`);
   }
 
   res.json({ success: true, stage: toStage });
