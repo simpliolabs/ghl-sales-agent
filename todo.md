@@ -196,3 +196,10 @@
 - [ ] BUG: Go Offline button turns system off but red banner doesn't appear, pressing again just shows 'system is offline' toast instead of toggling back online
 - [ ] AUDIT: Complete system review — assess all components against the vision of a smart, autonomous, self-learning system
 - [x] CRITICAL: Send Gate in ghl.ts — per-contact 60s cooldown + isAiOffline check inside sendMessage itself. The nuclear option that cannot be bypassed by any caller.
+- [ ] ARCHITECTURE: Brain Council should be the single decision-maker — owns the full send/no-send decision
+- [ ] ARCHITECTURE: Brain Orchestrator pre-flight checks: already-responded check, human takeover, system offline, conversation freshness
+- [ ] ARCHITECTURE: Brain should check "did I already respond to this exact inbound message?" before composing
+- [x] REDESIGN: Brain Council is now the single gatekeeper — ALL send/no-send decisions (offline, lock, humanTakeover, dedup) moved INTO runBrainCouncil. Callers are dumb dispatchers.
+- [x] FIX: webhook-message.ts now returns immediately when Brain aborts (blocked=true without fallback) — no longer falls through to sendMessage
+- [x] FIX: Removed double-locking bug where caller acquired lock then Brain tried to acquire same lock and always failed
+- [x] BUG FIX: Go Offline button — system_settings column name mismatch (settingKey vs key) fixed. Schema now matches actual DB columns.

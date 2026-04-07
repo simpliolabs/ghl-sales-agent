@@ -20,7 +20,6 @@ import { getDb } from "./db";
 import { leads, conversations, brainCouncilAudit } from "../drizzle/schema";
 import { eq, desc, and, gte, sql } from "drizzle-orm";
 import { runBrainCouncil } from "./brain-council-orchestrator";
-import { acquireDbBrainCouncilLock, releaseDbBrainCouncilLock, isAiOffline } from "./db";
 import { sendMessage } from "./ghl";
 import { addConversation, updateLeadFields } from "./db";
 import { notifyOwner } from "./_core/notification";
@@ -347,22 +346,10 @@ export async function runFastMissedReplyScanner(): Promise<number> {
   let recovered = 0;
   const seen = new Set<number>();
 
-  // Check if AI is offline before processing
-  if (await isAiOffline()) {
-    console.log('[FastScan] AI is OFFLINE — skipping all missed replies');
-    return 0;
-  }
-
+  // All pre-flight checks (offline, lock, humanTakeover, dedup) are handled inside runBrainCouncil
   for (const row of rows) {
     if (seen.has(row.leadId)) continue;
     seen.add(row.leadId);
-
-    // Acquire DB-level lock to prevent concurrent Brain Council runs
-    const lockAcquired = await acquireDbBrainCouncilLock(row.leadId);
-    if (!lockAcquired) {
-      console.log(`[FastScan] Skipping lead ${row.leadId} (${row.leadName}) — Brain Council already in progress`);
-      continue;
-    }
 
     try {
       const result = await runBrainCouncil({
@@ -394,7 +381,6 @@ export async function runFastMissedReplyScanner(): Promise<number> {
     } catch (err) {
       console.error(`[FastScan] Error responding to lead ${row.leadId}:`, err);
     } finally {
-      await releaseDbBrainCouncilLock(row.leadId);
     }
   }
 
