@@ -25,7 +25,7 @@
 
 import { addBrainCouncilAudit, acquireDbBrainCouncilLock, releaseDbBrainCouncilLock, isAiOffline, getDb, isChannelDnd, getBlockedChannels } from "./db";
 import { checkDnc } from "./scheduling-engine";
-import { conversations, leads } from "../drizzle/schema";
+import { conversations, leads, brainCouncilAudit } from "../drizzle/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
 import { buildLeadContext } from "./brain-context";
 import { runStrategist } from "./strategist";
@@ -82,7 +82,7 @@ function abortResult(reason: string, leadId: number): BrainCouncilOutput {
 /**
  * Main entry point — runs the full Brain Council pipeline.
  * Called by webhooks (follow-up messages), fast scanner, follow-up trigger, and self-review.
- * NOT called for first-contact (which uses locked template).
+ * Called for ALL message types including first-contact (previously used locked template, now uses full pipeline).
  * 
  * ALL callers should treat a `blocked: true` return as "do not send."
  */
@@ -319,6 +319,36 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     console.log(`[BrainCouncil] Running Strategist...`);
     const strategy = await runStrategist(input, context);
     console.log(`[BrainCouncil] Strategy: ${strategy.approach}/${strategy.framework}/${strategy.angle} (tier ${strategy.personalizationTier})`);
+
+    // --- PROGRAMMATIC FRAMEWORK DIVERSITY ENFORCEMENT ---
+    // If the Strategist picked the same outreach framework as the last 2 messages, override it.
+    // Responsive frameworks (DIRECT_RESPONSE, VALUE_FIRST) are exempt — they're context-appropriate.
+    const RESPONSIVE_FRAMEWORKS = new Set(["DIRECT_RESPONSE", "VALUE_FIRST"]);
+    if (!RESPONSIVE_FRAMEWORKS.has(strategy.framework)) {
+      const state = context.state;
+      if (state?.lastFrameworkUsed && state.lastFrameworkUsed === strategy.framework) {
+        // Count consecutive uses of this framework in recent audit trail
+        const dbConn = await getDb();
+        let recentAudits: { framework: string | null }[] = [];
+        if (dbConn) {
+          recentAudits = await dbConn.select({ framework: brainCouncilAudit.strategyFramework })
+            .from(brainCouncilAudit)
+            .where(eq(brainCouncilAudit.leadId, input.leadId))
+            .orderBy(desc(brainCouncilAudit.createdAt))
+            .limit(3);
+        }
+        const consecutiveSame = recentAudits.filter((a: { framework: string | null }) => a.framework === strategy.framework).length;
+        if (consecutiveSame >= 2) {
+          // Pick a different framework from the same category
+          const OUTREACH_FRAMEWORKS = ["PAS", "BAB", "AIDA", "HORMOZI_ACA", "HORMOZI_INDIRECT", "SOCIAL_PROOF", "CASE_STUDY", "SOAP_OPERA"] as const;
+          const alternatives = OUTREACH_FRAMEWORKS.filter(f => f !== strategy.framework);
+          const override = alternatives[Math.floor(Math.random() * alternatives.length)];
+          console.log(`[BrainCouncil] ⚠️ Framework diversity override: ${strategy.framework} used ${consecutiveSame}x consecutively → switching to ${override}`);
+          (strategy as any).framework = override;
+          (strategy as any).reasoning = `[DIVERSITY OVERRIDE: ${strategy.framework}→${override}] ${strategy.reasoning}`;
+        }
+      }
+    }
 
     // BRAIN 2: RESEARCHER (skip for first contact — uses locked template)
     console.log(`[BrainCouncil] Running Researcher...`);

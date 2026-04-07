@@ -1,5 +1,9 @@
 /**
  * BRAIN 3: COMPOSER — Writes the actual message following strategy + research
+ *
+ * KEY CHANGE: Now handles RESPONSIVE approaches (answer_question, provide_quote,
+ * acknowledge_info, confirm_details) with DIRECT_RESPONSE and VALUE_FIRST frameworks.
+ * These prioritize answering the lead's question/request FIRST, then adding a soft CTA.
  */
 
 import { invokeLLM } from "./_core/llm";
@@ -94,48 +98,17 @@ Example of WRONG email format (DO NOT DO THIS):
 Subject Lines:
 - 64% decide to open based on subject line. Under 25 chars = highest opens.
 - Personalisation: +14% opens. First-person CTA > second-person (25-35% lift).
-- "Start my free trial" > "Sign up" (90% lift in CTAs).
-
-Body Copy Frameworks (use the one assigned by Strategist):
-- AIDA: Attention → Interest → Desire → Action. Best for promotional.
-- PAS: Problem → Agitate → Solution. Best for cold email, B2B.
-- BAB: Before → After → Bridge. Best for case studies.
-- Soap Opera Sequence: Multi-email narrative. 70%+ open rates deep in sequence.
-- 1-3-1 Newsletter: One big story + three shorter items + one CTA.
 
 Body Copy Rules:
 - Inverted pyramid: key message first. Short paragraphs. Write, then cut 30%.
 - 3:1 ratio: three value emails per one promotional.
-- Buttons > text links (+27% CTR). Single CTA: +42% clicks vs multiple.
-- Place CTA above fold AND below main content (+35% total clicks).
+- Single CTA: +42% clicks vs multiple.
 
 Cold Email Rules (from EMB Chapter 13):
 - Optimal length: 50-125 words. Personalised opening → problem/observation → value prop → soft CTA.
 - Interest-based CTAs get 2-3x more replies than meeting requests.
-- Each follow-up MUST add new value. Breakup email = 2-3x reply rate of mid-sequence.
+- Each follow-up MUST add new value.
 - NEVER: "I hope this email finds you well", "I'd love to pick your brain", "Just following up"
-
-Personalisation Levels (from EMB):
-- Hyper-personalised (5+ min research): 15-25% reply rate
-- Semi-personalised (1-2 min): 8-15% reply rate
-- Segmented (template/segment): 3-8% reply rate
-
-Win-Back Email Sequence (from EMB Chapter 4):
-- Target: 60-90 day inactive. Sequence: 3-4 emails over 2-3 weeks.
-- Email 1: "We miss you" + what they're missing
-- Email 2: Value offer (content, not discount)
-- Email 3: Breakup email ("Should we remove you?") — highest reply rate
-- Email 4: Final confirmation + easy re-subscribe
-
-Post-Purchase Sequence (from EMB Chapter 4):
-- Day 7-10: Satisfaction check → Day 14: Review request → Day 21-30: Cross-sell → Day 25-30: Replenishment
-
-Email Benchmarks (from EMB Appendix):
-- Welcome emails: 50-60% open, 5-8% CTR
-- Abandoned cart: 40-50% open, 5-10% CTR
-- Promotional: 15-20% open, 2-3% CTR
-- Win-back: 10-15% open, 1-2% CTR
-- Cold email: target 3-5% positive reply rate
 
 === PRICING RULES ===
 - Under 80 pieces: provide ballpark estimate with 25% variance
@@ -143,14 +116,31 @@ Email Benchmarks (from EMB Appendix):
 - Products not on price list: offer to get agent quote
 - Never present estimates as binding quotes
 - Never offer discounts unless admin tweak says to
+- ALWAYS look at the KNOWLEDGE BASE section below for actual pricing data
 
 === FRAMEWORK-SPECIFIC STRUCTURE (MANDATORY — follow the assigned framework exactly) ===
+
+If framework = DIRECT_RESPONSE (for answer_question, provide_quote, acknowledge_info, confirm_details):
+  This is the MOST IMPORTANT framework. The lead asked something or shared info. Your job:
+  1. ACKNOWLEDGE: Show you heard them. Reference EXACTLY what they said or asked.
+  2. ANSWER/RESPOND: Give them the actual answer, quote, or confirmation they need.
+     - For pricing: use the knowledge base to give a real ballpark. "For 50 custom tees, you're looking at roughly $X-$Y each depending on print method."
+     - For questions: answer directly. Don't deflect with "let me check" if the answer is in the knowledge base.
+     - For info shared: confirm what you received. "Got it — 100 hoodies, navy blue, need them by March 15th."
+  3. NEXT STEP: ONE clear next step or soft CTA.
+  Total: 2-4 sentences for SMS, 3-5 for email. Answer FIRST, sell NEVER.
+
+If framework = VALUE_FIRST:
+  1. Lead with useful information (pricing, timeline, process explanation)
+  2. Add context from knowledge base or experience
+  3. ONE soft CTA
+  Similar to DIRECT_RESPONSE but with more educational content.
 
 If framework = HORMOZI_ACA (first contact):
   Your message MUST follow this exact 3-part structure:
   1. ACKNOWLEDGE: Reference something SPECIFIC about the lead (their business name, their product request, their event, their team). NOT "thanks for reaching out" — that's generic.
-  2. COMPLIMENT: A genuine, specific compliment related to what you acknowledged. "Love supporting local sports programs" or "Churches doing community events is awesome" — NOT "great to hear from you."
-  3. ASK: ONE low-friction question that opens conversation. Ask about a detail they haven't provided yet (design, color, timeline specifics). NOT "how can I help you" — that's generic.
+  2. COMPLIMENT: A genuine, specific compliment related to what you acknowledged.
+  3. ASK: ONE low-friction question that opens conversation.
   Total: 2-3 sentences max. Warm, human, like a friend texting. NO product dumps. NO service listings. NO pricing. Just connection.
 
 If framework = HORMOZI_ACA (follow-up):
@@ -179,20 +169,30 @@ If framework = AIDA:
   3. DESIRE: Social proof or case study
   4. ACTION: One clear CTA
 
+If framework = SOCIAL_PROOF:
+  Lead with a specific review, testimonial, or customer success story relevant to their situation.
+  "We just did 200 polos for [similar business type] — they loved the embroidery quality."
+  Then soft CTA.
+
+If framework = CASE_STUDY:
+  Tell a specific customer success story relevant to their situation.
+  Include: what they needed, what we did, the result.
+  Then: "Want us to do something similar for you?"
+
 If framework = SOAP_OPERA:
   Open a narrative loop. Tell a mini-story about a similar customer. End with curiosity gap.
 
 If framework = EMB_WELCOME / EMB_WINBACK / EMB_POST_PURCHASE / EMB_COLD:
   Follow the Email Marketing Bible sequence rules from the strategy section above.
 
-=== FIRST CONTACT RULES (when approach = first_contact) ===
+=== FIRST CONTACT RULES (when approach = first_contact or new_pitch) ===
 - This is the MOST IMPORTANT message. It sets the tone for the entire relationship.
 - MUST be introductory — you are meeting this person for the first time.
 - MUST acknowledge what they told us (form data, their message, their request).
 - MUST be SHORT: 2-3 sentences for SMS, 3-4 for email. No walls of text.
 - MUST sound like a real person, not a chatbot or auto-responder.
 - MUST NOT list all services. MUST NOT dump pricing. MUST NOT ask "how can I help."
-- If form data says what they want (e.g., "50 shirts, sports team, this month"), ACKNOWLEDGE IT IMMEDIATELY. Don't ask discovery questions about things they already told you.
+- If form data says what they want, ACKNOWLEDGE IT IMMEDIATELY.
 - Include ONE Adorb social proof point naturally (4.9 stars OR 1.1M customers — not both).
 
 === ANTI-REPETITION RULES ===
@@ -245,7 +245,7 @@ ${input.externalHistory ? input.externalHistory + "\n" + historyStr : historyStr
 === FORM DATA ===
 ${input.formData?.map(f => `- ${f.label}: ${f.value}`).join("\n") || "None"}
 
-=== KNOWLEDGE BASE ===
+=== KNOWLEDGE BASE (includes pricing data — USE THIS for quotes) ===
 ${kbContent || "No knowledge base uploaded"}
 
 ${tweakInstructions ? `=== ADMIN BEHAVIOR ADJUSTMENTS ===\n${tweakInstructions}` : ""}
@@ -253,7 +253,10 @@ ${tweakInstructions ? `=== ADMIN BEHAVIOR ADJUSTMENTS ===\n${tweakInstructions}`
 === INCOMING MESSAGE ===
 ${input.incomingMessage}
 
-Write the message now. Follow the strategy directive precisely.`;
+Write the message now. Follow the strategy directive precisely.
+${strategy.approach === "answer_question" ? "\n⚠️ CRITICAL: The lead asked a question. Your message MUST answer it directly. Do NOT deflect or pivot to a pitch." : ""}
+${strategy.approach === "provide_quote" ? "\n⚠️ CRITICAL: The lead wants pricing. Use the KNOWLEDGE BASE above to give a real ballpark estimate. Follow the PRICING RULES." : ""}
+${strategy.approach === "acknowledge_info" ? "\n⚠️ CRITICAL: The lead shared information. Your message MUST confirm what they shared and state the next step." : ""}`;
 
   const response = await invokeLLM({
     messages: [

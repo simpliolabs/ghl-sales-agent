@@ -31,6 +31,8 @@ vi.mock("./db", () => ({
   getAgentWorkload: vi.fn().mockResolvedValue([]),
   getSystemSetting: vi.fn().mockResolvedValue(null),
   setSystemSetting: vi.fn().mockResolvedValue(undefined),
+  isChannelDnd: vi.fn().mockResolvedValue(false),
+  getBlockedChannels: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("./brain-context", () => ({
@@ -101,6 +103,8 @@ vi.mock("./scheduling-engine", () => ({
   calculateNextFollowUp: vi.fn().mockResolvedValue({ nextFollowUpAt: new Date(), cadencePosition: 0, reason: "test", channel: "SMS" }),
   checkRateLimits: vi.fn().mockResolvedValue({ allowed: true }),
   capDate: vi.fn((d: Date) => d),
+  checkDnc: vi.fn().mockReturnValue(false),
+  DNC_KEYWORDS: ["stop", "unsubscribe", "remove", "opt out", "do not contact", "cancel"],
 }));
 
 vi.mock("./ai-brain", () => ({
@@ -232,18 +236,29 @@ describe("Duplicate Message Prevention", () => {
     });
 
     it("should release lock even if pipeline throws", async () => {
-      // Mock DB for cooldown check to pass
+      // Build a mock DB that handles all pre-flight queries:
+      // 1. cooldown check (select lastAiSendAttemptAt from leads)
+      // 2. humanTakeover check (select humanTakeover from leads)
+      // 3. DNC check (select messageBody, direction, senderType from conversations)
+      // 4. DND check (via isChannelDnd mock — already returns false)
+      // 5. recent AI outbound check (select from conversations)
+      // 6. circuit breaker check
       const mockDbSelect = vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({
-            limit: vi.fn().mockResolvedValue([{ lastAiSendAttemptAt: null }]),
+            limit: vi.fn().mockResolvedValue([{ lastAiSendAttemptAt: null, humanTakeover: 0 }]),
             orderBy: vi.fn().mockReturnValue({
               limit: vi.fn().mockResolvedValue([]),
             }),
           }),
         }),
       });
-      mockGetDb.mockResolvedValue({ select: mockDbSelect, update: vi.fn().mockReturnValue({ set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) }) }) });
+      const mockDbUpdate = vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue(undefined),
+        }),
+      });
+      mockGetDb.mockResolvedValue({ select: mockDbSelect, update: mockDbUpdate });
       
       // Make buildLeadContext throw
       const { buildLeadContext } = await import("./brain-context");

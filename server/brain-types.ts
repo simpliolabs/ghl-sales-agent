@@ -11,11 +11,52 @@ export interface BrainCouncilInput {
   overrideReason?: string;
 }
 
+/**
+ * APPROACH TAXONOMY — aligned with Lookback Engine's recommendedApproach.
+ *
+ * The Strategist picks one of these based on conversation context:
+ *
+ * OUTREACH (no prior meaningful interaction):
+ *   first_contact    — Brand new lead, first message ever
+ *   new_pitch        — No meaningful interaction yet, needs intro
+ *
+ * RESPONSIVE (lead asked something or provided info):
+ *   answer_question  — Lead asked a question → ANSWER IT directly
+ *   provide_quote    — Lead requested pricing/quote → provide ballpark or range
+ *   acknowledge_info — Lead shared info (design, timeline, details) → confirm receipt + next step
+ *   confirm_details  — Clarify specifics before proceeding (size, color, quantity)
+ *
+ * FOLLOW-UP (continuing an existing thread):
+ *   follow_up        — Standard follow-up on an open conversation
+ *   quote_follow_up  — Was quoted but never closed → nudge
+ *   order_follow_up  — Had an order → check satisfaction or offer reorder
+ *
+ * RE-ENGAGEMENT (dormant or lapsed):
+ *   reactivation     — Dormant lead, needs fresh value proposition (= win-back)
+ *   win_back         — Alias for reactivation, used by lookback engine
+ *
+ * NURTURE (relationship maintenance):
+ *   post_delivery    — After order delivered → satisfaction check
+ *   relationship_nurture — Good relationship, stay in touch
+ *   seasonal         — Seasonal/event-based outreach
+ *   value_add        — Proactive value (tip, case study, portfolio)
+ *
+ * RECOVERY:
+ *   recovery         — After a failed/blocked message, gentle re-approach
+ */
+export type Approach =
+  | "first_contact" | "new_pitch"
+  | "answer_question" | "provide_quote" | "acknowledge_info" | "confirm_details"
+  | "follow_up" | "quote_follow_up" | "order_follow_up"
+  | "reactivation" | "win_back"
+  | "post_delivery" | "relationship_nurture" | "seasonal" | "value_add"
+  | "recovery";
+
 export interface StrategyDecision {
-  approach: "first_contact" | "follow_up" | "reactivation" | "post_delivery" | "seasonal" | "value_add" | "recovery";
+  approach: Approach;
   channel: string;
   angle: string;
-  framework: "PAS" | "BAB" | "AIDA" | "HORMOZI_ACA" | "HORMOZI_INDIRECT" | "SOCIAL_PROOF" | "CASE_STUDY" | "SOAP_OPERA" | "EMB_WELCOME" | "EMB_WINBACK" | "EMB_POST_PURCHASE" | "EMB_COLD";
+  framework: "PAS" | "BAB" | "AIDA" | "HORMOZI_ACA" | "HORMOZI_INDIRECT" | "SOCIAL_PROOF" | "CASE_STUDY" | "SOAP_OPERA" | "EMB_WELCOME" | "EMB_WINBACK" | "EMB_POST_PURCHASE" | "EMB_COLD" | "DIRECT_RESPONSE" | "VALUE_FIRST";
   personalizationTier: 1 | 2 | 3;
   toneDirective: string;
   maxLength: number;
@@ -71,7 +112,7 @@ export interface BrainCouncilOutput {
   fallbackMessage?: string;
 }
 
-export type ViolationCategory = "irrelevant_research" | "form_data_ignored" | "wrong_business" | "generic_opener" | "missing_framework" | "safety_violation";
+export type ViolationCategory = "irrelevant_research" | "form_data_ignored" | "wrong_business" | "generic_opener" | "missing_framework" | "safety_violation" | "unanswered_question" | "info_not_acknowledged";
 
 export type LeadContext = {
   lead: any;

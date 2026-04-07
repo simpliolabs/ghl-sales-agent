@@ -8,11 +8,11 @@
  * - Classify segment + research lead
  * - Push to Omnisend
  * - Auto-assign sales agent
- * - DELAYED first-contact template (45s wait for GHL to index conversation data)
+ * - DELAYED first-contact via Brain Council (45s wait for GHL to index, then full 4-brain pipeline)
  */
 
 import { Response } from "express";
-import { upsertLead, updateLeadFields, getLeadById, getRecentAiOutboundCount, addConversation, upsertAiState, addBrainCouncilAudit, addAgentAssignment, getAgentWorkload, getConversationHistory, syncGhlDnd } from "./db";
+import { upsertLead, updateLeadFields, getLeadById, getRecentAiOutboundCount, addConversation, upsertAiState, addAgentAssignment, getAgentWorkload, getConversationHistory, syncGhlDnd } from "./db";
 import { classifySegment } from "./ai-brain";
 import { researchLead } from "./lead-researcher";
 import { calculateNextFollowUp, checkRateLimits, checkLeadRateLimit, checkDnc } from "./scheduling-engine";
@@ -27,8 +27,10 @@ import {
   extractFormData,
   parseFormDataFromMessageBody,
   formatEmailHtml,
+  buildSendOpts,
 } from "./webhook-helpers";
 import { handleStageAutomation } from "./webhook-pipeline";
+import { runBrainCouncil } from "./brain-council-orchestrator";
 
 /** Delay before sending first-contact template (ms). Gives GHL time to index conversation data. */
 let FIRST_CONTACT_DELAY_MS = 45_000; // 45 seconds
@@ -392,85 +394,86 @@ async function sendDelayedFirstContact(
 
     const channel = detectedChannel as "SMS" | "Email" | "WhatsApp" | "FB" | "IG";
     const agentName = lead.assignedAgent || SALES_AGENTS[0];
-    const firstName = (lead.name || "").split(" ")[0] || "there";
 
-    const productType = formFields.find(f => f.label === "Product Type")?.value || "custom gear";
-    const purpose = formFields.find(f => f.label === "Purpose")?.value || "";
-    const timeline = formFields.find(f => f.label === "Timeline")?.value || "";
+    console.log(`[Webhook] First-contact via Brain Council for lead ${leadId}: channel=${channel}, formFields=${formFields.length}`);
 
-    let msg1 = `Hi ${firstName}, ${agentName.split(" ")[0]} here! Adorb has a 4.9 star review helping`;
-    if (purpose) { msg1 += ` ${purpose.toLowerCase()}`; } else { msg1 += ` businesses like yours`; }
-    msg1 += ` with customized ${productType.toLowerCase()}`;
-    if (timeline) { msg1 += ` ${timeline.toLowerCase()}`; }
-    msg1 += `.`;
-    // Add signature for SMS/FB/IG
-    if (channel !== "Email") {
-      msg1 += `\nThanks, ADORB CUSTOM PRINTING`;
-    }
+    // --- BUILD BRAIN COUNCIL INPUT ---
+    // Pass form data and GHL history so the Brain Council has full context.
+    // The orchestrator's pre-flight checks (DNC, DND, cooldown, lock) provide
+    // a second safety layer on top of the rate limit checks above.
+    const formDataSummary = formFields.length > 0
+      ? formFields.map(f => `${f.label}: ${f.value}`).join("\n")
+      : "No form data available";
 
-    const msg2 = `Do you have a design ready or would you like our team to help?`;
+    // Build external history string from GHL conversation data
+    const externalHistoryStr = ghlHistory.length > 0
+      ? ghlHistory.map(m => `[${m.direction}] ${String(m.body || "").substring(0, 500)}`).join("\n")
+      : "";
 
-    console.log(`[Webhook] LOCKED first-contact for lead ${leadId} (${firstName}): agent=${agentName}, channel=${channel}`);
-    console.log(`[Webhook] MSG1: ${msg1}`);
-    console.log(`[Webhook] MSG2: ${msg2}`);
+    const incomingMessage = `[FIRST CONTACT — NEW LEAD]\n` +
+      `This is a brand new lead who just submitted a form or inquiry.\n` +
+      `Lead name: ${lead.name || "Unknown"}\n` +
+      `Business: ${lead.businessName || "Unknown"}\n` +
+      `Source: ${lead.source || "Unknown"}\n` +
+      `Form data:\n${formDataSummary}\n` +
+      `\nThis is the FIRST message to this lead. Be warm, professional, and reference their specific form data. Do NOT ask questions they already answered in the form.`;
 
-    // --- SEND MESSAGE 1 ---
-    const buildSendOpts = (message: string): Parameters<typeof import("./ghl").sendMessage>[1] | undefined => {
-      if (channel === "Email" && lead.email) {
-        return { type: "Email", subject: `${agentName.split(" ")[0]} from Adorb Custom Tees`, html: formatEmailHtml(`${message}\n\n${msg2}`), fromName: agentName };
-      } else if (channel === "FB") { return { type: "FB", message }; }
-      else if (channel === "IG") { return { type: "IG", message }; }
-      else if (channel === "WhatsApp") { return { type: "WhatsApp", message }; }
-      else if (lead.phone) { return { type: "SMS", message }; }
-      return undefined;
-    };
+    const brainResult = await runBrainCouncil({
+      leadId,
+      incomingMessage,
+      channel,
+      externalHistory: externalHistoryStr,
+      formData: formFields,
+    });
 
-    const sendOpts1 = buildSendOpts(msg1);
-    let msg1Sent = false;
-    let msg2Sent = false;
-
-    if (sendOpts1) {
-      const sendResult1 = await sendMessageWithRetry(resolvedContactId, sendOpts1, { email: lead.email, phone: lead.phone, id: lead.id });
-      if (sendResult1.resolvedContactId !== resolvedContactId) resolvedContactId = sendResult1.resolvedContactId;
-      msg1Sent = sendResult1.success;
-      if (!msg1Sent) console.error(`[Webhook] Failed to send MSG1 to lead ${leadId}: ${sendResult1.error}`);
-    }
-
-    await addConversation({ leadId, channel, direction: "outbound", messageBody: msg1, senderType: "ai", senderName: agentName });
-
-    if (channel !== "Email") {
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      const sendOpts2 = buildSendOpts(msg2);
-      if (sendOpts2) {
-        const sendResult2 = await sendMessageWithRetry(resolvedContactId, sendOpts2, { email: lead.email, phone: lead.phone, id: lead.id });
-        msg2Sent = sendResult2.success;
-        if (!msg2Sent) console.error(`[Webhook] Failed to send MSG2 to lead ${leadId}: ${sendResult2.error}`);
+    // --- HANDLE BRAIN COUNCIL RESULT ---
+    if (brainResult.blocked) {
+      console.log(`[Webhook] Brain Council BLOCKED first-contact for lead ${leadId}: ${brainResult.blockReason}`);
+      // If Brain Council blocked but there's a fallback, send it
+      if (brainResult.fallbackUsed && brainResult.fallbackMessage) {
+        console.log(`[Webhook] Using fallback message for lead ${leadId}`);
+        const fallbackOpts = buildSendOpts(channel, brainResult.fallbackMessage, lead, {
+          subject: `${agentName.split(" ")[0]} from Adorb Custom Tees`,
+          fromName: agentName,
+        });
+        if (fallbackOpts) {
+          await sendMessageWithRetry(resolvedContactId, fallbackOpts, { email: lead.email, phone: lead.phone, id: lead.id });
+          await addConversation({ leadId, channel, direction: "outbound", messageBody: brainResult.fallbackMessage, senderType: "ai", senderName: agentName });
+        }
       }
-      await addConversation({ leadId, channel, direction: "outbound", messageBody: msg2, senderType: "ai", senderName: agentName });
+      return;
     }
 
-    try {
-      await addBrainCouncilAudit({
-        leadId, leadName: lead.name || undefined, channel,
-        incomingMessage: `[FIRST CONTACT] Form data: ${formFields.map(f => `${f.label}=${f.value}`).join(", ") || "none"}`,
-        strategyApproach: "first_contact", strategyFramework: "HORMOZI_ACA",
-        strategyReasoning: `LOCKED TEMPLATE — No Brain Council. Deterministic two-message welcome sequence. Delayed ${FIRST_CONTACT_DELAY_MS / 1000}s for accurate channel detection.`,
-        strategyTier: "1", researchSummary: "SKIPPED — Research disabled for first contact.",
-        composedMessage: msg1, composerFromName: agentName, qcScore: 100, qcApproved: 1,
-        wasRecomposed: 0, finalMessage: channel === "Email" ? `${msg1}\n\n${msg2}` : `${msg1} | ${msg2}`,
-        messageSent: (msg1Sent ? 1 : 0),
-      });
-    } catch (auditErr) { console.error('[Webhook] First-contact audit log error (non-fatal):', auditErr); }
+    // Brain Council approved — send the composed message
+    const composedMessage = brainResult.message;
+    const fromName = brainResult.fromName || agentName;
+    const brainChannel = brainResult.channel || channel;
 
-    const contactSchedule = await calculateNextFollowUp({ leadId, aiSuggestedHours: 4, triggerEvent: "ai_response" });
+    const sendOpts = buildSendOpts(brainChannel, composedMessage, lead, {
+      subject: `${fromName.split(" ")[0]} from Adorb Custom Tees`,
+      fromName,
+    });
+
+    let messageSent = false;
+    if (sendOpts) {
+      const sendResult = await sendMessageWithRetry(resolvedContactId, sendOpts, { email: lead.email, phone: lead.phone, id: lead.id });
+      if (sendResult.resolvedContactId !== resolvedContactId) resolvedContactId = sendResult.resolvedContactId;
+      messageSent = sendResult.success;
+      if (!messageSent) console.error(`[Webhook] Failed to send first-contact to lead ${leadId}: ${sendResult.error}`);
+    }
+
+    await addConversation({ leadId, channel: brainChannel, direction: "outbound", messageBody: composedMessage, senderType: "ai", senderName: fromName });
+
+    // --- SCHEDULING & STAGE ADVANCEMENT ---
+    const contactSchedule = await calculateNextFollowUp({ leadId, aiSuggestedHours: brainResult.nextEngagementHours || 4, triggerEvent: "ai_response" });
     await updateLeadFields(leadId, {
       lastMessageAt: new Date(), nextFollowUpAt: contactSchedule.nextFollowUpAt,
       cadencePosition: contactSchedule.cadencePosition, preferredChannel: contactSchedule.channel,
-      lastOutboundChannel: channel,
+      lastOutboundChannel: brainChannel,
     });
 
     // Auto-advance GHL opportunity stage from "New Lead" to "Contacted"
-    if (msg1Sent && lead.ghlOpportunityId && lead.ghlStageId) {
+    if (messageSent && lead.ghlOpportunityId && lead.ghlStageId) {
       const NEW_LEAD_STAGE_IDS = new Set([
         "69534612-6905-413a-a3b9-3c3de2365a6a", // Bulk Printing - New Lead
         "a54400ac-e9df-44e2-8872-45ccccf9a442", // 100 T-shirt Inquiry - New Lead
@@ -489,7 +492,7 @@ async function sendDelayedFirstContact(
           try {
             await updateOpportunityStage(lead.ghlOpportunityId, contactedStageId);
             await updateLeadFields(leadId, { pipelineStage: "contacted", ghlStageId: contactedStageId });
-            console.log(`[Webhook] Auto-advanced lead ${leadId} from new_lead → contacted in GHL (opp: ${lead.ghlOpportunityId})`);
+            console.log(`[Webhook] Auto-advanced lead ${leadId} from new_lead \u2192 contacted in GHL (opp: ${lead.ghlOpportunityId})`);
           } catch (stageErr) {
             console.error(`[Webhook] Failed to auto-advance stage for lead ${leadId}:`, stageErr);
           }
@@ -497,9 +500,15 @@ async function sendDelayedFirstContact(
       }
     }
 
-    await upsertAiState(leadId, { lastAngleUsed: "LOCKED_FIRST_CONTACT", lastFrameworkUsed: "HORMOZI_ACA", messageCount: channel === "Email" ? 1 : 2 });
+    await upsertAiState(leadId, {
+      lastAngleUsed: brainResult.angle || "first_contact",
+      lastFrameworkUsed: brainResult.framework || "DIRECT_RESPONSE",
+      messageCount: 1,
+    });
 
-    console.log(`[Webhook] First-contact COMPLETE for lead ${leadId}: msg1=${msg1Sent}, msg2=${msg2Sent || channel === "Email"}, channel=${channel}`);
+    console.log(`[Webhook] First-contact COMPLETE for lead ${leadId}: sent=${messageSent}, channel=${brainChannel}, framework=${brainResult.framework}`);
+    console.log(`[Webhook] Brain Council composed: "${composedMessage.substring(0, 100)}..."`);
+    console.log(`[Webhook] Strategy: ${brainResult.strategyReasoning?.substring(0, 200) || "N/A"}`);
   } catch (err) {
     console.error(`[Webhook] Delayed first-contact error for lead ${leadId}:`, err);
   }

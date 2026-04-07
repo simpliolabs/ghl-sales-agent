@@ -20,6 +20,9 @@ vi.mock("./db", () => ({
   isAiOffline: vi.fn().mockResolvedValue(false),
   getSystemSetting: vi.fn().mockResolvedValue(null),
   setSystemSetting: vi.fn().mockResolvedValue(undefined),
+  syncGhlDnd: vi.fn().mockResolvedValue(undefined),
+  isChannelDnd: vi.fn().mockResolvedValue(false),
+  getBlockedChannels: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("./ai-brain", () => ({
@@ -51,6 +54,8 @@ vi.mock("./scheduling-engine", () => ({
   calculateNextFollowUp: vi.fn().mockResolvedValue({ nextFollowUpAt: new Date(Date.now() + 24 * 60 * 60 * 1000), cadencePosition: 1, channel: "SMS", reason: "Test schedule" }),
   checkRateLimits: vi.fn().mockResolvedValue({ allowed: true, reason: "OK" }),
   checkLeadRateLimit: vi.fn().mockResolvedValue(true),
+  checkDnc: vi.fn().mockReturnValue(false),
+  DNC_KEYWORDS: ["stop", "unsubscribe", "remove", "opt out", "do not contact", "cancel"],
 }));
 
 vi.mock("./brain-council-orchestrator", () => ({
@@ -64,6 +69,17 @@ vi.mock("./lead-researcher", () => ({
 import { createWebhookRouter } from "./webhooks";
 import express from "express";
 import request from "supertest";
+import { beforeAll, afterAll } from "vitest";
+
+// Use fake timers globally to prevent background jobs (setInterval/setTimeout)
+// in createWebhookRouter() from hanging tests
+beforeAll(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+});
+
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 function createTestApp() {
   const app = express();
@@ -461,10 +477,9 @@ describe("Form data extraction in contact webhook", () => {
     vi.clearAllMocks();
   });
 
-  it("sends locked first-contact template (not Brain Council) when form data is present", async () => {
-    vi.useFakeTimers();
-    const { sendMessage, fetchGhlConversationHistory } = await import("./ghl");
-    const { addConversation } = await import("./db");
+  it("uses Brain Council (not locked template) for first contact when form data is present", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { fetchGhlConversationHistory } = await import("./ghl");
     (fetchGhlConversationHistory as ReturnType<typeof vi.fn>).mockResolvedValue([
       { direction: "inbound", type: "FB", body: "Form submission data" },
     ]);
@@ -483,25 +498,13 @@ describe("Form data extraction in contact webhook", () => {
     });
 
     expect(res.status).toBe(200);
-    // Brain Council should NOT be called for first contact (locked template)
-    const { runBrainCouncil } = await import("./brain-council-orchestrator");
-    expect(runBrainCouncil).not.toHaveBeenCalled();
 
-    // First-contact is now delayed by 45s — advance fake timers
+    // First-contact is delayed by 45s — advance fake timers past the delay
     await vi.advanceTimersByTimeAsync(50_000);
 
-    // sendMessage should be called with the locked template messages
-    expect(sendMessage).toHaveBeenCalled();
-    // addConversation should store the outbound messages
-    expect(addConversation).toHaveBeenCalledWith(
-      expect.objectContaining({
-        direction: "outbound",
-        senderType: "ai",
-        messageBody: expect.stringContaining("4.9 star review"),
-      })
-    );
-
-    vi.useRealTimers();
+    // Brain Council should now be called (replaced locked template in Layer 2)
+    const { runBrainCouncil } = await import("./brain-council-orchestrator");
+    expect(runBrainCouncil).toHaveBeenCalled();
   });
 });
 
