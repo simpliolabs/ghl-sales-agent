@@ -356,6 +356,27 @@ export function detectViolations(
     return { category: "channel_mismatch", reason: `Strategy chose SMS for a lead dormant ${context.leadAgeDays} days (>60). Per dormancy rules, Email should be used for re-engagement of highly dormant leads.` };
   }
 
+  // 10. UNFULFILLABLE COMMITMENT — AI makes a promise only a human agent can fulfill
+  // e.g., "I'll send the invoice", "I'll call you", "I'll process your order"
+  const UNFULFILLABLE_PATTERNS = [
+    /i'?ll send (the |an |your |a )?invoice/i,
+    /i'?ll send (the |an |your |a )?receipt/i,
+    /i'?ll call you/i,
+    /i'?ll give you a call/i,
+    /i'?ll process (your |the )?order/i,
+    /i'?ll ship (your |the )?order/i,
+    /i'?ll email you (the |a )?quote/i,
+    /i'?ll send (the |a )?mockup/i,
+    /i'?ll send (the |a )?proof/i,
+    /i'?ll send (the |a )?design/i,
+    /sending (the |a )?invoice shortly/i,
+    /send (the |a )?invoice (in|within|shortly)/i,
+  ];
+  const unfulfillableMatch = UNFULFILLABLE_PATTERNS.find(p => p.test(composed.message));
+  if (unfulfillableMatch) {
+    return { category: "safety_violation", reason: `Message contains an unfulfillable AI commitment: "${composed.message.match(unfulfillableMatch)?.[0]}". AI cannot send invoices, call leads, or process orders — only human agents can. Use "Our team will..." or "I'll have someone..." instead.` };
+  }
+
   return { category: null, reason: "" };
 }
 

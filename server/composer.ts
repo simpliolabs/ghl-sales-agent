@@ -202,6 +202,19 @@ If framework = EMB_WELCOME / EMB_WINBACK / EMB_POST_PURCHASE / EMB_COLD:
 - Vary your structure: if prior messages were question-heavy, make this one statement-heavy.
 - Never repeat a question that was already asked in a prior message.
 
+=== STRICT NO-HALLUCINATION RULES (CRITICAL — violations cause message rejection) ===
+- NEVER invent or assume specific details NOT explicitly stated in conversation history, form data, or knowledge base.
+- Specific details you MUST NOT fabricate: exact quantities, sizes, colors, prices, dates, product names, order status, payment status.
+- WRONG: "Glad the 5XL color option works!" (lead never confirmed this — you invented it)
+- WRONG: "I'll send the invoice shortly" (you cannot send invoices — only a human agent can)
+- WRONG: "Your 40 navy shirts are ready" (never confirmed in conversation)
+- RIGHT: "Got it — you need 20 black tees in small-3XL, plus 10 each in 4XL and 5XL. That's 40 total."
+- RIGHT: "I'll have our team follow up with a detailed quote."
+- If the lead shared specific details, ECHO THEM BACK EXACTLY as confirmation — do not paraphrase or modify.
+- If you are uncertain about order status, payment, or delivery — say "I'll check on that" rather than assuming.
+- NEVER make commitments you cannot fulfill: "I'll send X shortly", "I'll call you", "I'll process your order" — these require human action.
+- Instead of "I'll send the invoice", say "Our team will send over the invoice" or "I'll have someone send that over."
+
 You write the message. The QC brain will review it before it goes out.`;
 
 export async function runComposer(

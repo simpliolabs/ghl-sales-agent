@@ -290,3 +290,23 @@
 - [x] GAP FIXED: LLM invocation now has 120s AbortController timeout. Hung calls throw "LLM invoke timed out" error, releasing the Brain Council lock cleanly. 180s margin before the 300s lock TTL expires.
 - [x] GAP FIXED: Global burst limiter added to acquireSendGate() in ghl.ts. Max 10 sends per 60-second rolling window across ALL callers. Burst counter auto-rolls back if per-contact cooldown blocks the send.
 - [x] GAP FIXED: ResearchResult now has dataConfidence field ("verified" | "inferred" | "insufficient"). Researcher LLM self-labels confidence. Composer prompt shows ⚠️ INFERRED DATA warning with instruction to not state inferred facts as certainties. emptyResearch() returns "verified" (form data only). 208 tests passing.
+
+## BUG: Human takeover not detected — AI continues responding after human agent sends a message
+- [x] Root cause: GHL does NOT fire outbound webhooks for messages sent via the GHL UI. humanTakeover was never set from UI sends.
+- [x] Fix: GHL history sync now runs BEFORE the humanTakeover check. Detects recent outbound messages from GHL history that aren't in our AI DB (i.e., human agent messages). Sets humanTakeover=1 + lastAgentActivityAt proactively within a 24h window.
+
+## BUG: AI makes commitments it cannot fulfill ("I'll send the invoice shortly") with no follow-up
+- [x] Fix: Added UNFULFILLABLE COMMITMENT detection to QC (check #10). 12 regex patterns catch "I'll send the invoice", "I'll call you", "I'll process your order", etc. These trigger safety_violation and block the message.
+- [x] Fix: Composer STRICT NO-HALLUCINATION RULES section added with explicit examples of wrong vs right phrasing.
+
+## BUG: Agent GHL UI messages bypass webhook — humanTakeover never set from UI sends
+- [x] Fixed: GHL history sync detects recent outbound agent messages (not matching any AI DB entry) and sets humanTakeover=1 + lastAgentActivityAt from the message timestamp.
+- [x] Fixed: GHL history sync now runs before the handoff decision (shouldHandoffToAgent receives updated lastAgentHoursAgo).
+
+## BUG: Conversation history too shallow — missed paid order status
+- [x] Fixed: Local conversation history lookback increased from 20 to 50 messages.
+- [x] Fixed: ORDER STATUS ALERT added — GHL history scanned for payment/order keywords (paid, invoice, deposit, proof, approved, mockup, design, order confirmed, receipt). Latest matching message surfaced as ⚠️ alert at top of context.
+
+## BUG: Composer hallucinating specifics not in the message ("5XL color option")
+- [x] Fixed: STRICT NO-HALLUCINATION RULES section added to Composer prompt with explicit examples (wrong: "Glad the 5XL color option works!", right: echo exact details back).
+- [x] Fixed: QC check #10 catches unfulfillable commitments (safety_violation). dataConfidence="inferred" warning already prevents fabricated research facts from being stated as certainties. 208 tests passing.

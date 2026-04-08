@@ -173,7 +173,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     lastAgentHoursAgo = (Date.now() - agentTime) / (1000 * 60 * 60);
   }
 
-  const convHistory = await getConversationHistory(lead!.id, 20);
+  const convHistory = await getConversationHistory(lead!.id, 50);
   let historyStr = convHistory.map((c: any) => `[${c.senderType}/${c.channel}] ${c.messageBody}`).join("\n");
 
   // MANDATORY CONTEXT: For contacts older than 3 days, ALWAYS pull GHL history
@@ -198,9 +198,51 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
           }
           console.log(`[Webhook] Synced ${ghlHistory.filter(m => m.body?.trim()).length} GHL messages for lead ${lead!.id} (${leadAgeDays.toFixed(0)} days old)`);
         }
+
+        // FIX: Detect human agent outbound messages from GHL history (bypasses webhook gap)
+        // GHL does NOT fire outbound webhooks for messages sent via the GHL UI.
+        // We must detect them here and set humanTakeover proactively.
+        const AGENT_TAKEOVER_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
+        const recentAgentMsg = ghlHistory
+          .filter(m => m.direction === "outbound" && m.body?.trim() && m.dateAdded)
+          .filter(m => {
+            const msgAge = Date.now() - new Date(m.dateAdded).getTime();
+            return msgAge < AGENT_TAKEOVER_WINDOW_MS;
+          })
+          // Exclude messages that are clearly AI-generated (contain our known AI sender patterns)
+          .filter(m => {
+            const body = m.body.toLowerCase();
+            // If message body matches a recent AI outbound in our DB, it's AI — not a human agent
+            const isKnownAiMsg = convHistory.some((c: any) =>
+              c.senderType === "ai" && c.messageBody?.toLowerCase().trim() === body.trim()
+            );
+            return !isKnownAiMsg;
+          })
+          .sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime())[0];
+
+        if (recentAgentMsg && !lead!.humanTakeover) {
+          const agentMsgTime = new Date(recentAgentMsg.dateAdded);
+          console.log(`[Webhook] 🕵️ GHL history scan detected human agent message at ${agentMsgTime.toISOString()} — setting humanTakeover=1 for lead ${lead!.id}`);
+          await updateLeadFields(lead!.id, { humanTakeover: 1, lastAgentActivityAt: agentMsgTime });
+          lead = { ...lead!, humanTakeover: 1, lastAgentActivityAt: agentMsgTime };
+          lastAgentHoursAgo = (Date.now() - agentMsgTime.getTime()) / (1000 * 60 * 60);
+        }
+
+        // Surface order/payment status as a CONTEXT ALERT
+        const ORDER_STATUS_KEYWORDS = ["paid", "invoice", "deposit", "payment", "proof", "approved", "mockup", "design", "order confirmed", "receipt"];
+        const paymentMessages = ghlHistory.filter(m => {
+          const body = (m.body || "").toLowerCase();
+          return ORDER_STATUS_KEYWORDS.some(kw => body.includes(kw));
+        });
+        let orderContextAlert = "";
+        if (paymentMessages.length > 0) {
+          const latestPayment = paymentMessages[paymentMessages.length - 1];
+          orderContextAlert = `\n⚠️ ORDER STATUS ALERT: This conversation contains payment/order messages. Latest: "${latestPayment.body.substring(0, 150)}" (${new Date(latestPayment.dateAdded).toLocaleDateString()})\n`;
+        }
+
         const ghlHistoryStr = ghlHistory.filter(m => m.body && m.body.trim())
           .map(m => `[${m.direction === "outbound" ? "agent" : "lead"}/${String(m.type || "msg")}] ${m.body}`).join("\n");
-        if (ghlHistoryStr) historyStr = `--- Full GHL conversation history (${ghlHistory.length} messages) ---\n${ghlHistoryStr}\n--- Recent local messages ---\n${historyStr}`;
+        if (ghlHistoryStr) historyStr = `--- Full GHL conversation history (${ghlHistory.length} messages) ---\n${ghlHistoryStr}\n${orderContextAlert}--- Recent local messages ---\n${historyStr}`;
       } else if (leadAgeDays >= 3) {
         historyStr = `--- WARNING: No conversation history found in GHL for this ${leadAgeDays.toFixed(0)}-day-old contact ---\n${historyStr}`;
       }
