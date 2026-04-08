@@ -134,3 +134,52 @@ describe("Layer 1: Context Assembly", () => {
     });
   });
 });
+
+describe("Layer 1.6: Prior Contact Guard — History Lookback Fix", () => {
+
+  it("follow-up-trigger.ts ALWAYS fetches GHL history (no conditional leadAgeDays/convHistory check)", () => {
+    const src = readFile("follow-up-trigger.ts");
+    // Must call fetchGhlConversationHistory unconditionally (not inside an if block with leadAgeDays >= 3 && convHistory.length < 3)
+    expect(src).toContain("fetchGhlConversationHistory(ghlContactId)");
+    // The old conditional guard must be gone
+    expect(src).not.toMatch(/if\s*\(\s*leadAgeDays\s*>=\s*3\s*&&\s*convHistory\.length\s*<\s*3\s*\)/);
+  });
+
+  it("follow-up-trigger.ts fetches 50 messages (not 20) for local history", () => {
+    const src = readFile("follow-up-trigger.ts");
+    expect(src).toMatch(/getConversationHistory\(leadId,\s*50\)/);
+  });
+
+  it("brain-council-orchestrator.ts overrides isFirstResponse=false when GHL history has outbound messages", () => {
+    const src = readFile("brain-council-orchestrator.ts");
+    expect(src).toContain("isFirstResponse overridden to FALSE");
+    expect(src).toContain("externalHasOutbound");
+    expect(src).toMatch(/\(context as any\)\.isFirstResponse\s*=\s*false/);
+  });
+
+  it("brain-council-orchestrator.ts has programmatic approach override blocking first_contact/new_pitch when prior contact exists", () => {
+    const src = readFile("brain-council-orchestrator.ts");
+    expect(src).toContain("PROGRAMMATIC PRIOR-CONTACT GUARD");
+    expect(src).toContain("strategy.approach === 'first_contact'");
+    expect(src).toContain("strategy.approach === 'new_pitch'");
+    expect(src).toMatch(/\(strategy as any\)\.approach\s*=\s*'follow_up'/);
+  });
+
+  it("strategist.ts system prompt contains PRIOR CONTACT RULE", () => {
+    const src = readFile("strategist.ts");
+    expect(src).toContain("PRIOR CONTACT RULE");
+    expect(src).toContain("MUST NOT use 'first_contact' or 'new_pitch'");
+  });
+
+  it("strategist.ts user input warns about prior contact when GHL history has outbound messages", () => {
+    const src = readFile("strategist.ts");
+    expect(src).toContain("PRIOR CONTACT DETECTED");
+    // The inline regex check for outbound messages in the template literal
+    expect(src).toMatch(/\[agent\\\/\//i);
+  });
+
+  it("follow-up-trigger.ts logs GHL history fetch count", () => {
+    const src = readFile("follow-up-trigger.ts");
+    expect(src).toContain("GHL history fetched for lead");
+  });
+});

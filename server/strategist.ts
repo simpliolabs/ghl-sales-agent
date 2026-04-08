@@ -153,6 +153,13 @@ When the incoming message contains a DORMANCY ALERT:
 3. FRAMEWORK: 30-90 days → EMB_WINBACK. 90-180 days → value offer + case study. 180+ → near-cold HORMOZI_ACA.
 4. TONE: Warm, confident, zero desperation. Never "just checking in" or "still interested?"
 
+=== PRIOR CONTACT RULE (CRITICAL) ===
+If the CONVERSATION HISTORY section contains ANY outbound messages (marked [agent/...] or [ai/...]),
+this lead has ALREADY been contacted. You MUST NOT use 'first_contact' or 'new_pitch' approach.
+Choose 'follow_up', 'reactivation', 'win_back', or another continuation approach that acknowledges prior contact.
+READ THE CONVERSATION HISTORY before choosing approach — the lead's last message and your last reply
+are the most important context for deciding what to say next.
+
 === CHANNEL PRESERVATION RULE (CRITICAL) ===
 When the lead sent an inbound message, you MUST reply on the SAME channel they used.
 - If the lead messaged on FB → channel MUST be "FB"
@@ -238,6 +245,11 @@ ${input.formData?.map(f => `- ${f.label}: ${f.value}`).join("\n") || "None"}
 
 CONVERSATION HISTORY:
 ${input.externalHistory ? input.externalHistory + "\n" + historyStr : historyStr || "No previous messages"}
+
+${(input.externalHistory && (/\[agent\//i.test(input.externalHistory) || /\[ai\//i.test(input.externalHistory))) ? `⚠️ PRIOR CONTACT DETECTED: The GHL conversation history above contains outbound messages from our team.
+This lead has ALREADY been contacted. You MUST NOT use 'first_contact' or 'new_pitch' approach.
+Choose 'follow_up', 'reactivation', 'win_back', or another continuation approach.
+READ THE CONVERSATION HISTORY CAREFULLY before choosing approach and tone.` : ""}
 
 INCOMING MESSAGE:
 ${input.incomingMessage}

@@ -315,10 +315,39 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     const context = await buildLeadContext(input.leadId);
     console.log(`[BrainCouncil] Context built: ${context.convHistory.length} messages, age ${context.leadAgeDays}d, ${context.urgencyStage}`);
 
+    // ============================================================
+    // HISTORY OVERRIDE: If externalHistory (GHL) contains prior outbound
+    // messages, this is NOT a first contact — even if local DB has no AI rows.
+    // This prevents the AI from re-initiating contact with leads it has
+    // already spoken to via GHL UI or other channels.
+    // ============================================================
+    if (input.externalHistory && context.isFirstResponse) {
+      const externalHasOutbound = /\[agent\//i.test(input.externalHistory) || /\[ai\//i.test(input.externalHistory);
+      if (externalHasOutbound) {
+        console.log(`[BrainCouncil] ⚠️ isFirstResponse overridden to FALSE — GHL history contains prior outbound messages for lead ${input.leadId}`);
+        (context as any).isFirstResponse = false;
+      }
+    }
+
     // BRAIN 1: STRATEGIST
     console.log(`[BrainCouncil] Running Strategist...`);
     const strategy = await runStrategist(input, context);
     console.log(`[BrainCouncil] Strategy: ${strategy.approach}/${strategy.framework}/${strategy.angle} (tier ${strategy.personalizationTier})`);
+
+    // ============================================================
+    // PROGRAMMATIC PRIOR-CONTACT GUARD
+    // If GHL history shows prior outbound messages, NEVER allow
+    // first_contact or new_pitch — even if the Strategist chose them.
+    // This is a hard programmatic override, not an LLM suggestion.
+    // ============================================================
+    if (input.externalHistory) {
+      const externalHasOutbound = /\[agent\//i.test(input.externalHistory) || /\[ai\//i.test(input.externalHistory);
+      if (externalHasOutbound && (strategy.approach === 'first_contact' || strategy.approach === 'new_pitch')) {
+        console.log(`[BrainCouncil] 🚨 APPROACH OVERRIDE: Strategist chose '${strategy.approach}' but GHL history shows prior contact. Overriding to 'follow_up'.`);
+        (strategy as any).approach = 'follow_up';
+        (strategy as any).reasoning = `[PRIOR CONTACT OVERRIDE: ${strategy.approach}\u2192follow_up] ${strategy.reasoning}`;
+      }
+    }
 
     // --- PROGRAMMATIC FRAMEWORK DIVERSITY ENFORCEMENT ---
     // If the Strategist picked the same outreach framework as the last 2 messages, override it.

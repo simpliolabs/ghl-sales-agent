@@ -138,25 +138,34 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
         }
 
         // Build conversation context
-        const convHistory = await getConversationHistory(leadId, 20);
+        const convHistory = await getConversationHistory(leadId, 50);
         let historyStr = convHistory.map((c: any) =>
           `[${c.senderType === "ai" ? "ai" : c.direction === "inbound" ? "lead" : "agent"}/${c.channel}] ${c.messageBody}`
         ).join("\n");
 
-        // For aged contacts, fetch GHL history
+        // ============================================================
+        // ALWAYS fetch GHL history for proactive outreach.
+        // This is the authoritative source of truth — it includes
+        // messages sent from GHL UI, other automations, and prior
+        // conversations that may not be in our local DB.
+        // Removing the old conditional (leadAgeDays >= 3 && convHistory.length < 3)
+        // which caused the AI to ignore existing conversations and
+        // re-initiate contact with leads it had already spoken to.
+        // ============================================================
         const createdAt = (lead as any).createdAt;
         const leadAgeDays = createdAt ? (Date.now() - new Date(createdAt).getTime()) / (1000 * 60 * 60 * 24) : 999;
-        if (leadAgeDays >= 3 && convHistory.length < 3) {
-          try {
-            const ghlHistory = await fetchGhlConversationHistory(ghlContactId);
-            if (ghlHistory && ghlHistory.length > 0) {
-              const ghlHistoryStr = ghlHistory.filter((m: any) => m.body && m.body.trim())
-                .map((m: any) => `[${m.direction === "outbound" ? "agent" : "lead"}/${String(m.type || "msg")}] ${m.body}`).join("\n");
-              if (ghlHistoryStr) historyStr = `--- Full GHL conversation history ---\n${ghlHistoryStr}\n--- Recent local messages ---\n${historyStr}`;
-            }
-          } catch (err) {
-            console.error(`[FollowUp] Failed to fetch GHL history for lead ${leadId}:`, err);
+        let ghlHistoryMessages: any[] = [];
+        try {
+          ghlHistoryMessages = await fetchGhlConversationHistory(ghlContactId);
+          if (ghlHistoryMessages && ghlHistoryMessages.length > 0) {
+            const ghlHistoryStr = ghlHistoryMessages.filter((m: any) => m.body && m.body.trim())
+              .map((m: any) => `[${m.direction === "outbound" ? "agent" : "lead"}/${String(m.type || "msg")}] ${m.body}`).join("\n");
+            if (ghlHistoryStr) historyStr = `--- Full GHL conversation history (authoritative) ---\n${ghlHistoryStr}\n--- Recent local messages ---\n${historyStr}`;
+            console.log(`[FollowUp] GHL history fetched for lead ${leadId}: ${ghlHistoryMessages.length} messages`);
           }
+        } catch (err) {
+          console.error(`[FollowUp] Failed to fetch GHL history for lead ${leadId}:`, err);
+          // Continue — local history is better than nothing
         }
 
         // --- DORMANCY DETECTION (context only — Brain Council decides channel) ---
