@@ -1,6 +1,6 @@
 import axios from "axios";
 import { ENV } from "./_core/env";
-import { isAiOffline } from "./db";
+import { isAiOffline, getLeadByGhlContactId, updateLeadFields, getConversationHistory } from "./db";
 import { BRAND } from "../shared/brand-assets";
 
 const BRAND_EMAIL = BRAND.email;
@@ -140,6 +140,80 @@ export async function sendMessage(contactId: string, opts: {
   // Only ONE message per contact per 60 seconds. Period.
   if (!acquireSendGate(contactId)) {
     return { blocked: true, reason: "COOLDOWN", messageId: null };
+  }
+
+  // ========== GATE 3: Human Agent Activity Check ==========
+  // If a human agent recently sent a message (from GHL UI or any source),
+  // the AI MUST NOT send. This is the UNIVERSAL safeguard — every single
+  // outbound path flows through this function.
+  // Two layers:
+  //   (a) Check local DB humanTakeover flag + lastAgentActivityAt
+  //   (b) Check GHL conversation history for recent non-AI outbound messages
+  // ================================================================
+  const AGENT_TAKEOVER_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
+  try {
+    const lead = await getLeadByGhlContactId(contactId);
+    if (lead) {
+      // Layer A: Local DB flag
+      if (lead.humanTakeover === 1 && lead.lastAgentActivityAt) {
+        const agentAge = Date.now() - new Date(lead.lastAgentActivityAt).getTime();
+        if (agentAge < AGENT_TAKEOVER_WINDOW_MS) {
+          const minutesAgo = Math.round(agentAge / 60000);
+          console.log(`[SEND-GATE] \u274C BLOCKED send to ${contactId} — human agent active ${minutesAgo}min ago (within ${AGENT_TAKEOVER_WINDOW_MS / 60000}min window)`);
+          // Undo burst counter since we're not sending
+          globalSendTimestamps.pop();
+          lastSendTimestamps.delete(contactId);
+          return { blocked: true, reason: "HUMAN_AGENT_ACTIVE", messageId: null };
+        }
+      }
+
+      // Layer B: GHL conversation history scan
+      // Fetch recent GHL messages and check for non-AI outbound messages
+      try {
+        const ghlHistory = await fetchGhlConversationHistory(contactId);
+        if (ghlHistory.length > 0) {
+          const now = Date.now();
+          // Get our known AI messages from local DB for comparison
+          const localHistory = await getConversationHistory(lead.id, 30);
+          const knownAiMessages = new Set(
+            localHistory
+              .filter((c: any) => c.senderType === "ai" && c.messageBody)
+              .map((c: any) => c.messageBody.toLowerCase().trim())
+          );
+
+          // Find recent outbound GHL messages that are NOT from our AI
+          const recentAgentMessages = ghlHistory.filter(m => {
+            if (m.direction !== "outbound" || !m.body?.trim() || !m.dateAdded) return false;
+            const msgAge = now - new Date(m.dateAdded).getTime();
+            if (msgAge > AGENT_TAKEOVER_WINDOW_MS) return false;
+            // Check if this message matches a known AI message
+            const isKnownAi = knownAiMessages.has(m.body.toLowerCase().trim());
+            return !isKnownAi;
+          });
+
+          if (recentAgentMessages.length > 0) {
+            const latestAgent = recentAgentMessages.sort((a, b) =>
+              new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime()
+            )[0];
+            const agentMsgTime = new Date(latestAgent.dateAdded);
+            const minutesAgo = Math.round((now - agentMsgTime.getTime()) / 60000);
+            console.log(`[SEND-GATE] \u274C BLOCKED send to ${contactId} — GHL shows human agent message ${minutesAgo}min ago: "${latestAgent.body.substring(0, 80)}..."`);
+            // Update DB so future checks are faster (skip GHL API call)
+            await updateLeadFields(lead.id, { humanTakeover: 1, lastAgentActivityAt: agentMsgTime });
+            // Undo burst counter since we're not sending
+            globalSendTimestamps.pop();
+            lastSendTimestamps.delete(contactId);
+            return { blocked: true, reason: "HUMAN_AGENT_ACTIVE_GHL", messageId: null };
+          }
+        }
+      } catch (ghlErr) {
+        // GHL history fetch failed — log but don't block (fail OPEN for GHL API errors)
+        console.error(`[SEND-GATE] GHL history check failed for ${contactId} (non-fatal):`, ghlErr);
+      }
+    }
+  } catch (dbErr) {
+    // DB check failed — log but don't block (fail OPEN for DB errors)
+    console.error(`[SEND-GATE] Human agent check failed for ${contactId} (non-fatal):`, dbErr);
   }
 
   // ========== SEND ==========

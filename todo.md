@@ -316,3 +316,4 @@
 - [ ] Find why it fires 3 times for the same event at the same timestamp
 - [ ] Add deduplication guard (idempotency key or last-note-hash check)
 - [x] CRITICAL: AI ignores conversation history — re-initiates contact with already-contacted leads (Aundrea Tackett Apr 8 example). Root cause: GHL history not fetched/passed before Brain Council call in fast scanner / follow-up trigger. Must enforce GHL history fetch + 'already contacted' guard in ALL callers.
+- [x] CRITICAL: AI sends message even when human agent just sent from GHL UI — universal GATE 3 in sendMessage() blocks ALL paths (310-421-6702 example)
