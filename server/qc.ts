@@ -341,9 +341,18 @@ export function detectViolations(
     }
   }
 
-  // 9. CHANNEL MISMATCH — SMS for highly dormant leads should be Email
+  // 9. CHANNEL MISMATCH — Reply must stay on same channel as inbound message
+  // If the lead sent an inbound message on a specific channel, the reply MUST go back on that channel.
+  // This prevents the critical FB→SMS mismatch bug where leads get disconnected replies.
+  if (input.channel && strategy.channel && input.channel !== strategy.channel) {
+    // Only flag if this is a response to an inbound message (not proactive outreach)
+    const isResponding = ["answer_question", "provide_quote", "acknowledge_info", "confirm_details"].includes(strategy.approach);
+    if (isResponding) {
+      return { category: "channel_mismatch", reason: `Lead messaged on ${input.channel} but strategy chose ${strategy.channel}. Replies MUST stay on the same channel as the inbound message. The lead expects the reply in their ${input.channel} conversation.` };
+    }
+  }
+  // Also flag SMS for highly dormant leads (should use Email for re-engagement)
   if (strategy.channel === "SMS" && context.leadAgeDays > 60) {
-    // Strategist's own dormancy rules say 60+ day dormant leads should use Email
     return { category: "channel_mismatch", reason: `Strategy chose SMS for a lead dormant ${context.leadAgeDays} days (>60). Per dormancy rules, Email should be used for re-engagement of highly dormant leads.` };
   }
 

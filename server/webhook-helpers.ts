@@ -294,11 +294,16 @@ export function normalizeChannel(raw: unknown): string {
   if (lower === "6") return "WhatsApp";
   if (lower === "3") return "Email";
   if (lower === "2") return "SMS";
-  // String-based types
+  // String-based types (GHL sends various formats)
   if (lower.includes("email")) return "Email";
   if (lower.includes("whatsapp")) return "WhatsApp";
-  if (lower.includes("fb") || lower.includes("facebook") || lower.includes("live_chat")) return "FB";
+  if (lower.includes("fb") || lower.includes("facebook") || lower.includes("live_chat") || lower.includes("messenger")) return "FB";
   if (lower.includes("ig") || lower.includes("instagram")) return "IG";
+  if (lower.includes("sms") || lower.includes("text")) return "SMS";
+  // GHL sometimes sends generic types like "InboundMessage" or "Custom" — log and default
+  if (lower !== "sms" && lower !== "" && !lower.includes("inbound") && !lower.includes("custom")) {
+    console.warn(`[normalizeChannel] Unknown message type: "${String(raw)}" — defaulting to SMS. This may cause channel mismatch.`);
+  }
   return "SMS";
 }
 

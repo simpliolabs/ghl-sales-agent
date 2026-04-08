@@ -323,12 +323,13 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   // --- ACCOUNTABILITY: Handle blocked messages ---
   if (aiResponse.blocked && aiResponse.fallbackUsed && aiResponse.fallbackMessage) {
     console.log(`[Webhook] ⚠️ BLOCKED message for lead ${lead!.id}: ${aiResponse.blockReason}. Sending fallback.`);
-    const fallbackOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
+    const fallbackChannel = normalizeChannel(aiResponse.channel || channel);
+    const fallbackOpts: Parameters<typeof sendMessage>[1] = fallbackChannel === "Email"
       ? { type: "Email", subject: "Adorb Custom Tees", html: formatEmailHtml(aiResponse.fallbackMessage), fromName: aiResponse.fromName }
-      : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.fallbackMessage };
+      : { type: fallbackChannel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.fallbackMessage };
     const sendResult = await sendMessageWithRetry(resolvedContactId, fallbackOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
     if (!sendResult.success) console.error(`[Webhook/Msg] Fallback send failed for lead ${lead!.id}: ${sendResult.error}`);
-    await addConversation({ leadId: lead!.id, channel, direction: "outbound", messageBody: `[FALLBACK] ${aiResponse.fallbackMessage}`, senderType: "ai", senderName: aiResponse.fromName });
+    await addConversation({ leadId: lead!.id, channel: fallbackChannel, direction: "outbound", messageBody: `[FALLBACK] ${aiResponse.fallbackMessage}`, senderType: "ai", senderName: aiResponse.fromName });
     res.json({ success: true, action: "blocked_fallback_sent", violation: aiResponse.violationCategory, blockReason: aiResponse.blockReason });
     return;
   }
@@ -367,30 +368,38 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
         });
       } catch { /* best effort */ }
     }
+    // Use Brain Council's channel for handoff too
+    const handoffChannel = normalizeChannel(aiResponse.channel || channel);
     {
-      const handoffOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
+      const handoffOpts: Parameters<typeof sendMessage>[1] = handoffChannel === "Email"
         ? { type: "Email", subject: aiResponse.subject || `${aiResponse.fromName} from Adorb`, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName }
-        : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
+        : { type: handoffChannel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
       const sendResult = await sendMessageWithRetry(resolvedContactId, handoffOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
       if (sendResult.resolvedContactId !== resolvedContactId) resolvedContactId = sendResult.resolvedContactId;
       if (!sendResult.success) console.error(`[Webhook/Msg] Handoff send failed for lead ${lead!.id}: ${sendResult.error}`);
     }
-    await addConversation({ leadId: lead!.id, channel, direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName });
+    await addConversation({ leadId: lead!.id, channel: handoffChannel, direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName });
     res.json({ success: true, action: "ai_responded_and_handed_off" });
     return;
   }
 
   // --- NORMAL AI RESPONSE ---
+  // Use Brain Council's channel recommendation if available, otherwise fall back to inbound channel.
+  // This prevents FB→SMS mismatch when normalizeChannel can't detect the inbound type.
+  const sendChannel = normalizeChannel(aiResponse.channel || channel);
+  if (sendChannel !== channel) {
+    console.log(`[Webhook/Msg] Channel adjusted for lead ${lead!.id}: inbound=${channel} → send=${sendChannel} (Brain Council recommended: ${aiResponse.channel})`);
+  }
   {
-    const normalOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
+    const normalOpts: Parameters<typeof sendMessage>[1] = sendChannel === "Email"
       ? { type: "Email", subject: aiResponse.subject || `${aiResponse.fromName} from Adorb`, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName }
-      : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
+      : { type: sendChannel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
     const sendResult = await sendMessageWithRetry(resolvedContactId, normalOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
     if (sendResult.resolvedContactId !== resolvedContactId) resolvedContactId = sendResult.resolvedContactId;
     if (!sendResult.success) console.error(`[Webhook/Msg] Normal send failed for lead ${lead!.id}: ${sendResult.error}`);
   }
 
-  await addConversation({ leadId: lead!.id, channel, direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName });
+  await addConversation({ leadId: lead!.id, channel: sendChannel, direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName });
   await upsertAiState(lead!.id, { lastAngleUsed: aiResponse.angle, lastFrameworkUsed: aiResponse.framework, extractedDates: aiResponse.extractedDates as unknown as undefined, messageCount: undefined });
   await updateLeadFields(lead!.id, { opportunityScore: aiResponse.score, omnisendSegment: aiResponse.segment });
   try { await updateContactCustomField(contactId, [{ id: "opportunity_score", field_value: String(aiResponse.score) }]); } catch { /* custom field may not exist yet */ }
@@ -420,7 +429,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
 
   // Calculate next follow-up
   const scheduleResult = await calculateNextFollowUp({ leadId: lead!.id, aiSuggestedHours: aiResponse.nextEngagementHours, triggerEvent: "ai_response" });
-  await updateLeadFields(lead!.id, { nextFollowUpAt: scheduleResult.nextFollowUpAt, cadencePosition: scheduleResult.cadencePosition, preferredChannel: scheduleResult.channel, lastOutboundChannel: channel });
+  await updateLeadFields(lead!.id, { nextFollowUpAt: scheduleResult.nextFollowUpAt, cadencePosition: scheduleResult.cadencePosition, preferredChannel: scheduleResult.channel, lastOutboundChannel: sendChannel });
   console.log(`[Webhook] Scheduling engine for lead ${lead!.id}: ${scheduleResult.reason}`);
 
   // --- POST-SEND VALIDATION ---

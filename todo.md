@@ -271,3 +271,17 @@
 - [x] Wire editor to tRPC mutation with optimistic update and success/error feedback
 - [x] Add "last edited" timestamp display per KB entry
 - [x] Write tests for the update flow (9 tests in knowledge.test.ts)
+
+## BUG: AI ignoring customer details and responding without context
+- [x] Investigated: inbound message body flows correctly to Brain Council. The issue was the Strategist/QC not enforcing context-awareness strongly enough. Layer 3 QC substance checks (Question-Answer Check, Information-Acknowledgment Check, ignored_request detection) now catch this.
+- [x] Fixed: QC checks #13 (Question-Answer) and #14 (Information-Acknowledgment) verify the Composer used provided details.
+- [x] Fixed: ignored_request violation detects pricing keywords in inbound but missing from response.
+- [x] Fixed: provide_quote approach with DIRECT_RESPONSE framework mandates pricing info first.
+
+## BUG: FB inbound → SMS reply (channel mismatch)
+- [x] Root cause: webhook-message.ts used raw normalizeChannel(rawChannel) for sending, ignoring Brain Council's channel recommendation. If GHL sent unknown messageType, it defaulted to SMS.
+- [x] Fix 1: normalizeChannel enhanced with 'messenger', 'sms'/'text' detection + warning log for unknown types.
+- [x] Fix 2: webhook-message.ts now uses `normalizeChannel(aiResponse.channel || channel)` for ALL 3 send paths (fallback, handoff, normal). lastOutboundChannel also corrected.
+- [x] Fix 3: Strategist prompt now has CHANNEL PRESERVATION RULE — MUST reply on same channel as inbound.
+- [x] Fix 4: QC violation detector enhanced — channel_mismatch now catches responsive approaches that switch channels.
+- [x] Tests: 2 new normalizeChannel tests (messenger, sms/text). 208 total tests passing.

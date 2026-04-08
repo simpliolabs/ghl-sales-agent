@@ -149,8 +149,20 @@ describe("normalizeChannel", () => {
     expect(normalizeChannel("whatsapp")).toBe("WhatsApp");
   });
 
-  it("defaults to SMS for unknown types", () => {
+  it("detects 'messenger' as FB", () => {
+    expect(normalizeChannel("Messenger")).toBe("FB");
+    expect(normalizeChannel("messenger")).toBe("FB");
+    expect(normalizeChannel("FB Messenger")).toBe("FB");
+  });
+
+  it("detects 'sms' and 'text' strings as SMS", () => {
+    expect(normalizeChannel("sms")).toBe("SMS");
     expect(normalizeChannel("SMS")).toBe("SMS");
+    expect(normalizeChannel("text")).toBe("SMS");
+    expect(normalizeChannel("Text Message")).toBe("SMS");
+  });
+
+  it("defaults to SMS for unknown types", () => {
     expect(normalizeChannel("InboundMessage")).toBe("SMS");
     expect(normalizeChannel(undefined)).toBe("SMS");
     expect(normalizeChannel(null)).toBe("SMS");
