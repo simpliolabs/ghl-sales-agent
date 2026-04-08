@@ -224,7 +224,8 @@ export async function runComposer(
 - MUST Include: ${strategy.keyPoints.join(", ")}
 - MUST NOT Say: ${strategy.avoidPoints.join(", ")}
 
-=== RESEARCH BRIEF ===
+=== RESEARCH BRIEF (confidence: ${research.dataConfidence.toUpperCase()}) ===
+${research.dataConfidence === "inferred" ? "⚠️ INFERRED DATA — some facts below are LLM inferences, NOT verified. Only reference specifics if they also appear in Form Data or Conversation History. Do NOT state inferred facts as certainties." : research.dataConfidence === "insufficient" ? "⚠️ INSUFFICIENT DATA — use generic personalization only. Do NOT invent specific details about their business." : "✅ VERIFIED — all facts sourced from form data or conversation history."}
 - Company: ${research.companyInfo}
 - Recent Activity: ${research.recentActivity}
 - Pain Points: ${research.likelyPainPoints.join(", ")}

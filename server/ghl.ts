@@ -38,6 +38,33 @@ setInterval(() => {
   keysToDelete.forEach(k => lastSendTimestamps.delete(k));
 }, 5 * 60 * 1000);
 
+// ============================================================
+// GLOBAL BURST LIMITER — API Storm Prevention
+// Prevents multiple simultaneous callers (follow-up timer, fast scanner,
+// self-review, webhooks) from flooding GHL with concurrent API calls.
+// Max 10 sends per 60-second rolling window across ALL contacts.
+// ============================================================
+const BURST_WINDOW_MS = 60_000; // 60-second rolling window
+const BURST_MAX_SENDS = 10;     // max sends per window
+const globalSendTimestamps: number[] = []; // epoch ms of each recent send
+
+function checkGlobalBurstLimit(): boolean {
+  const now = Date.now();
+  const cutoff = now - BURST_WINDOW_MS;
+  // Remove timestamps outside the window
+  while (globalSendTimestamps.length > 0 && globalSendTimestamps[0] < cutoff) {
+    globalSendTimestamps.shift();
+  }
+  if (globalSendTimestamps.length >= BURST_MAX_SENDS) {
+    const oldest = globalSendTimestamps[0];
+    const resetInMs = BURST_WINDOW_MS - (now - oldest);
+    console.log(`[SEND-GATE] ⚡ GLOBAL BURST LIMIT hit (${globalSendTimestamps.length}/${BURST_MAX_SENDS} in last 60s) — resets in ${Math.ceil(resetInMs / 1000)}s`);
+    return false;
+  }
+  globalSendTimestamps.push(now);
+  return true;
+}
+
 /**
  * Check if a send to this contact is allowed (not within cooldown).
  * If allowed, atomically marks the timestamp so no other concurrent caller can pass.
@@ -45,10 +72,14 @@ setInterval(() => {
  */
 function acquireSendGate(contactId: string): boolean {
   const now = Date.now();
+  // Global burst check first — prevents API storms from concurrent callers
+  if (!checkGlobalBurstLimit()) return false;
   const lastSend = lastSendTimestamps.get(contactId);
   if (lastSend && (now - lastSend) < COOLDOWN_SECONDS * 1000) {
     const secondsAgo = Math.round((now - lastSend) / 1000);
     console.log(`[SEND-GATE] ❌ BLOCKED send to ${contactId} — last send was ${secondsAgo}s ago (cooldown: ${COOLDOWN_SECONDS}s)`);
+    // Undo the burst counter increment since we're not actually sending
+    globalSendTimestamps.pop();
     return false;
   }
   // Atomically set the timestamp — JavaScript is single-threaded so this is safe

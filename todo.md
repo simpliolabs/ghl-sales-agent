@@ -285,3 +285,8 @@
 - [x] Fix 3: Strategist prompt now has CHANNEL PRESERVATION RULE — MUST reply on same channel as inbound.
 - [x] Fix 4: QC violation detector enhanced — channel_mismatch now catches responsive approaches that switch channels.
 - [x] Tests: 2 new normalizeChannel tests (messenger, sms/text). 208 total tests passing.
+
+## Security/Resilience Audit: 6 Threat Vectors
+- [x] GAP FIXED: LLM invocation now has 120s AbortController timeout. Hung calls throw "LLM invoke timed out" error, releasing the Brain Council lock cleanly. 180s margin before the 300s lock TTL expires.
+- [x] GAP FIXED: Global burst limiter added to acquireSendGate() in ghl.ts. Max 10 sends per 60-second rolling window across ALL callers. Burst counter auto-rolls back if per-contact cooldown blocks the send.
+- [x] GAP FIXED: ResearchResult now has dataConfidence field ("verified" | "inferred" | "insufficient"). Researcher LLM self-labels confidence. Composer prompt shows ⚠️ INFERRED DATA warning with instruction to not state inferred facts as certainties. emptyResearch() returns "verified" (form data only). 208 tests passing.

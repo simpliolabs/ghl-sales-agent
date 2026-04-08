@@ -93,8 +93,9 @@ Produce your research brief now.`;
             competitorInsights: { type: "string", description: "What alternatives they might be considering" },
             seasonalRelevance: { type: "string", description: "Any seasonal hooks relevant right now" },
             summary: { type: "string", description: "1-2 sentence research summary for the composer" },
+            dataConfidence: { type: "string", enum: ["verified", "inferred", "insufficient"], description: "'verified' if all facts from form data/conversation history; 'inferred' if any facts are LLM inferences from business name/segment; 'insufficient' if not enough data" },
           },
-          required: ["companyInfo", "recentActivity", "likelyPainPoints", "connectionPoints", "competitorInsights", "seasonalRelevance", "summary"],
+          required: ["companyInfo", "recentActivity", "likelyPainPoints", "connectionPoints", "competitorInsights", "seasonalRelevance", "summary", "dataConfidence"],
           additionalProperties: false,
         },
       },
@@ -106,8 +107,12 @@ Produce your research brief now.`;
     companyInfo: "Unknown", recentActivity: "None", likelyPainPoints: [],
     connectionPoints: [], competitorInsights: "Unknown", seasonalRelevance: "None",
     summary: "Insufficient data for research",
+    dataConfidence: "insufficient" as const,
   };
-  return JSON.parse(content as string);
+  const parsed = JSON.parse(content as string);
+  // Ensure dataConfidence is always set — older LLM responses may omit it
+  if (!parsed.dataConfidence) parsed.dataConfidence = "inferred";
+  return parsed;
 }
 
 /** Returns a minimal empty research result — used when research is skipped (e.g. first contact) */
@@ -120,5 +125,6 @@ export function emptyResearch(): ResearchResult {
     competitorInsights: "N/A",
     seasonalRelevance: "None",
     summary: "Research skipped for first contact — using form data only",
+    dataConfidence: "verified", // first contact uses only form data (ground truth)
   };
 }

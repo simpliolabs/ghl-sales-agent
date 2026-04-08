@@ -74,6 +74,13 @@ export interface ResearchResult {
   competitorInsights: string;
   seasonalRelevance: string;
   summary: string;
+  /** Confidence level for this research output.
+   * - "verified": all facts sourced from form data or conversation history (ground truth)
+   * - "inferred": some facts are LLM inferences from business name/segment (may be wrong)
+   * - "insufficient": not enough data to produce reliable research
+   * Downstream brains (Composer, QC) use this to calibrate how much to rely on research details.
+   */
+  dataConfidence: "verified" | "inferred" | "insufficient";
 }
 
 export interface ComposedMessage {

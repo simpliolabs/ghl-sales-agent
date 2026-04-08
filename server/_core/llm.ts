@@ -265,6 +265,11 @@ const normalizeResponseFormat = ({
   };
 };
 
+/** Maximum time to wait for a single LLM response before aborting (120 seconds).
+ * This prevents hung LLM calls from holding the Brain Council lock indefinitely.
+ * The lock TTL is 300s, so a 120s timeout leaves 180s margin for cleanup. */
+const LLM_CALL_TIMEOUT_MS = 120_000;
+
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   assertApiKey();
 
@@ -312,14 +317,33 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
-  const response = await fetch(resolveApiUrl(), {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
-    },
-    body: JSON.stringify(payload),
-  });
+  // Timeout guard: abort the fetch if the LLM takes longer than LLM_CALL_TIMEOUT_MS.
+  // Without this, a hung LLM call holds the Brain Council DB lock for the full 5-minute TTL,
+  // blocking all subsequent messages to the same lead.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, LLM_CALL_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(resolveApiUrl(), {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${ENV.forgeApiKey}`,
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } catch (fetchErr: unknown) {
+    clearTimeout(timeoutId);
+    if (fetchErr instanceof Error && fetchErr.name === "AbortError") {
+      throw new Error(`LLM invoke timed out after ${LLM_CALL_TIMEOUT_MS / 1000}s — request aborted`);
+    }
+    throw fetchErr;
+  }
+  clearTimeout(timeoutId);
 
   if (!response.ok) {
     const errorText = await response.text();
