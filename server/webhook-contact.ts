@@ -223,8 +223,27 @@ async function sendDelayedFirstContact(
       const recentInbound = await getConversationHistory(leadId, 10);
       const inboundOnly = recentInbound.filter((c: any) => c.direction === "inbound");
       if (checkDnc(inboundOnly)) {
-        console.log(`[Webhook] \u{1F6AB} DNC keyword detected for lead ${leadId} — setting humanTakeover=1, skipping first-contact`);
-        await updateLeadFields(leadId, { humanTakeover: 1 });
+        console.log(`[Webhook] \u{1F6AB} DNC keyword detected for lead ${leadId} — moving to Not Qualified`);
+        await updateLeadFields(leadId, { humanTakeover: 1, pipelineStage: "not_qualified" });
+        // Move in GHL pipeline too
+        try {
+          const leadData = lead as any;
+          if (leadData.ghlOpportunityId && leadData.ghlPipelineId) {
+            const NQ_STAGES: Record<string, string> = {
+              "OpojlMx3cTa0ts0e2pMc": "6f1ca442-4a6b-490f-bf49-95a5870f7f86",
+              "5YIrCvKmzb27yXHP3fBF": "6ca358e4-db09-4818-9896-ab21bad0c0e7",
+            };
+            const nqStageId = NQ_STAGES[leadData.ghlPipelineId];
+            if (nqStageId) {
+              await updateOpportunityStage(leadData.ghlOpportunityId, nqStageId);
+              await updateLeadFields(leadId, { ghlStageId: nqStageId });
+            }
+          }
+          if (resolvedContactId) {
+            const { addNote: addGhlNote } = await import("./ghl");
+            await addGhlNote(resolvedContactId, `\u{1F916} DNC detected — lead opted out. Moved to Not Qualified.`);
+          }
+        } catch { /* best effort GHL update */ }
         return;
       }
     } catch (dncErr) {

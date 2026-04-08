@@ -22,6 +22,7 @@ import { scoreLeadQuick } from "./ai-brain";
 import { getPatternAnalysis, backfillOutcomes } from "./outcome-engine";
 import { processOverdueFollowUps } from "./follow-up-trigger";
 import { runLookback } from "./lookback-engine";
+import { runDispositionSweep } from "./lead-disposition";
 
 // Auto-synthesize uploaded content using LLM
 async function synthesizeContent(rawText: string, fileName: string): Promise<string> {
@@ -143,6 +144,10 @@ export const appRouter = router({
     }),
     triggerFollowUps: adminProcedure.mutation(async () => {
       const result = await processOverdueFollowUps();
+      return result;
+    }),
+    triggerDisposition: adminProcedure.mutation(async () => {
+      const result = await runDispositionSweep();
       return result;
     }),
     triggerLookback: adminProcedure.input(z.object({

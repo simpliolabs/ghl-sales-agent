@@ -190,12 +190,37 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
           .limit(5);
 
         if (checkDnc(recentInbound)) {
-          // Auto-flag the lead so future checks are instant via humanTakeover check
+          // Auto-flag the lead AND move to Not Qualified
           await db2.update(leads)
-            .set({ humanTakeover: 1 })
+            .set({ humanTakeover: 1, pipelineStage: "not_qualified" })
             .where(eq(leads.id, input.leadId));
-          console.log(`[BrainCouncil] 🚫 DNC keyword detected for lead ${input.leadId} — set humanTakeover=1`);
-          return abortResult("DNC keyword detected — lead opted out. humanTakeover set to 1.", input.leadId);
+          // Also move in GHL pipeline if we have the opportunity ID
+          try {
+            const [leadRow] = await db2.select({
+              ghlOpportunityId: leads.ghlOpportunityId,
+              ghlPipelineId: leads.ghlPipelineId,
+              ghlContactId: leads.ghlContactId,
+            }).from(leads).where(eq(leads.id, input.leadId)).limit(1);
+            if (leadRow?.ghlOpportunityId && leadRow?.ghlPipelineId) {
+              const { updateOpportunityStage, addNote: addGhlNote } = await import("./ghl");
+              const NQ_STAGES: Record<string, string> = {
+                "OpojlMx3cTa0ts0e2pMc": "6f1ca442-4a6b-490f-bf49-95a5870f7f86",
+                "5YIrCvKmzb27yXHP3fBF": "6ca358e4-db09-4818-9896-ab21bad0c0e7",
+              };
+              const nqStageId = NQ_STAGES[leadRow.ghlPipelineId];
+              if (nqStageId) {
+                await updateOpportunityStage(leadRow.ghlOpportunityId, nqStageId);
+                await db2.update(leads).set({ ghlStageId: nqStageId }).where(eq(leads.id, input.leadId));
+              }
+              if (leadRow.ghlContactId) {
+                await addGhlNote(leadRow.ghlContactId, `🤖 DNC detected — lead opted out. Moved to Not Qualified.`);
+              }
+            }
+          } catch (nqErr) {
+            console.error(`[BrainCouncil] Failed to move DNC lead ${input.leadId} to Not Qualified in GHL:`, nqErr);
+          }
+          console.log(`[BrainCouncil] 🚫 DNC keyword detected for lead ${input.leadId} — moved to Not Qualified`);
+          return abortResult("DNC keyword detected — lead opted out. Moved to Not Qualified.", input.leadId);
         }
       }
     } catch (err) {

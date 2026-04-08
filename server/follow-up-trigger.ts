@@ -125,8 +125,27 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
           const recentInbound = await getConversationHistory(leadId, 10);
           const inboundOnly = recentInbound.filter((c: any) => c.direction === "inbound");
           if (checkDnc(inboundOnly)) {
-            console.log(`[FollowUp] \u{1F6AB} DNC keyword detected for lead ${leadId} (${leadName}) \u2014 setting humanTakeover=1 and skipping`);
-            await updateLeadFields(leadId, { humanTakeover: 1 });
+            console.log(`[FollowUp] \u{1F6AB} DNC keyword detected for lead ${leadId} (${leadName}) \u2014 moving to Not Qualified`);
+            await updateLeadFields(leadId, { humanTakeover: 1, pipelineStage: "not_qualified" });
+            // Move in GHL pipeline too
+            try {
+              const { updateOpportunityStage, addNote: addGhlNote } = await import("./ghl");
+              const leadData = lead as any;
+              if (leadData.ghlOpportunityId && leadData.ghlPipelineId) {
+                const NQ_STAGES: Record<string, string> = {
+                  "OpojlMx3cTa0ts0e2pMc": "6f1ca442-4a6b-490f-bf49-95a5870f7f86",
+                  "5YIrCvKmzb27yXHP3fBF": "6ca358e4-db09-4818-9896-ab21bad0c0e7",
+                };
+                const nqStageId = NQ_STAGES[leadData.ghlPipelineId];
+                if (nqStageId) {
+                  await updateOpportunityStage(leadData.ghlOpportunityId, nqStageId);
+                  await updateLeadFields(leadId, { ghlStageId: nqStageId });
+                }
+              }
+              if (ghlContactId) {
+                await addGhlNote(ghlContactId, `\u{1F916} DNC detected \u2014 lead opted out. Moved to Not Qualified.`);
+              }
+            } catch { /* best effort GHL update */ }
             stats.skipped++;
             continue;
           }

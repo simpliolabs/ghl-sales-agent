@@ -21,6 +21,7 @@ import { backfillOutcomes } from "./outcome-engine";
 import { processOverdueFollowUps } from "./follow-up-trigger";
 import { runLookback } from "./lookback-engine";
 import { runBrainCouncilSelfReview } from "./brain-council-review";
+import { runDispositionSweep } from "./lead-disposition";
 
 // --- IN-MEMORY DEDUP LOCK ---
 // Prevents concurrent processing of the same message webhook.
@@ -220,6 +221,37 @@ export function createWebhookRouter(): Router {
       councilReviewRunning = false;
     }
   }, 5 * 60 * 1000);
+
+  // --- LEAD DISPOSITION SWEEP: Clean up stuck/stale leads every 2 hours ---
+  let dispositionRunning = false;
+  setInterval(async () => {
+    if (dispositionRunning) return;
+    dispositionRunning = true;
+    try {
+      const stats = await runDispositionSweep();
+      if (stats.processed > 0) {
+        console.log(`[Disposition/Timer] ${stats.dncDisposed} DNC disposed, ${stats.emailEscalated} email escalated, ${stats.takeoverExpired} takeover expired, ${stats.errors} errors`);
+      }
+    } catch (err) {
+      console.error('[Disposition/Timer] Error:', err);
+    } finally {
+      dispositionRunning = false;
+    }
+  }, 2 * 60 * 60 * 1000); // Every 2 hours
+
+  // Run initial disposition sweep 3 minutes after startup
+  setTimeout(async () => {
+    if (dispositionRunning) return;
+    dispositionRunning = true;
+    try {
+      const stats = await runDispositionSweep();
+      console.log(`[Disposition/Timer] Initial sweep: ${stats.dncDisposed} DNC disposed, ${stats.emailEscalated} email escalated, ${stats.takeoverExpired} takeover expired, ${stats.errors} errors`);
+    } catch (err) {
+      console.error('[Disposition/Timer] Initial sweep error:', err);
+    } finally {
+      dispositionRunning = false;
+    }
+  }, 3 * 60 * 1000);
 
   // --- WEBHOOK HEALTH CHECK ---
   router.get("/api/webhooks/health", (_req: Request, res: Response) => {
