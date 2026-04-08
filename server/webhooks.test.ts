@@ -66,7 +66,7 @@ vi.mock("./lead-researcher", () => ({
   researchLead: vi.fn().mockResolvedValue({ summary: "Test research", businessType: "brand", potentialNeeds: ["t-shirts"], notes: "" }),
 }));
 
-import { createWebhookRouter } from "./webhooks";
+import { createWebhookRouter, _resetPipelineLockForTests } from "./webhooks";
 import express from "express";
 import request from "supertest";
 import { beforeAll, afterAll } from "vitest";
@@ -94,6 +94,7 @@ describe("Webhook Router", () => {
   beforeEach(() => {
     app = createTestApp();
     vi.clearAllMocks();
+    _resetPipelineLockForTests(); // reset pipeline dedup lock between tests
   });
 
   describe("Unified endpoint /api/webhooks/ghl", () => {
@@ -317,6 +318,7 @@ describe("Research context and auto-scheduling", () => {
   beforeEach(() => {
     app = createTestApp();
     vi.clearAllMocks();
+    _resetPipelineLockForTests(); // reset pipeline dedup lock between tests
   });
 
   it("generates research context for new contacts with business name", async () => {
@@ -373,6 +375,7 @@ describe("Dedup guard and cadence backoff", () => {
   beforeEach(() => {
     app = createTestApp();
     vi.clearAllMocks();
+    _resetPipelineLockForTests(); // reset pipeline dedup lock between tests
   });
 
   it("skips AI outreach on contact create if recent AI message exists (dedup)", async () => {
@@ -475,6 +478,7 @@ describe("Form data extraction in contact webhook", () => {
   beforeEach(() => {
     app = createTestApp();
     vi.clearAllMocks();
+    _resetPipelineLockForTests(); // reset pipeline dedup lock between tests
   });
 
   it("uses Brain Council (not locked template) for first contact when form data is present", async () => {
@@ -514,6 +518,7 @@ describe("GHL workflow payload normalization", () => {
   beforeEach(() => {
     app = createTestApp();
     vi.clearAllMocks();
+    _resetPipelineLockForTests(); // reset pipeline dedup lock between tests
   });
 
   it("handles workflow-style inbound message with contact_id and nested message.body", async () => {
@@ -584,6 +589,7 @@ describe("Concurrent message dedup lock", () => {
   beforeEach(() => {
     app = createTestApp();
     vi.clearAllMocks();
+    _resetPipelineLockForTests(); // reset pipeline dedup lock between tests
   });
 
   it("blocks duplicate concurrent message webhooks for the same contact+body", async () => {

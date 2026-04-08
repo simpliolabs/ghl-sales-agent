@@ -29,6 +29,37 @@ import { runBrainCouncilSelfReview } from "./brain-council-review";
 const MESSAGE_DEDUP_LOCK = new Map<string, number>();
 const DEDUP_LOCK_TTL_MS = 30_000;
 
+// --- PIPELINE STAGE DEDUP LOCK ---
+// GHL can fire multiple webhooks for the same stage change (workflow triggers + direct API events).
+// This prevents duplicate notes, tasks, and notifications for the same stage transition.
+// Key: contactId + toStage, Value: timestamp. Expires after 60 seconds.
+const PIPELINE_DEDUP_LOCK = new Map<string, number>();
+const PIPELINE_DEDUP_TTL_MS = 60_000;
+
+function acquirePipelineLock(contactId: string, toStage: string): boolean {
+  const now = Date.now();
+  // Clean expired locks
+  Array.from(PIPELINE_DEDUP_LOCK.entries()).forEach(([key, ts]) => {
+    if (now - ts > PIPELINE_DEDUP_TTL_MS) PIPELINE_DEDUP_LOCK.delete(key);
+  });
+  const lockKey = `${contactId}:${toStage}`;
+  if (PIPELINE_DEDUP_LOCK.has(lockKey)) {
+    console.log(`[Webhook/Dedup] Duplicate pipeline stage webhook blocked: ${lockKey}`);
+    return false;
+  }
+  PIPELINE_DEDUP_LOCK.set(lockKey, now);
+  return true;
+}
+
+function releasePipelineLock(contactId: string, toStage: string): void {
+  PIPELINE_DEDUP_LOCK.delete(`${contactId}:${toStage}`);
+}
+
+/** Exported only for test teardown — clears all pipeline dedup locks. */
+export function _resetPipelineLockForTests(): void {
+  PIPELINE_DEDUP_LOCK.clear();
+}
+
 function acquireMessageLock(contactId: string, messageBody: string): boolean {
   // Clean expired locks
   const now = Date.now();
@@ -241,10 +272,22 @@ export function createWebhookRouter(): Router {
           }
           break;
         }
-        case "pipeline":
+        case "pipeline": {
           action = "pipeline_handler";
-          await handlePipelineWebhook(payload, res);
+          const pipelineStage = (payload.currentStage || payload.toStage || payload.stageName || "") as string;
+          if (!acquirePipelineLock(contactId, pipelineStage)) {
+            action = "pipeline_dedup_blocked";
+            res.json({ success: true, action: "pipeline_dedup_blocked" });
+            break;
+          }
+          try {
+            await handlePipelineWebhook(payload, res);
+          } finally {
+            // Keep lock for 60s — do NOT release immediately, to block late-arriving duplicates
+            // releasePipelineLock is intentionally NOT called here
+          }
           break;
+        }
         case "task":
           action = "task_handler";
           await handleTaskWebhook(payload, res);
@@ -265,6 +308,12 @@ export function createWebhookRouter(): Router {
             }
           } else if (payload.currentStage || payload.toStage || payload.stageName || payload.pipelineId) {
             action = "fallback_pipeline";
+            const fbPipelineStage = (payload.currentStage || payload.toStage || payload.stageName || "") as string;
+            if (!acquirePipelineLock(contactId, fbPipelineStage)) {
+              action = "pipeline_dedup_blocked";
+              res.json({ success: true, action: "pipeline_dedup_blocked" });
+              break;
+            }
             await handlePipelineWebhook(payload, res);
           } else if (payload.id || payload.contactId) {
             action = "fallback_contact";
@@ -329,7 +378,14 @@ export function createWebhookRouter(): Router {
   });
 
   router.post("/api/webhooks/ghl/pipeline", async (req: Request, res: Response) => {
-    try { await handlePipelineWebhook(normalizeWorkflowPayload(req.body), res); } catch (err) {
+    const legacyPayload = normalizeWorkflowPayload(req.body);
+    const legacyContactId = (legacyPayload.contactId || legacyPayload.id || "") as string;
+    const legacyStage = (legacyPayload.currentStage || legacyPayload.toStage || legacyPayload.stageName || "") as string;
+    if (!acquirePipelineLock(legacyContactId, legacyStage)) {
+      res.json({ success: true, action: "pipeline_dedup_blocked" });
+      return;
+    }
+    try { await handlePipelineWebhook(legacyPayload, res); } catch (err) {
       console.error("[Webhook] Pipeline error:", err); res.status(500).json({ error: "Internal error" });
     }
   });

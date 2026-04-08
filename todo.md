@@ -310,3 +310,8 @@
 ## BUG: Composer hallucinating specifics not in the message ("5XL color option")
 - [x] Fixed: STRICT NO-HALLUCINATION RULES section added to Composer prompt with explicit examples (wrong: "Glad the 5XL color option works!", right: echo exact details back).
 - [x] Fixed: QC check #10 catches unfulfillable commitments (safety_violation). dataConfidence="inferred" warning already prevents fabricated research facts from being stated as certainties. 208 tests passing.
+
+## BUG: Duplicate GHL notes — same note created 3x for same pipeline stage event
+- [ ] Find where "Proof sent to customer. Follow-up scheduled..." note is created
+- [ ] Find why it fires 3 times for the same event at the same timestamp
+- [ ] Add deduplication guard (idempotency key or last-note-hash check)
