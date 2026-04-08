@@ -98,9 +98,9 @@ describe("normalizeChannel", () => {
     expect(normalizeChannel("4")).toBe("FB");
   });
 
-  it("detects GHL numeric type 15 (Live_Chat) as FB", () => {
-    expect(normalizeChannel(15)).toBe("FB");
-    expect(normalizeChannel("15")).toBe("FB");
+  it("detects GHL numeric type 15 as Live_Chat", () => {
+    expect(normalizeChannel(15)).toBe("Live_Chat");
+    expect(normalizeChannel("15")).toBe("Live_Chat");
   });
 
   it("detects GHL numeric type 5 as IG", () => {
@@ -129,9 +129,9 @@ describe("normalizeChannel", () => {
     expect(normalizeChannel("Facebook")).toBe("FB");
   });
 
-  it("detects 'live_chat' as FB", () => {
-    expect(normalizeChannel("Live_Chat")).toBe("FB");
-    expect(normalizeChannel("live_chat")).toBe("FB");
+  it("detects 'live_chat' as Live_Chat", () => {
+    expect(normalizeChannel("Live_Chat")).toBe("Live_Chat");
+    expect(normalizeChannel("live_chat")).toBe("Live_Chat");
   });
 
   it("detects string 'IG' as IG", () => {

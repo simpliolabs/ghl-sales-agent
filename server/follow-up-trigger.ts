@@ -21,6 +21,7 @@ import { sendMessage, addNote, fetchGhlConversationHistory, getContact } from ".
 import { sendMessageWithRetry, normalizeChannel, extractFormData, isLlmExhausted, LLM_RETRY_DELAY_MS, formatEmailHtml } from "./webhook-helpers";
 import { shouldHandoffToAgent, estimateOrderValue, generateContactNotes } from "./ai-brain";
 import { notifyOwner } from "./_core/notification";
+import { handleChannelDnc, detectDncChannel } from "./channel-fallback";
 
 const MAX_PER_CYCLE = 10;
 const MIN_MINUTES_BETWEEN_AI = 5;
@@ -125,27 +126,31 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
           const recentInbound = await getConversationHistory(leadId, 10);
           const inboundOnly = recentInbound.filter((c: any) => c.direction === "inbound");
           if (checkDnc(inboundOnly)) {
-            console.log(`[FollowUp] \u{1F6AB} DNC keyword detected for lead ${leadId} (${leadName}) \u2014 moving to Not Qualified`);
-            await updateLeadFields(leadId, { humanTakeover: 1, pipelineStage: "not_qualified" });
-            // Move in GHL pipeline too
-            try {
-              const { updateOpportunityStage, addNote: addGhlNote } = await import("./ghl");
-              const leadData = lead as any;
-              if (leadData.ghlOpportunityId && leadData.ghlPipelineId) {
-                const NQ_STAGES: Record<string, string> = {
-                  "OpojlMx3cTa0ts0e2pMc": "6f1ca442-4a6b-490f-bf49-95a5870f7f86",
-                  "5YIrCvKmzb27yXHP3fBF": "6ca358e4-db09-4818-9896-ab21bad0c0e7",
-                };
-                const nqStageId = NQ_STAGES[leadData.ghlPipelineId];
-                if (nqStageId) {
-                  await updateOpportunityStage(leadData.ghlOpportunityId, nqStageId);
-                  await updateLeadFields(leadId, { ghlStageId: nqStageId });
+            // CHANNEL-SPECIFIC DNC: block only the channel the DNC was received on
+            const dncChannel = detectDncChannel((lead as any).preferredChannel || (lead as any).lastOutboundChannel || "SMS");
+            const result = await handleChannelDnc(leadId, lead, dncChannel, ghlContactId);
+            if (result.action === "not_qualified") {
+              // ALL channels exhausted — move to Not Qualified
+              await updateLeadFields(leadId, { humanTakeover: 1, pipelineStage: "not_qualified" });
+              try {
+                const { updateOpportunityStage } = await import("./ghl");
+                const leadData = lead as any;
+                if (leadData.ghlOpportunityId && leadData.ghlPipelineId) {
+                  const NQ_STAGES: Record<string, string> = {
+                    "OpojlMx3cTa0ts0e2pMc": "6f1ca442-4a6b-490f-bf49-95a5870f7f86",
+                    "5YIrCvKmzb27yXHP3fBF": "6ca358e4-db09-4818-9896-ab21bad0c0e7",
+                  };
+                  const nqStageId = NQ_STAGES[leadData.ghlPipelineId];
+                  if (nqStageId) {
+                    await updateOpportunityStage(leadData.ghlOpportunityId, nqStageId);
+                    await updateLeadFields(leadId, { ghlStageId: nqStageId });
+                  }
                 }
-              }
-              if (ghlContactId) {
-                await addGhlNote(ghlContactId, `\u{1F916} DNC detected \u2014 lead opted out. Moved to Not Qualified.`);
-              }
-            } catch { /* best effort GHL update */ }
+              } catch { /* best effort GHL update */ }
+              console.log(`[FollowUp] \u{1F6AB} DNC on ${dncChannel} — ALL channels exhausted for lead ${leadId} (${leadName}) → Not Qualified`);
+            } else {
+              console.log(`[FollowUp] \u{1F504} DNC on ${dncChannel} — escalated lead ${leadId} (${leadName}) to ${result.nextChannel}`);
+            }
             stats.skipped++;
             continue;
           }

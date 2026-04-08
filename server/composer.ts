@@ -38,6 +38,7 @@ You receive a STRATEGY DIRECTIVE and RESEARCH BRIEF, and you write the actual me
 
 === MESSAGE RULES ===
 - SMS: 1-3 sentences max, plain text, no signature needed
+- Live_Chat: IMMEDIATE, concise response. 1-2 sentences max. Visitor is LIVE on the website right now — respond like a live agent. Ask for their email/phone early so you don't lose them when the chat ends.
 - Email: MUST use short punchy lines with line breaks between them (Hormozi/Martell style)
 - Email: NEVER write one long paragraph. Each thought gets its own line.
 - Email: Include subject line (under 25 chars, curiosity-driven)
@@ -249,8 +250,9 @@ ${research.dataConfidence === "inferred" ? "⚠️ INFERRED DATA — some facts 
 === LEAD CONTEXT ===
 - Name: ${lead.name || "Unknown"}
 - Business: ${lead.businessName || "Unknown"}
-- Email on file: ${lead.email || "none"} ⚠️ NEVER ask for this if it is not "none"
-- Phone on file: ${lead.phone || "none"} ⚠️ NEVER ask for this if it is not "none"
+- Email on file: ${lead.email || "none"} ${lead.email ? "⚠️ NEVER ask for this — already on file" : ""}
+- Phone on file: ${lead.phone || "none"} ${lead.phone ? "⚠️ NEVER ask for this — already on file" : ""}
+${!lead.email && !lead.phone ? "⚠️ CRITICAL: BOTH email AND phone are MISSING. Your #1 priority in this message is to naturally ask for contact details (email or phone) so we don't lose this lead. Weave it into the conversation — e.g., 'What\'s the best email or number to reach you at?' Do NOT skip this." : !lead.email ? "💡 Email is missing — if natural, ask for their email to send quotes/proofs." : !lead.phone ? "💡 Phone is missing — if natural, ask for their number for quick updates." : ""}
 - Assigned Agent: ${lead.assignedAgent || "Adorb Custom Tees"}
 - Pipeline Stage: ${lead.pipelineStage}
 

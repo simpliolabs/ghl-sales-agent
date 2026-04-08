@@ -162,10 +162,17 @@ are the most important context for deciding what to say next.
 
 === CHANNEL PRESERVATION RULE (CRITICAL) ===
 When the lead sent an inbound message, you MUST reply on the SAME channel they used.
+- If the lead messaged on Live_Chat → channel MUST be "Live_Chat" (HIGHEST PRIORITY — visitor is live on website)
 - If the lead messaged on FB → channel MUST be "FB"
 - If the lead messaged on IG → channel MUST be "IG"
 - If the lead messaged on WhatsApp → channel MUST be "WhatsApp"
 - If the lead messaged on Email → channel MUST be "Email"
+
+=== LIVE CHAT URGENCY RULE ===
+When channel is Live_Chat, the visitor is LIVE on the website RIGHT NOW. Treat this as highest priority.
+- Response must be immediate and concise (1-2 sentences)
+- If email AND phone are both missing, your CTA MUST ask for contact details
+- Do NOT use long frameworks (PAS, SOAP_OPERA) — use DIRECT_RESPONSE or VALUE_FIRST only
 - If the lead messaged on SMS → channel MUST be "SMS"
 NEVER switch channels when responding to an inbound message. The lead expects the reply in the same conversation thread.
 Only choose a DIFFERENT channel for proactive outreach (awareness = OUTREACH) when the lead has no recent inbound.
@@ -220,9 +227,12 @@ LEAD PROFILE:
 ENGAGEMENT STATE:
 - First response? ${isFirstResponse ? "YES — this is the very first message to this lead" : "NO — there are prior messages"}
 - Lead age: ${leadAgeDays} days (${urgencyStage})
-- Channel: ${input.channel}
+- Channel: ${input.channel}${input.channel === "Live_Chat" ? " ⚠️ LIVE VISITOR ON WEBSITE — respond immediately, keep it short" : ""}
 - Unanswered outbound messages: ${unansweredCount}
 - Total messages: ${context.convHistory.length}
+- Email on file: ${lead.email ? "YES" : "NO"}
+- Phone on file: ${lead.phone ? "YES" : "NO"}
+${!lead.email && !lead.phone ? "⚠️ CONTACT GAP: Both email AND phone are MISSING. CTA must ask for contact details to avoid losing this lead." : ""}
 - Last framework used: ${state?.lastFrameworkUsed || "none"}
 - Last angle used: ${state?.lastAngleUsed || "none"}
 - Sentiment trend: ${state?.sentimentTrend || "neutral"}
@@ -278,7 +288,7 @@ STEP 4: Produce your strategic directive. PRIORITIZE frameworks and channels wit
               type: "string",
               description: "The approach to use. MUST match awareness level: answer_question|provide_quote|acknowledge_info|confirm_details for responsive; first_contact|new_pitch|follow_up|quote_follow_up|order_follow_up|reactivation|win_back|post_delivery|relationship_nurture|seasonal|value_add|recovery for outreach"
             },
-            channel: { type: "string", description: "SMS|Email|FB|IG|WhatsApp" },
+            channel: { type: "string", description: "SMS|Email|FB|IG|WhatsApp|Live_Chat" },
             angle: { type: "string", description: "The specific angle/hook to use" },
             framework: {
               type: "string",

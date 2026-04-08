@@ -79,14 +79,17 @@ describe("Lead Disposition Engine — Structural Tests", () => {
 });
 
 describe("DNC → Not Qualified Pipeline — All Entry Points", () => {
-  it("brain-council-orchestrator.ts moves DNC leads to not_qualified (not just humanTakeover)", () => {
+  it("brain-council-orchestrator.ts uses channel-specific DNC with fallback to not_qualified", () => {
     const src = readFile("brain-council-orchestrator.ts");
-    // Must set pipelineStage to not_qualified when DNC detected
+    // Must use handleChannelDnc for channel-specific DNC
+    expect(src).toContain("handleChannelDnc");
+    expect(src).toContain("detectDncChannel");
+    // Must still move to not_qualified when ALL channels exhausted
     expect(src).toContain('pipelineStage: "not_qualified"');
     // Must call updateOpportunityStage for GHL pipeline update
     expect(src).toContain("updateOpportunityStage");
-    // Must add a note about DNC
-    expect(src).toMatch(/DNC detected.*Not Qualified/);
+    // Must log DNC channel escalation or exhaustion
+    expect(src).toMatch(/DNC on.*channels exhausted.*Not Qualified/);
   });
 
   it("follow-up-trigger.ts moves DNC leads to not_qualified (not just humanTakeover)", () => {

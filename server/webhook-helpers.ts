@@ -288,8 +288,9 @@ export function parseFormDataFromMessageBody(messageBody: string): Array<{ label
 // --- CHANNEL NORMALIZATION ---
 export function normalizeChannel(raw: unknown): string {
   const lower = String(raw || "SMS").toLowerCase().trim();
-  // GHL numeric message types: 2=SMS, 3=Email, 4=FB, 5=IG, 6=WhatsApp, 15=Live_Chat(FB)
-  if (lower === "4" || lower === "15") return "FB";
+  // GHL numeric message types: 2=SMS, 3=Email, 4=FB, 5=IG, 6=WhatsApp, 15=Live_Chat
+  if (lower === "15") return "Live_Chat";
+  if (lower === "4") return "FB";
   if (lower === "5") return "IG";
   if (lower === "6") return "WhatsApp";
   if (lower === "3") return "Email";
@@ -297,7 +298,8 @@ export function normalizeChannel(raw: unknown): string {
   // String-based types (GHL sends various formats)
   if (lower.includes("email")) return "Email";
   if (lower.includes("whatsapp")) return "WhatsApp";
-  if (lower.includes("fb") || lower.includes("facebook") || lower.includes("live_chat") || lower.includes("messenger")) return "FB";
+  if (lower.includes("live_chat") || lower.includes("livechat") || lower.includes("live chat")) return "Live_Chat";
+  if (lower.includes("fb") || lower.includes("facebook") || lower.includes("messenger")) return "FB";
   if (lower.includes("ig") || lower.includes("instagram")) return "IG";
   if (lower.includes("sms") || lower.includes("text")) return "SMS";
   // GHL sometimes sends generic types like "InboundMessage" or "Custom" — log and default
@@ -378,6 +380,8 @@ export function buildSendOpts(
 ): Parameters<typeof sendMessage>[1] | undefined {
   if (channel === "Email" && lead.email) {
     return { type: "Email", subject: extra?.subject || "Adorb Custom Tees", html: extra?.html || formatEmailHtml(message), fromName: extra?.fromName };
+  } else if (channel === "Live_Chat") {
+    return { type: "Live_Chat", message };
   } else if (channel === "FB") {
     return { type: "FB", message };
   } else if (channel === "IG") {

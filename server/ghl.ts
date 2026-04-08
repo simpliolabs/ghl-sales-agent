@@ -116,7 +116,7 @@ export async function updateContactCustomField(contactId: string, customFields: 
 
 // --- Messages ---
 export async function sendMessage(contactId: string, opts: {
-  type: "SMS" | "Email" | "WhatsApp" | "FB" | "IG";
+  type: "SMS" | "Email" | "WhatsApp" | "FB" | "IG" | "Live_Chat";
   message?: string;
   subject?: string;
   html?: string;

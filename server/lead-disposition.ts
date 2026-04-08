@@ -28,6 +28,7 @@ import { getDb } from "./db";
 import { updateLeadFields, getConversationHistory } from "./db";
 import { updateOpportunityStage, addNote, getOpportunitiesByContact } from "./ghl";
 import { checkDnc, DNC_KEYWORDS } from "./scheduling-engine";
+import { handleChannelDnc, allChannelsExhausted as checkAllExhausted } from "./channel-fallback";
 import { leads, conversations } from "../drizzle/schema";
 import { eq, and, sql, isNull, lte, or } from "drizzle-orm";
 import { notifyOwner } from "./_core/notification";
@@ -149,12 +150,18 @@ export async function runDispositionSweep(): Promise<DispositionStats> {
     const dncCandidates = await db.select({
       id: leads.id,
       name: leads.name,
+      ghlContactId: leads.ghlContactId,
       ghlOpportunityId: leads.ghlOpportunityId,
       ghlPipelineId: leads.ghlPipelineId,
       pipelineStage: leads.pipelineStage,
       email: leads.email,
+      phone: leads.phone,
       dndSms: leads.dndSms,
       dndEmail: leads.dndEmail,
+      dndFb: leads.dndFb,
+      dndWhatsapp: leads.dndWhatsapp,
+      preferredChannel: leads.preferredChannel,
+      lastOutboundChannel: leads.lastOutboundChannel,
     })
       .from(leads)
       .where(and(
@@ -175,18 +182,28 @@ export async function runDispositionSweep(): Promise<DispositionStats> {
       // Also check if ALL channels are DND-blocked
       const allChannelsDnd = candidate.dndSms && candidate.dndEmail;
 
-      if (isDnc || allChannelsDnd) {
-        const reason = isDnc
-          ? "Lead sent DNC keyword (Stop/unsubscribe)"
-          : "All channels DND-blocked";
+      if (isDnc) {
+        // CHANNEL-SPECIFIC DNC: determine which channel the DNC was on
+        // Use last outbound channel as best guess for which channel they opted out of
+        const dncChannel = (candidate as any).lastOutboundChannel || (candidate as any).preferredChannel || "SMS";
+        const result = await handleChannelDnc(candidate.id, candidate, dncChannel, candidate.ghlContactId);
+        stats.processed++;
+        if (result.action === "not_qualified") {
+          // All channels exhausted — move to Not Qualified
+          const success = await moveToNotQualified(candidate.id, candidate.ghlOpportunityId, candidate.ghlPipelineId, `DNC on ${dncChannel} — all channels exhausted`);
+          if (success) stats.dncDisposed++;
+          else stats.errors++;
+        } else {
+          // Escalated to another channel
+          stats.emailEscalated++;
+          console.log(`[Disposition] Lead ${candidate.id}: DNC on ${dncChannel} → escalated to ${result.nextChannel}`);
+        }
+        continue;
+      }
 
-        const success = await moveToNotQualified(
-          candidate.id,
-          candidate.ghlOpportunityId,
-          candidate.ghlPipelineId,
-          reason
-        );
-
+      // Check if ALL channels are DND-blocked (not keyword DNC, but GHL DND flags)
+      if (checkAllExhausted(candidate)) {
+        const success = await moveToNotQualified(candidate.id, candidate.ghlOpportunityId, candidate.ghlPipelineId, "All channels DND-blocked");
         stats.processed++;
         if (success) stats.dncDisposed++;
         else stats.errors++;

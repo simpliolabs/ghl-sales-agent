@@ -318,3 +318,6 @@
 - [x] CRITICAL: AI ignores conversation history — re-initiates contact with already-contacted leads (Aundrea Tackett Apr 8 example). Root cause: GHL history not fetched/passed before Brain Council call in fast scanner / follow-up trigger. Must enforce GHL history fetch + 'already contacted' guard in ALL callers.
 - [x] CRITICAL: AI sends message even when human agent just sent from GHL UI — universal GATE 3 in sendMessage() blocks ALL paths (310-421-6702 example)
 - [x] CRITICAL: AI not making decisions on stale/unresponsive leads — Lead Disposition Engine: DNC→Not Qualified, stale takeover→email escalation or Not Qualified, 2hr sweep + admin trigger (lead #610 example)
+- [x] FIX: Channel-specific DNC — "Stop" on SMS blocks SMS only, escalate to next channel (Email→FB→IG→WhatsApp→Live_Chat). Not Qualified only when ALL channels exhausted. handleChannelDnc in channel-fallback.ts, wired into all 4 DNC entry points.
+- [x] FIX: Live Chat channel ignored — normalizeChannel now preserves Live_Chat (type 15), sendMessage/buildSendOpts/strategist/composer all support Live_Chat. Urgency rules added.
+- [x] FIX: Contact info capture — Strategist shows CONTACT GAP alert, Composer has CRITICAL prompt when both email+phone missing, hints when one is missing. Live Chat gets special capture rules.

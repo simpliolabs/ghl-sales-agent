@@ -16,6 +16,7 @@ import { upsertLead, updateLeadFields, getLeadById, getRecentAiOutboundCount, ad
 import { classifySegment } from "./ai-brain";
 import { researchLead } from "./lead-researcher";
 import { calculateNextFollowUp, checkRateLimits, checkLeadRateLimit, checkDnc } from "./scheduling-engine";
+import { handleChannelDnc, detectDncChannel } from "./channel-fallback";
 import { getContact, fetchGhlConversationHistory, updateOpportunityStage } from "./ghl";
 import { pushContactToOmnisend } from "./omnisend";
 import {
@@ -223,27 +224,29 @@ async function sendDelayedFirstContact(
       const recentInbound = await getConversationHistory(leadId, 10);
       const inboundOnly = recentInbound.filter((c: any) => c.direction === "inbound");
       if (checkDnc(inboundOnly)) {
-        console.log(`[Webhook] \u{1F6AB} DNC keyword detected for lead ${leadId} — moving to Not Qualified`);
-        await updateLeadFields(leadId, { humanTakeover: 1, pipelineStage: "not_qualified" });
-        // Move in GHL pipeline too
-        try {
-          const leadData = lead as any;
-          if (leadData.ghlOpportunityId && leadData.ghlPipelineId) {
-            const NQ_STAGES: Record<string, string> = {
-              "OpojlMx3cTa0ts0e2pMc": "6f1ca442-4a6b-490f-bf49-95a5870f7f86",
-              "5YIrCvKmzb27yXHP3fBF": "6ca358e4-db09-4818-9896-ab21bad0c0e7",
-            };
-            const nqStageId = NQ_STAGES[leadData.ghlPipelineId];
-            if (nqStageId) {
-              await updateOpportunityStage(leadData.ghlOpportunityId, nqStageId);
-              await updateLeadFields(leadId, { ghlStageId: nqStageId });
+        // CHANNEL-SPECIFIC DNC: block only the channel the DNC was received on
+        const dncChannel = detectDncChannel((lead as any).preferredChannel || (lead as any).lastOutboundChannel || "SMS");
+        const result = await handleChannelDnc(leadId, lead, dncChannel, resolvedContactId);
+        if (result.action === "not_qualified") {
+          await updateLeadFields(leadId, { humanTakeover: 1, pipelineStage: "not_qualified" });
+          try {
+            const leadData = lead as any;
+            if (leadData.ghlOpportunityId && leadData.ghlPipelineId) {
+              const NQ_STAGES: Record<string, string> = {
+                "OpojlMx3cTa0ts0e2pMc": "6f1ca442-4a6b-490f-bf49-95a5870f7f86",
+                "5YIrCvKmzb27yXHP3fBF": "6ca358e4-db09-4818-9896-ab21bad0c0e7",
+              };
+              const nqStageId = NQ_STAGES[leadData.ghlPipelineId];
+              if (nqStageId) {
+                await updateOpportunityStage(leadData.ghlOpportunityId, nqStageId);
+                await updateLeadFields(leadId, { ghlStageId: nqStageId });
+              }
             }
-          }
-          if (resolvedContactId) {
-            const { addNote: addGhlNote } = await import("./ghl");
-            await addGhlNote(resolvedContactId, `\u{1F916} DNC detected — lead opted out. Moved to Not Qualified.`);
-          }
-        } catch { /* best effort GHL update */ }
+          } catch { /* best effort GHL update */ }
+          console.log(`[Webhook] \u{1F6AB} DNC on ${dncChannel} — ALL channels exhausted for lead ${leadId} → Not Qualified`);
+        } else {
+          console.log(`[Webhook] \u{1F504} DNC on ${dncChannel} — escalated lead ${leadId} to ${result.nextChannel}`);
+        }
         return;
       }
     } catch (dncErr) {

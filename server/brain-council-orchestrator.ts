@@ -25,6 +25,7 @@
 
 import { addBrainCouncilAudit, acquireDbBrainCouncilLock, releaseDbBrainCouncilLock, isAiOffline, getDb, isChannelDnd, getBlockedChannels, upsertAiState } from "./db";
 import { checkDnc } from "./scheduling-engine";
+import { handleChannelDnc, detectDncChannel } from "./channel-fallback";
 import { conversations, leads, brainCouncilAudit, aiState } from "../drizzle/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
 import { buildLeadContext, invalidateLeadCache } from "./brain-context";
@@ -190,37 +191,37 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
           .limit(5);
 
         if (checkDnc(recentInbound)) {
-          // Auto-flag the lead AND move to Not Qualified
-          await db2.update(leads)
-            .set({ humanTakeover: 1, pipelineStage: "not_qualified" })
-            .where(eq(leads.id, input.leadId));
-          // Also move in GHL pipeline if we have the opportunity ID
-          try {
-            const [leadRow] = await db2.select({
-              ghlOpportunityId: leads.ghlOpportunityId,
-              ghlPipelineId: leads.ghlPipelineId,
-              ghlContactId: leads.ghlContactId,
-            }).from(leads).where(eq(leads.id, input.leadId)).limit(1);
-            if (leadRow?.ghlOpportunityId && leadRow?.ghlPipelineId) {
-              const { updateOpportunityStage, addNote: addGhlNote } = await import("./ghl");
-              const NQ_STAGES: Record<string, string> = {
-                "OpojlMx3cTa0ts0e2pMc": "6f1ca442-4a6b-490f-bf49-95a5870f7f86",
-                "5YIrCvKmzb27yXHP3fBF": "6ca358e4-db09-4818-9896-ab21bad0c0e7",
-              };
-              const nqStageId = NQ_STAGES[leadRow.ghlPipelineId];
-              if (nqStageId) {
-                await updateOpportunityStage(leadRow.ghlOpportunityId, nqStageId);
-                await db2.update(leads).set({ ghlStageId: nqStageId }).where(eq(leads.id, input.leadId));
-              }
-              if (leadRow.ghlContactId) {
-                await addGhlNote(leadRow.ghlContactId, `🤖 DNC detected — lead opted out. Moved to Not Qualified.`);
-              }
+          // CHANNEL-SPECIFIC DNC: block only the channel the DNC was received on
+          const dncChannel = detectDncChannel(input.channel);
+          const [leadRow] = await db2.select().from(leads).where(eq(leads.id, input.leadId)).limit(1);
+          if (leadRow) {
+            const result = await handleChannelDnc(input.leadId, leadRow, dncChannel, leadRow.ghlContactId);
+            if (result.action === "not_qualified") {
+              // ALL channels exhausted — move to Not Qualified
+              await db2.update(leads)
+                .set({ humanTakeover: 1, pipelineStage: "not_qualified" })
+                .where(eq(leads.id, input.leadId));
+              try {
+                if (leadRow.ghlOpportunityId && leadRow.ghlPipelineId) {
+                  const { updateOpportunityStage } = await import("./ghl");
+                  const NQ_STAGES: Record<string, string> = {
+                    "OpojlMx3cTa0ts0e2pMc": "6f1ca442-4a6b-490f-bf49-95a5870f7f86",
+                    "5YIrCvKmzb27yXHP3fBF": "6ca358e4-db09-4818-9896-ab21bad0c0e7",
+                  };
+                  const nqStageId = NQ_STAGES[leadRow.ghlPipelineId];
+                  if (nqStageId) await updateOpportunityStage(leadRow.ghlOpportunityId, nqStageId);
+                }
+              } catch { /* best effort GHL update */ }
+              console.log(`[BrainCouncil] 🚫 DNC on ${dncChannel} — ALL channels exhausted for lead ${input.leadId} → Not Qualified`);
+              return abortResult(`DNC on ${dncChannel} — all channels exhausted. Moved to Not Qualified.`, input.leadId);
+            } else {
+              // Escalated to another channel — abort this run, follow-up will use new channel
+              console.log(`[BrainCouncil] 🔄 DNC on ${dncChannel} — escalated lead ${input.leadId} to ${result.nextChannel}`);
+              return abortResult(`DNC on ${dncChannel} — escalated to ${result.nextChannel}. Will follow up on new channel.`, input.leadId);
             }
-          } catch (nqErr) {
-            console.error(`[BrainCouncil] Failed to move DNC lead ${input.leadId} to Not Qualified in GHL:`, nqErr);
+          } else {
+            return abortResult("DNC keyword detected but lead not found in DB", input.leadId);
           }
-          console.log(`[BrainCouncil] 🚫 DNC keyword detected for lead ${input.leadId} — moved to Not Qualified`);
-          return abortResult("DNC keyword detected — lead opted out. Moved to Not Qualified.", input.leadId);
         }
       }
     } catch (err) {
