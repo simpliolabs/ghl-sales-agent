@@ -60,6 +60,14 @@ export const DNC_KEYWORDS = [
   "stop messaging", "remove my number", "cancel",
 ];
 
+// ============================================================
+// MAX FOLLOW-UP DELAY CAP
+// Hard limit: no lead can be scheduled more than 30 days out
+// EXCEPTION: Customer-stated timeline (P1) — driven by real event dates
+// ============================================================
+export const MAX_FOLLOWUP_DELAY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
+export const MAX_FOLLOWUP_DELAY_HOURS = 30 * 24; // 720 hours
+
 const STAGE_OVERRIDE_HOURS: Record<string, number> = {
   "Quote Sent": 72,          // +3 days
   "Paid - Proof Needed": 24, // +24 hours
@@ -273,12 +281,12 @@ function calculateSilenceCadence(
   daysSinceLastOutbound: number,
   consecutiveUnanswered: number,
 ): { delayHours: number; cadencePosition: number; reason: string } {
-  // After 5 consecutive unanswered: 90-day pause
+  // After 5 consecutive unanswered: cap at 30-day pause (was 90 days — now capped)
   if (consecutiveUnanswered >= 5) {
     return {
-      delayHours: 90 * 24,
+      delayHours: Math.min(MAX_FOLLOWUP_DELAY_HOURS, 90 * 24), // Capped to 30 days
       cadencePosition: 6,
-      reason: `5 consecutive unanswered outreach — 90-day pause before reactivation`,
+      reason: `5 consecutive unanswered outreach — ${MAX_FOLLOWUP_DELAY_HOURS / 24}-day pause before reactivation (capped)`,
     };
   }
 
@@ -297,7 +305,7 @@ function calculateSilenceCadence(
   } else if (daysSinceLastOutbound <= 90) {
     return { delayHours: 720, cadencePosition: 5, reason: "Last outreach 60-90 days ago — SMS 3 days after reactivation email" };
   } else {
-    return { delayHours: 1440, cadencePosition: 5, reason: "Last outreach 90+ days ago — gentle re-introduction email in 60 days" };
+    return { delayHours: Math.min(MAX_FOLLOWUP_DELAY_HOURS, 1440), cadencePosition: 5, reason: `Last outreach 90+ days ago — gentle re-introduction email in ${Math.min(MAX_FOLLOWUP_DELAY_HOURS, 1440) / 24} days (capped)` };
   }
 }
 
@@ -452,7 +460,7 @@ export async function calculateNextFollowUp(input: SchedulingInput): Promise<Sch
   const isDnc = checkDnc(convHistory);
   if (isDnc) {
     return {
-      nextFollowUpAt: capDate(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)), // Far future, capped
+      nextFollowUpAt: capDate(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), true), // Far future, exempt from 30-day cap (DNC — not contacted)
       reason: "Lead opted out — DNC flag active, no outreach scheduled",
       priority: 0,
       channel: "none",
@@ -521,6 +529,8 @@ export async function calculateNextFollowUp(input: SchedulingInput): Promise<Sch
 
   if (timeline) {
     const adjustedDate = pushToNextBusinessHour(timeline.date, channel);
+    // P1 is the ONLY path exempt from the 30-day cap — it's driven by real customer event dates
+    // The capDate call in follow-up-trigger.ts should use allowLongLead=true for P1 results
     return {
       nextFollowUpAt: adjustedDate,
       reason: `[P1 Customer Timeline] ${timeline.reason}`,
@@ -627,7 +637,23 @@ export async function calculateNextFollowUp(input: SchedulingInput): Promise<Sch
 
 // Cap any date to prevent MySQL TIMESTAMP overflow (max 2038-01-19)
 const MAX_SAFE_DATE = new Date('2029-12-31T23:59:59Z');
-export function capDate(d: Date): Date {
+
+/**
+ * Cap a date to the safe MySQL range.
+ * Also enforces the 30-day max follow-up delay unless explicitly exempted.
+ * @param d - The date to cap
+ * @param allowLongLead - If true, skip the 30-day cap (for customer-stated timelines)
+ */
+export function capDate(d: Date, allowLongLead = false): Date {
+  // 30-day max cap (unless this is a customer-stated timeline / long-lead sequence)
+  if (!allowLongLead) {
+    const maxDate = new Date(Date.now() + MAX_FOLLOWUP_DELAY_MS);
+    if (d > maxDate) {
+      console.log(`[SchedulingEngine] ⚠️ 30-day cap applied: ${d.toISOString()} → ${maxDate.toISOString()}`);
+      d = maxDate;
+    }
+  }
+  // MySQL TIMESTAMP overflow protection
   return d > MAX_SAFE_DATE ? MAX_SAFE_DATE : d;
 }
 
@@ -717,8 +743,10 @@ export async function recalculateStaleSchedules(): Promise<{ updated: number; de
       });
 
       if (!result.isDnc) {
+        // Apply 30-day cap (P1 customer timeline is exempt)
+        const isLongLead = result.priority === 1;
         await db.update(leads).set({
-          nextFollowUpAt: result.nextFollowUpAt,
+          nextFollowUpAt: capDate(result.nextFollowUpAt, isLongLead),
           cadencePosition: result.cadencePosition,
           preferredChannel: result.channel,
         }).where(eq(leads.id, lead.id));
@@ -779,13 +807,15 @@ export function calculatePerpetualNurtureSchedule(
     ? (Date.now() - lastReactivationAt.getTime()) / (1000 * 60 * 60 * 24)
     : 999;
 
-  // Quarterly cycle: every 90 days
+  // Quarterly cycle: every 90 days (but capped to 30-day max scheduling window)
   if (daysSinceLast < 85) {
-    // Not yet time for next nurture
-    const nextDate = new Date((lastReactivationAt?.getTime() || Date.now()) + 90 * 24 * 60 * 60 * 1000);
+    // Not yet time for next nurture — but cap the scheduled date to 30 days max
+    const rawNextDate = new Date((lastReactivationAt?.getTime() || Date.now()) + 90 * 24 * 60 * 60 * 1000);
+    const maxDate = new Date(Date.now() + MAX_FOLLOWUP_DELAY_MS);
+    const nextDate = rawNextDate > maxDate ? maxDate : rawNextDate;
     return {
       nextDate,
-      reason: `Perpetual Nurture cycle #${cycleNumber} — next quarterly email in ${Math.round(90 - daysSinceLast)} days`,
+      reason: `Perpetual Nurture cycle #${cycleNumber} — next quarterly email in ${Math.round(Math.min(90 - daysSinceLast, 30))} days`,
       nurturePosition: cycleNumber,
     };
   }
@@ -805,4 +835,127 @@ export function calculatePerpetualNurtureSchedule(
     reason: `Perpetual Nurture cycle #${cycleNumber} — ${angles[angleIndex]} (email from print@adorbcustomtees.com)`,
     nurturePosition: cycleNumber,
   };
+}
+
+// ============================================================
+// SCHEDULE COMPRESSION — One-time migration
+// Redistributes leads scheduled beyond 30 days into the next
+// 7-14 days with proper staggering (50-100/day).
+// ============================================================
+
+interface CompressOptions {
+  maxPerDay: number;   // Max leads to reschedule per day (default: 75)
+  spreadDays: number;  // Days to spread across (default: 10)
+  dryRun: boolean;     // If true, only report what would change
+}
+
+interface CompressResult {
+  totalFound: number;
+  totalRescheduled: number;
+  dryRun: boolean;
+  distribution: Array<{ date: string; count: number }>;
+  errors: number;
+}
+
+export async function compressSchedule(options: CompressOptions): Promise<CompressResult> {
+  const { maxPerDay, spreadDays, dryRun } = options;
+  const result: CompressResult = {
+    totalFound: 0,
+    totalRescheduled: 0,
+    dryRun,
+    distribution: [],
+    errors: 0,
+  };
+
+  const db = await getDb();
+  if (!db) return result;
+
+  try {
+    // Find all leads scheduled beyond 30 days from now
+    const maxDate = new Date(Date.now() + MAX_FOLLOWUP_DELAY_MS);
+    const beyondLeads = await db.select({
+      id: leads.id,
+      name: leads.name,
+      nextFollowUpAt: leads.nextFollowUpAt,
+      opportunityScore: leads.opportunityScore,
+      pipelineStage: leads.pipelineStage,
+      humanTakeover: leads.humanTakeover,
+      cadencePosition: leads.cadencePosition,
+    })
+      .from(leads)
+      .where(and(
+        sql`${leads.nextFollowUpAt} > ${maxDate}`,
+        eq(leads.humanTakeover, 0),
+        sql`${leads.pipelineStage} != 'not_qualified'`,
+      ))
+      .orderBy(sql`${leads.opportunityScore} DESC, ${leads.nextFollowUpAt} ASC`);
+
+    result.totalFound = beyondLeads.length;
+    if (beyondLeads.length === 0) {
+      console.log(`[CompressSchedule] No leads found beyond 30-day window`);
+      return result;
+    }
+
+    console.log(`[CompressSchedule] Found ${beyondLeads.length} leads beyond 30-day window (dryRun: ${dryRun})`);
+
+    // Build the distribution: spread leads across the next spreadDays days
+    // Start 7 days from now (give immediate queue time to clear)
+    const startOffset = 7 * 24 * 60 * 60 * 1000; // 7 days
+    const dayMs = 24 * 60 * 60 * 1000;
+    const distributionMap = new Map<string, number>();
+
+    let dayIndex = 0;
+    let countToday = 0;
+
+    for (const lead of beyondLeads) {
+      // Calculate the target date for this lead
+      const targetDate = new Date(Date.now() + startOffset + dayIndex * dayMs);
+      // Randomize within the day (business hours: 9 AM - 5 PM ET)
+      const hourOffset = 9 + Math.random() * 8; // 9-17
+      const minuteOffset = Math.random() * 60;
+      targetDate.setHours(Math.floor(hourOffset), Math.floor(minuteOffset), 0, 0);
+
+      // Push to next business hour
+      const finalDate = pushToNextBusinessHour(targetDate, "SMS");
+      const dateKey = finalDate.toISOString().split("T")[0];
+      distributionMap.set(dateKey, (distributionMap.get(dateKey) || 0) + 1);
+
+      if (!dryRun) {
+        try {
+          await db.update(leads).set({
+            nextFollowUpAt: finalDate,
+          }).where(eq(leads.id, lead.id));
+          result.totalRescheduled++;
+        } catch (err) {
+          console.error(`[CompressSchedule] Error rescheduling lead ${lead.id}:`, err);
+          result.errors++;
+        }
+      } else {
+        result.totalRescheduled++;
+      }
+
+      countToday++;
+      if (countToday >= maxPerDay) {
+        countToday = 0;
+        dayIndex++;
+        if (dayIndex >= spreadDays) dayIndex = 0; // Wrap around if more leads than slots
+      }
+    }
+
+    // Build distribution summary
+    result.distribution = Array.from(distributionMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, count]) => ({ date, count }));
+
+    console.log(`[CompressSchedule] ${dryRun ? "DRY RUN" : "EXECUTED"}: ${result.totalRescheduled} leads redistributed across ${result.distribution.length} days`);
+    for (const { date, count } of result.distribution) {
+      console.log(`  ${date}: ${count} leads`);
+    }
+
+  } catch (err) {
+    console.error("[CompressSchedule] Fatal error:", err);
+    result.errors++;
+  }
+
+  return result;
 }

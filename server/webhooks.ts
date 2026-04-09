@@ -18,7 +18,7 @@ import { handlePipelineWebhook } from "./webhook-pipeline";
 import { handleTaskWebhook } from "./webhook-task";
 import { retroactiveCorrectionScan } from "./auto-correction";
 import { backfillOutcomes } from "./outcome-engine";
-import { processOverdueFollowUps } from "./follow-up-trigger";
+import { processOverdueFollowUps, processOverdueCatchUp } from "./follow-up-trigger";
 import { runLookback } from "./lookback-engine";
 import { runBrainCouncilSelfReview } from "./brain-council-review";
 import { runDispositionSweep } from "./lead-disposition";
@@ -158,6 +158,35 @@ export function createWebhookRouter(): Router {
       console.error('[FollowUp/Timer] Initial run error:', err);
     }
   }, 90 * 1000);
+
+  // --- HOURLY OVERDUE CATCH-UP: Find leads that fell through cracks (batch of 20) ---
+  let overdueCatchupRunning = false;
+  setInterval(async () => {
+    if (overdueCatchupRunning) return;
+    overdueCatchupRunning = true;
+    try {
+      const result = await processOverdueCatchUp();
+      if (result.processed > 0) console.log(`[OverdueCatchUp/Timer] ${result.processed} processed, ${result.rescheduled} rescheduled, ${result.errors} errors`);
+    } catch (err) {
+      console.error('[OverdueCatchUp/Timer] Error:', err);
+    } finally {
+      overdueCatchupRunning = false;
+    }
+  }, 60 * 60 * 1000); // Every 60 minutes
+
+  // Run initial overdue catch-up 2 minutes after startup
+  setTimeout(async () => {
+    if (overdueCatchupRunning) return;
+    overdueCatchupRunning = true;
+    try {
+      const result = await processOverdueCatchUp();
+      console.log(`[OverdueCatchUp/Timer] Initial run: ${result.processed} processed, ${result.rescheduled} rescheduled, ${result.errors} errors`);
+    } catch (err) {
+      console.error('[OverdueCatchUp/Timer] Initial run error:', err);
+    } finally {
+      overdueCatchupRunning = false;
+    }
+  }, 2 * 60 * 1000);
 
   // --- LOOKBACK DRIP: Auto-analyze unprocessed leads every 30 minutes (5 per batch) ---
   let lookbackRunning = false;

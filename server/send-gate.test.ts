@@ -90,18 +90,36 @@ describe("GATE 3: Human Agent Activity Check", () => {
     expect(mockGhlPost).not.toHaveBeenCalled();
   });
 
-  it("should ALLOW send when humanTakeover=1 but lastAgentActivityAt is older than 2 hours", async () => {
-    const oldTime = new Date(Date.now() - 3 * 60 * 60 * 1000); // 3 hours ago
+  it("should BLOCK send when humanTakeover=1 and lastAgentActivityAt is within 24 hours", async () => {
+    const recentTime = new Date(Date.now() - 3 * 60 * 60 * 1000); // 3 hours ago — within 24hr window
+    mockGetLeadByGhlContactId.mockResolvedValue({
+      id: 1,
+      humanTakeover: 1,
+      lastAgentActivityAt: recentTime,
+      ghlContactId: "contact_test_24h",
+    });
+
+    const result = await sendMessage("contact_test_24h", {
+      type: "SMS",
+      message: "AI message that should be blocked within 24hr window",
+    });
+
+    expect(result.blocked).toBe(true);
+    expect(result.reason).toBe("HUMAN_AGENT_ACTIVE");
+  });
+
+  it("should ALLOW send when humanTakeover=1 but lastAgentActivityAt is older than 24 hours", async () => {
+    const oldTime = new Date(Date.now() - 25 * 60 * 60 * 1000); // 25 hours ago — beyond 24hr window
     mockGetLeadByGhlContactId.mockResolvedValue({
       id: 1,
       humanTakeover: 1,
       lastAgentActivityAt: oldTime,
-      ghlContactId: "contact_test",
+      ghlContactId: "contact_test_old",
     });
 
-    const result = await sendMessage("contact_test", {
+    const result = await sendMessage("contact_test_old", {
       type: "SMS",
-      message: "AI message that should be allowed",
+      message: "AI message that should be allowed after 24hr window",
     });
 
     // Should NOT be blocked by HUMAN_AGENT_ACTIVE

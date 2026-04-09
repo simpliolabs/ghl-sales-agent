@@ -59,6 +59,10 @@ export interface StagePlaybook {
   aiProactive: boolean;
   /** Whether this is a terminal stage (no further progression expected) */
   isTerminal: boolean;
+  /** Guidance for long-lead customers ordering 3-6 months in advance */
+  longLeadGuidance: string | null;
+  /** Guidance for AI when in human-assisted support role (agent active on another channel) */
+  humanAssistedGuidance: string | null;
 }
 
 // ─── Stage Playbooks ───────────────────────────────────────────────────────
@@ -101,6 +105,8 @@ const PLAYBOOKS: Record<string, StagePlaybook> = {
     followUpDelayHours: 24,
     aiProactive: true,
     isTerminal: false,
+    longLeadGuidance: "If the customer mentions an event 3-6 months away, this is a LONG-LEAD opportunity. DO NOT rush to close. Instead: (1) Confirm the event date and type, (2) Explain Adorb's advance ordering process and benefits (locked-in pricing, guaranteed availability, design time), (3) Set expectations for a graduated touchpoint sequence: initial consultation now, design phase 2-3 months before, production 4-6 weeks before event. Frame the timeline as an advantage, not a delay.",
+    humanAssistedGuidance: "A human agent is actively managing this lead on another channel. Your role is SUPPORT ONLY: share general info about Adorb's services, answer factual questions (turnaround times, product types, minimum orders), but do NOT pitch, negotiate, or make commitments. Do NOT reference the agent's conversation. Keep it brief and helpful.",
   },
 
   "Contacted": {
@@ -136,11 +142,13 @@ const PLAYBOOKS: Record<string, StagePlaybook> = {
     suggestedApproaches: ["answer_question", "provide_quote", "acknowledge_info", "follow_up"],
     preferredFrameworks: ["DIRECT_RESPONSE", "VALUE_FIRST", "CONSULTATIVE"],
     taskContext: null,
-    noteTemplate: "Lead contacted. AI building rapport and gathering order details.",
+    noteTemplate: "Lead contacted. AI building rapport and gathering details.",
     nextStage: "Qualified",
     followUpDelayHours: 48,
     aiProactive: true,
     isTerminal: false,
+    longLeadGuidance: "Long-lead customer (3-6 months out): Focus on deepening the relationship and gathering detailed requirements. Share relevant case studies of similar advance orders. Discuss design options and customization possibilities. Set up a design consultation timeline. Touchpoint cadence: every 2-3 weeks with value-add content (new designs, seasonal ideas, early-bird pricing if applicable).",
+    humanAssistedGuidance: "A human agent is handling this lead on another channel. You may share general product info, answer FAQ-level questions, and provide helpful links. Do NOT discuss pricing specifics, make promises, or duplicate the agent's sales efforts. If the lead asks about their specific order or quote, direct them to continue on the channel where the agent is helping them.",
   },
 
   "Qualified": {
@@ -184,6 +192,8 @@ const PLAYBOOKS: Record<string, StagePlaybook> = {
     followUpDelayHours: 24,
     aiProactive: true,
     isTerminal: false,
+    longLeadGuidance: "Long-lead customer (3-6 months out): All details should be locked in for quoting. Emphasize that advance ordering locks in current pricing and guarantees production slot availability. Offer a phased payment option if applicable.",
+    humanAssistedGuidance: "A human agent is managing this lead. You may answer general questions about Adorb's process, timelines, and capabilities. Do NOT discuss this lead's specific quote, pricing, or order details.",
   },
 
   "Quote Sent": {
@@ -225,6 +235,8 @@ const PLAYBOOKS: Record<string, StagePlaybook> = {
     followUpDelayHours: 48,
     aiProactive: true,
     isTerminal: false,
+    longLeadGuidance: null,
+    humanAssistedGuidance: "A human agent is handling quote follow-up. Do NOT discuss pricing, discounts, or the quote. You may answer general product questions only.",
   },
 
   "Paid - Proof Needed": {
@@ -267,6 +279,8 @@ const PLAYBOOKS: Record<string, StagePlaybook> = {
     followUpDelayHours: 72,
     aiProactive: false,
     isTerminal: false,
+    longLeadGuidance: null,
+    humanAssistedGuidance: null,
   },
 
   "Proof Sent": {
@@ -307,6 +321,8 @@ const PLAYBOOKS: Record<string, StagePlaybook> = {
     followUpDelayHours: 48,
     aiProactive: true,
     isTerminal: false,
+    longLeadGuidance: null,
+    humanAssistedGuidance: null,
   },
 
   "Approved + Deposit": {
@@ -349,6 +365,8 @@ const PLAYBOOKS: Record<string, StagePlaybook> = {
     followUpDelayHours: 96,
     aiProactive: false,
     isTerminal: false,
+    longLeadGuidance: null,
+    humanAssistedGuidance: null,
   },
 
   "In Production": {
@@ -388,6 +406,8 @@ const PLAYBOOKS: Record<string, StagePlaybook> = {
     followUpDelayHours: 120,
     aiProactive: false,
     isTerminal: false,
+    longLeadGuidance: null,
+    humanAssistedGuidance: null,
   },
 
   "Ready": {
@@ -429,6 +449,8 @@ const PLAYBOOKS: Record<string, StagePlaybook> = {
     followUpDelayHours: 24,
     aiProactive: true,
     isTerminal: false,
+    longLeadGuidance: null,
+    humanAssistedGuidance: null,
   },
 
   "Delivered": {
@@ -469,6 +491,8 @@ const PLAYBOOKS: Record<string, StagePlaybook> = {
     followUpDelayHours: 72,
     aiProactive: true,
     isTerminal: true,
+    longLeadGuidance: null,
+    humanAssistedGuidance: null,
   },
 
   "Not Qualified": {
@@ -502,6 +526,8 @@ const PLAYBOOKS: Record<string, StagePlaybook> = {
     followUpDelayHours: 0,
     aiProactive: false,
     isTerminal: true,
+    longLeadGuidance: null,
+    humanAssistedGuidance: null,
   },
 };
 
@@ -554,11 +580,11 @@ export function getStageOrder(): string[] {
  * Generate a prompt block for the Strategist brain.
  * Tells the Strategist what the AI's goal is at this stage and what approaches to prefer.
  */
-export function getStrategistStageBlock(stage: string | null | undefined): string {
+export function getStrategistStageBlock(stage: string | null | undefined, options?: { isLongLead?: boolean; isHumanAssisted?: boolean }): string {
   const pb = getStagePlaybook(stage);
   if (!pb) return "";
 
-  return `
+  let block = `
 === STAGE PLAYBOOK: ${pb.label} ===
 GOAL AT THIS STAGE: ${pb.goal}
 FOCUS TOPICS: ${pb.focusTopics.join("; ")}
@@ -570,17 +596,29 @@ AI PROACTIVE: ${pb.aiProactive ? "YES — AI should reach out if no response" : 
 NEXT STAGE: ${pb.nextStage || "Terminal (no next stage)"}
 
 CRITICAL: Your approach selection MUST align with the stage goal above. Do NOT select an approach that contradicts the stage playbook.`;
+
+  // Inject long-lead guidance when customer has event 3-6 months out
+  if (options?.isLongLead && pb.longLeadGuidance) {
+    block += `\n\n=== LONG-LEAD SEQUENCE ACTIVE ===\n${pb.longLeadGuidance}`;
+  }
+
+  // Inject human-assisted support role guidance when agent is active on another channel
+  if (options?.isHumanAssisted && pb.humanAssistedGuidance) {
+    block += `\n\n=== HUMAN-ASSISTED MODE (SUPPORT ROLE) ===\n${pb.humanAssistedGuidance}`;
+  }
+
+  return block;
 }
 
 /**
  * Generate a prompt block for the Composer brain.
  * Gives the Composer hard constraints on what to say and not say.
  */
-export function getComposerStageBlock(stage: string | null | undefined): string {
+export function getComposerStageBlock(stage: string | null | undefined, options?: { isLongLead?: boolean; isHumanAssisted?: boolean }): string {
   const pb = getStagePlaybook(stage);
   if (!pb) return "";
 
-  return `
+  let block = `
 === STAGE RULES (MANDATORY — these override general guidelines) ===
 CURRENT STAGE: ${pb.label}
 STAGE GOAL: ${pb.goal}
@@ -590,6 +628,18 @@ NEVER DO (hard guardrails):
 ${pb.neverDo.map(n => `  ❌ ${n}`).join("\n")}
 
 Your message MUST serve the stage goal above. If the stage says "don't discuss pricing", do NOT discuss pricing even if the strategy directive mentions it.`;
+
+  // Inject long-lead guidance for message composition
+  if (options?.isLongLead && pb.longLeadGuidance) {
+    block += `\n\n=== LONG-LEAD CUSTOMER — ADJUST YOUR MESSAGE ===\n${pb.longLeadGuidance}`;
+  }
+
+  // Inject human-assisted support role constraints
+  if (options?.isHumanAssisted && pb.humanAssistedGuidance) {
+    block += `\n\n=== HUMAN-ASSISTED MODE — SUPPORT ROLE ONLY ===\n${pb.humanAssistedGuidance}\nKEEP YOUR MESSAGE SHORT AND HELPFUL. Do NOT sell, pitch, or make commitments.`;
+  }
+
+  return block;
 }
 
 /**

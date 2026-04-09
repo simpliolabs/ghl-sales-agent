@@ -20,7 +20,8 @@ import { getContacts, getPipelines } from "./ghl";
 import { invokeLLM } from "./_core/llm";
 import { scoreLeadQuick } from "./ai-brain";
 import { getPatternAnalysis, backfillOutcomes } from "./outcome-engine";
-import { processOverdueFollowUps } from "./follow-up-trigger";
+import { processOverdueFollowUps, processOverdueCatchUp } from "./follow-up-trigger";
+import { compressSchedule, MAX_FOLLOWUP_DELAY_MS } from "./scheduling-engine";
 import { runLookback } from "./lookback-engine";
 import { runDispositionSweep } from "./lead-disposition";
 
@@ -148,6 +149,22 @@ export const appRouter = router({
     }),
     triggerDisposition: adminProcedure.mutation(async () => {
       const result = await runDispositionSweep();
+      return result;
+    }),
+    triggerOverdueCatchUp: adminProcedure.mutation(async () => {
+      const result = await processOverdueCatchUp();
+      return result;
+    }),
+    compressSchedule: adminProcedure.input(z.object({
+      maxPerDay: z.number().optional().default(75),
+      spreadDays: z.number().optional().default(10),
+      dryRun: z.boolean().optional().default(true),
+    }).optional()).mutation(async ({ input }) => {
+      const result = await compressSchedule({
+        maxPerDay: input?.maxPerDay ?? 75,
+        spreadDays: input?.spreadDays ?? 10,
+        dryRun: input?.dryRun ?? true,
+      });
       return result;
     }),
     triggerLookback: adminProcedure.input(z.object({

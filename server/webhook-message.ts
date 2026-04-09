@@ -61,7 +61,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     // Check if a human agent has taken over — if so, stay out of it and let the agent handle it
     const attachLead = await getLeadByGhlContactId(contactId);
     const agentActive = attachLead?.humanTakeover === 1 && attachLead?.lastAgentActivityAt &&
-      (Date.now() - new Date(attachLead.lastAgentActivityAt).getTime()) < 2 * 60 * 60 * 1000;
+      (Date.now() - new Date(attachLead.lastAgentActivityAt).getTime()) < 24 * 60 * 60 * 1000; // 24hr window (was 2hr)
     if (agentActive) {
       // Human agent is active — log the attachment and stay silent
       if (attachLead) {

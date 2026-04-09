@@ -88,7 +88,27 @@ describe("Playbook content validation", () => {
       expect(typeof pb.followUpDelayHours).toBe("number");
       expect(typeof pb.aiProactive).toBe("boolean");
       expect(typeof pb.isTerminal).toBe("boolean");
+      // New fields: longLeadGuidance and humanAssistedGuidance must exist (can be null)
+      expect("longLeadGuidance" in pb, `${name}: missing longLeadGuidance field`).toBe(true);
+      expect("humanAssistedGuidance" in pb, `${name}: missing humanAssistedGuidance field`).toBe(true);
     }
+  });
+
+  it("early stages have longLeadGuidance defined", () => {
+    // New Lead and Contacted should have long-lead guidance for 3-6 month customers
+    const newLead = getStagePlaybook("New Lead")!;
+    const contacted = getStagePlaybook("Contacted")!;
+    expect(newLead.longLeadGuidance).toBeTruthy();
+    expect(contacted.longLeadGuidance).toBeTruthy();
+    expect(newLead.longLeadGuidance).toContain("LONG-LEAD");
+  });
+
+  it("early stages have humanAssistedGuidance defined", () => {
+    const newLead = getStagePlaybook("New Lead")!;
+    const contacted = getStagePlaybook("Contacted")!;
+    expect(newLead.humanAssistedGuidance).toBeTruthy();
+    expect(contacted.humanAssistedGuidance).toBeTruthy();
+    expect(newLead.humanAssistedGuidance).toContain("human agent");
   });
 
   it("non-terminal stages have a nextStage defined", () => {
@@ -144,6 +164,39 @@ describe("getStageBlock", () => {
   it("returns empty string for null", () => {
     expect(getStrategistStageBlock(null)).toBe("");
     expect(getStrategistStageBlock(undefined)).toBe("");
+  });
+
+  it("injects long-lead guidance when options.isLongLead is true", () => {
+    const block = getStrategistStageBlock("New Lead", { isLongLead: true });
+    expect(block).toContain("LONG-LEAD SEQUENCE ACTIVE");
+    expect(block).toContain("LONG-LEAD");
+  });
+
+  it("does NOT inject long-lead guidance when options.isLongLead is false", () => {
+    const block = getStrategistStageBlock("New Lead", { isLongLead: false });
+    expect(block).not.toContain("LONG-LEAD SEQUENCE ACTIVE");
+  });
+
+  it("injects human-assisted guidance when options.isHumanAssisted is true", () => {
+    const block = getStrategistStageBlock("New Lead", { isHumanAssisted: true });
+    expect(block).toContain("HUMAN-ASSISTED MODE (SUPPORT ROLE)");
+  });
+
+  it("does NOT inject human-assisted guidance when options.isHumanAssisted is false", () => {
+    const block = getStrategistStageBlock("New Lead", { isHumanAssisted: false });
+    expect(block).not.toContain("HUMAN-ASSISTED MODE");
+  });
+
+  it("injects both long-lead and human-assisted guidance simultaneously", () => {
+    const block = getStrategistStageBlock("New Lead", { isLongLead: true, isHumanAssisted: true });
+    expect(block).toContain("LONG-LEAD SEQUENCE ACTIVE");
+    expect(block).toContain("HUMAN-ASSISTED MODE (SUPPORT ROLE)");
+  });
+
+  it("does NOT inject long-lead guidance for stages without it", () => {
+    // Delivered has longLeadGuidance: null
+    const block = getStrategistStageBlock("Delivered", { isLongLead: true });
+    expect(block).not.toContain("LONG-LEAD SEQUENCE ACTIVE");
   });
 });
 

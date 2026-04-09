@@ -150,7 +150,7 @@ export async function sendMessage(contactId: string, opts: {
   //   (a) Check local DB humanTakeover flag + lastAgentActivityAt
   //   (b) Check GHL conversation history for recent non-AI outbound messages
   // ================================================================
-  const AGENT_TAKEOVER_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
+  const AGENT_TAKEOVER_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours (was 2hr — upgraded per approved fix)
   try {
     const lead = await getLeadByGhlContactId(contactId);
     if (lead) {

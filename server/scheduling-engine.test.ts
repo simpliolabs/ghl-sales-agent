@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calculateScoreDecay, checkSeasonalEligibility, calculatePerpetualNurtureSchedule } from "./scheduling-engine";
+import { calculateScoreDecay, checkSeasonalEligibility, calculatePerpetualNurtureSchedule, MAX_FOLLOWUP_DELAY_MS, MAX_FOLLOWUP_DELAY_HOURS, capDate, DNC_KEYWORDS, checkDnc } from "./scheduling-engine";
 
 describe("Scheduling Engine — Score Decay", () => {
   it("should NOT decay scores within 14 days of engagement", () => {
@@ -119,5 +119,143 @@ describe("Scheduling Engine — Perpetual Nurture", () => {
     const old = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000);
     const result = calculatePerpetualNurtureSchedule(0, old);
     expect(result.reason).toContain("print@adorbcustomtees.com");
+  });
+});
+
+// ─── 30-Day Max Cap ──────────────────────────────────────────────────────
+
+describe("Scheduling Engine — 30-Day Max Cap", () => {
+  it("MAX_FOLLOWUP_DELAY_MS should be exactly 30 days", () => {
+    expect(MAX_FOLLOWUP_DELAY_MS).toBe(30 * 24 * 60 * 60 * 1000);
+  });
+
+  it("MAX_FOLLOWUP_DELAY_HOURS should be 720 hours", () => {
+    expect(MAX_FOLLOWUP_DELAY_HOURS).toBe(720);
+  });
+
+  it("capDate should cap dates beyond 30 days to 30 days from now", () => {
+    const farFuture = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000); // 60 days out
+    const capped = capDate(farFuture, false);
+    const maxAllowed = Date.now() + MAX_FOLLOWUP_DELAY_MS;
+    expect(capped.getTime()).toBeLessThanOrEqual(maxAllowed + 1000); // 1s tolerance
+  });
+
+  it("capDate should NOT cap dates within 30 days", () => {
+    const nearFuture = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000); // 10 days out
+    const capped = capDate(nearFuture, false);
+    // Should be the same date (within a second tolerance)
+    expect(Math.abs(capped.getTime() - nearFuture.getTime())).toBeLessThan(1000);
+  });
+
+  it("capDate should allow long-lead exempt dates beyond 30 days", () => {
+    const farFuture = new Date(Date.now() + 120 * 24 * 60 * 60 * 1000); // 120 days out
+    const capped = capDate(farFuture, true); // longLeadExempt = true
+    // Should preserve the original date
+    expect(Math.abs(capped.getTime() - farFuture.getTime())).toBeLessThan(1000);
+  });
+
+  it("capDate should handle past dates (return as-is)", () => {
+    const pastDate = new Date(Date.now() - 24 * 60 * 60 * 1000); // 1 day ago
+    const capped = capDate(pastDate, false);
+    expect(Math.abs(capped.getTime() - pastDate.getTime())).toBeLessThan(1000);
+  });
+});
+
+// ─── DNC Detection ──────────────────────────────────────────────────────
+
+describe("Scheduling Engine — DNC Detection", () => {
+  it("should detect 'stop' as DNC", () => {
+    const messages = [{ messageBody: "stop", direction: "inbound", senderType: "lead" }];
+    expect(checkDnc(messages)).toBe(true);
+  });
+
+  it("should detect 'unsubscribe' as DNC", () => {
+    const messages = [{ messageBody: "unsubscribe", direction: "inbound", senderType: "lead" }];
+    expect(checkDnc(messages)).toBe(true);
+  });
+
+  it("should NOT detect normal messages as DNC", () => {
+    const messages = [{ messageBody: "Hi, I'm interested in shirts", direction: "inbound", senderType: "lead" }];
+    expect(checkDnc(messages)).toBe(false);
+  });
+
+  it("should only check inbound messages", () => {
+    const messages = [{ messageBody: "stop", direction: "outbound", senderType: "ai" }];
+    expect(checkDnc(messages)).toBe(false);
+  });
+
+  it("should handle null messageBody gracefully", () => {
+    const messages = [{ messageBody: null, direction: "inbound", senderType: "lead" }];
+    expect(checkDnc(messages)).toBe(false);
+  });
+
+  it("DNC_KEYWORDS should include common opt-out phrases", () => {
+    expect(DNC_KEYWORDS).toContain("stop");
+    expect(DNC_KEYWORDS).toContain("unsubscribe");
+    expect(DNC_KEYWORDS).toContain("opt out");
+    expect(DNC_KEYWORDS).toContain("remove me");
+  });
+});
+
+// ─── Structural Tests — New Features ──────────────────────────────────────
+
+describe("Scheduling Engine — Structural Validation", () => {
+  it("compressSchedule function should be exported", async () => {
+    const mod = await import("./scheduling-engine");
+    expect(typeof mod.compressSchedule).toBe("function");
+  });
+
+  it("processOverdueCatchUp function should be exported from follow-up-trigger", async () => {
+    const mod = await import("./follow-up-trigger");
+    expect(typeof mod.processOverdueCatchUp).toBe("function");
+  });
+
+  it("scheduling-engine.ts should contain MAX_FOLLOWUP_DELAY_MS export", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.join(__dirname, "scheduling-engine.ts"), "utf-8");
+    expect(src).toContain("export const MAX_FOLLOWUP_DELAY_MS");
+    expect(src).toContain("30 * 24 * 60 * 60 * 1000");
+  });
+
+  it("follow-up-trigger.ts should contain overdue catch-up with batch of 20", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.join(__dirname, "follow-up-trigger.ts"), "utf-8");
+    expect(src).toContain("OVERDUE_CATCHUP_BATCH");
+    expect(src).toContain("processOverdueCatchUp");
+  });
+
+  it("webhooks.ts should wire the hourly overdue catch-up timer", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.join(__dirname, "webhooks.ts"), "utf-8");
+    expect(src).toContain("processOverdueCatchUp");
+    expect(src).toContain("60 * 60 * 1000"); // 60 minute interval
+    expect(src).toContain("OverdueCatchUp");
+  });
+
+  it("ghl.ts send gate should use 24-hour window", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.join(__dirname, "ghl.ts"), "utf-8");
+    expect(src).toContain("24 * 60 * 60 * 1000"); // 24 hours
+    expect(src).not.toMatch(/AGENT_TAKEOVER_WINDOW_MS\s*=\s*2\s*\*\s*60\s*\*\s*60\s*\*\s*1000/);
+  });
+
+  it("lead-disposition.ts should use 24-hour stale takeover threshold", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.join(__dirname, "lead-disposition.ts"), "utf-8");
+    expect(src).toContain("24 * 60 * 60 * 1000");
+    expect(src).toContain("24hr timeout");
+  });
+
+  it("routers.ts should expose compressSchedule and triggerOverdueCatchUp admin endpoints", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.join(__dirname, "routers.ts"), "utf-8");
+    expect(src).toContain("compressSchedule");
+    expect(src).toContain("triggerOverdueCatchUp");
   });
 });

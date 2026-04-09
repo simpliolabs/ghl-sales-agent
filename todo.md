@@ -386,3 +386,12 @@
 - [x] Tests for Stage Playbook module and integrations
 - [x] BUG: No active AI engagement today — INVESTIGATED: System IS active (80 messages in last 24h). Follow-ups drip-feed in small batches to avoid spam flags. 0 overdue follow-ups because all are scheduled ahead.
 - [x] BUG: Not Qualified leads not showing in their own tab on Leads page — FIXED: isNotQualified() now normalizes underscores (not_qualified → not qualified). Query limit increased from 200 to 5000 to include all leads.
+- [ ] BUG: Lead #690005 has outdated future engagement date — investigate scheduling architecture flaw
+
+## Scheduling Architecture Fixes
+- [x] FIX 1: Compress schedule — reschedule all beyond-30-day leads to 7-14 days with 50-100/day staggering. Admin endpoint `compressSchedule` redistributes leads across 7-14 days at 50-100/day.
+- [x] FIX 2: 24hr human-takeover timeout — auto-release to AI, multi-channel re-engagement (if agent sent FB, AI can follow up via email/SMS with proper sales training). Send gate window changed from 2hr→24hr. Lead disposition stale threshold changed from 7 days→24hr. Stage Playbook has humanAssistedGuidance for support-role AI engagement.
+- [x] FIX 3: Hourly overdue catch-up — processOverdueCatchUp() runs every 60 min automatically, batch of 20, wired in webhooks.ts. Admin trigger available.
+- [x] FIX 4: 30-day max cap on follow-up delay — MAX_FOLLOWUP_DELAY_MS enforced in capDate(), scheduling engine, perpetual nurture, stale recalc. Long-lead exempt (P1 customer timeline). Stage Playbook has longLeadGuidance for 3-6 month advance orders.
+- [x] One-time migration script: compressSchedule() in scheduling-engine.ts + admin tRPC endpoint
+- [x] Tests for all scheduling fixes — 458 tests passing (send-gate 24hr, lead-disposition 24hr, stage-playbook long-lead/human-assisted, scheduling-engine 30-day cap, structural validation)

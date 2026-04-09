@@ -146,9 +146,9 @@ describe("Stale Takeover Expiry", () => {
     expect(src).toContain("isNull(leads.lastAgentActivityAt)");
   });
 
-  it("lead-disposition.ts handles lastAgentActivityAt > 7 days as stale", () => {
+  it("lead-disposition.ts handles lastAgentActivityAt > 24 hours as stale", () => {
     const src = readFile("lead-disposition.ts");
-    expect(src).toContain("7 * 24 * 60 * 60 * 1000");
+    expect(src).toContain("24 * 60 * 60 * 1000"); // 24hr timeout (was 7 days)
   });
 
   it("lead-disposition.ts only processes leads older than 3 days", () => {

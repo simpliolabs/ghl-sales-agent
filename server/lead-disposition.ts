@@ -9,7 +9,7 @@
  * 
  * 2. STALE TAKEOVER LEADS → Auto-expire humanTakeover when no agent activity
  *    - humanTakeover=1 with NULL lastAgentActivityAt (permanently frozen bug)
- *    - humanTakeover=1 with lastAgentActivityAt older than 7 days
+ *    - humanTakeover=1 with lastAgentActivityAt older than 24 HOURS (was 7 days)
  *    - If lead has email available → reset for email outreach
  *    - If lead has no email → move to Not Qualified
  * 
@@ -239,7 +239,7 @@ export async function runDispositionSweep(): Promise<DispositionStats> {
         sql`${leads.createdAt} < DATE_SUB(NOW(), INTERVAL 3 DAY)`,
         or(
           isNull(leads.lastAgentActivityAt),
-          lte(leads.lastAgentActivityAt, new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))
+          lte(leads.lastAgentActivityAt, new Date(Date.now() - 24 * 60 * 60 * 1000)) // 24hr timeout (was 7 days)
         ),
       ))
       .limit(MAX_PER_CYCLE);
@@ -276,7 +276,7 @@ export async function runDispositionSweep(): Promise<DispositionStats> {
         // Escalate to email — the lead has email and it's not blocked
         const reason = smsBlocked
           ? "SMS DND-blocked, escalating to email"
-          : "Stale humanTakeover (no agent activity for 7+ days), escalating to email";
+          : "Stale humanTakeover (no agent activity for 24+ hours), escalating to email";
         const success = await escalateToEmail(candidate.id, reason);
         stats.processed++;
         if (success) stats.emailEscalated++;

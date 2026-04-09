@@ -376,7 +376,9 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
 
         // Schedule next follow-up
         const scheduleResult = await calculateNextFollowUp({ leadId, aiSuggestedHours: aiResponse.nextEngagementHours, triggerEvent: "ai_response" });
-        await updateLeadFields(leadId, { nextFollowUpAt: capDate(scheduleResult.nextFollowUpAt), cadencePosition: scheduleResult.cadencePosition, preferredChannel: scheduleResult.channel, lastOutboundChannel: channel });
+        // P1 (customer-stated timeline) is exempt from the 30-day cap
+        const isLongLead = scheduleResult.priority === 1;
+        await updateLeadFields(leadId, { nextFollowUpAt: capDate(scheduleResult.nextFollowUpAt, isLongLead), cadencePosition: scheduleResult.cadencePosition, preferredChannel: scheduleResult.channel, lastOutboundChannel: channel });
         console.log(`[FollowUp] Next for lead ${leadId}: ${scheduleResult.reason}`);
 
         // Small delay between sends to avoid GHL rate limits
@@ -397,6 +399,139 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
     console.error("[FollowUp] Fatal error in follow-up trigger:", err);
   } finally {
     triggerRunning = false;
+  }
+  return stats;
+}
+
+// ============================================================
+// HOURLY OVERDUE CATCH-UP
+// Runs every 60 minutes. Specifically targets leads whose
+// nextFollowUpAt is significantly overdue (> 1 hour past).
+// Processes batch of 20 to catch leads that fell through cracks.
+// ============================================================
+
+const OVERDUE_CATCHUP_BATCH = 20;
+const OVERDUE_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour — only catch leads overdue by more than this
+
+/** Global lock for overdue catch-up */
+let catchupRunning = false;
+let catchupStartedAt = 0;
+const CATCHUP_LOCK_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes max
+
+export async function processOverdueCatchUp(): Promise<{ processed: number; rescheduled: number; errors: number }> {
+  const stats = { processed: 0, rescheduled: 0, errors: 0 };
+
+  // Global lock
+  if (catchupRunning) {
+    const elapsed = Date.now() - catchupStartedAt;
+    if (elapsed < CATCHUP_LOCK_TIMEOUT_MS) {
+      console.log(`[OverdueCatchUp] Skipping — already running (${Math.round(elapsed / 1000)}s ago)`);
+      return stats;
+    }
+    console.log(`[OverdueCatchUp] Previous run timed out after ${Math.round(elapsed / 1000)}s — forcing unlock`);
+  }
+  catchupRunning = true;
+  catchupStartedAt = Date.now();
+
+  try {
+    // AI offline check
+    if (await isAiOffline()) {
+      console.log(`[OverdueCatchUp] AI offline — skipping`);
+      return stats;
+    }
+
+    // Find leads that are significantly overdue (nextFollowUpAt < NOW() - 1 hour)
+    // This avoids overlapping with the normal 10-minute trigger which handles recent overdues
+    const { getDb } = await import("./db");
+    const { leads } = await import("../drizzle/schema");
+    const { and, sql, eq, lte } = await import("drizzle-orm");
+
+    const db = await getDb();
+    if (!db) return stats;
+
+    const overdueThreshold = new Date(Date.now() - OVERDUE_THRESHOLD_MS);
+    const overdueLeads = await db.select({
+      id: leads.id,
+      name: leads.name,
+      ghlContactId: leads.ghlContactId,
+      nextFollowUpAt: leads.nextFollowUpAt,
+      opportunityScore: leads.opportunityScore,
+      pipelineStage: leads.pipelineStage,
+      humanTakeover: leads.humanTakeover,
+      assignedAgent: leads.assignedAgent,
+    })
+      .from(leads)
+      .where(and(
+        lte(leads.nextFollowUpAt, overdueThreshold),
+        eq(leads.humanTakeover, 0),
+        sql`${leads.pipelineStage} != 'not_qualified'`,
+        sql`${leads.assignedAgent} IS NOT NULL`,
+        sql`${leads.ghlContactId} IS NOT NULL`,
+      ))
+      .orderBy(sql`${leads.nextFollowUpAt} ASC`) // Most overdue first
+      .limit(OVERDUE_CATCHUP_BATCH);
+
+    if (overdueLeads.length === 0) return stats;
+
+    const oldestOverdue = overdueLeads[0].nextFollowUpAt
+      ? Math.round((Date.now() - new Date(overdueLeads[0].nextFollowUpAt).getTime()) / (60 * 60 * 1000))
+      : "unknown";
+    console.log(`[OverdueCatchUp] Found ${overdueLeads.length} significantly overdue leads (oldest: ${oldestOverdue}h overdue)`);
+
+    for (const lead of overdueLeads) {
+      stats.processed++;
+      try {
+        // Recalculate schedule — this will either:
+        // 1. Set a new future date if the lead should be contacted later
+        // 2. Set a date in the near future so the normal 10-min trigger picks it up
+        const result = await calculateNextFollowUp({
+          leadId: lead.id,
+          triggerEvent: "scheduled_recalc",
+        });
+
+        if (result.isDnc) {
+          // DNC — push far out
+          await updateLeadFields(lead.id, {
+            nextFollowUpAt: capDate(result.nextFollowUpAt, true),
+            cadencePosition: result.cadencePosition,
+          });
+          stats.rescheduled++;
+          continue;
+        }
+
+        // If the recalculated date is STILL in the past, set it to NOW so the
+        // normal follow-up trigger picks it up in the next 10-min cycle
+        const newDate = result.nextFollowUpAt.getTime() < Date.now()
+          ? new Date(Date.now() + Math.random() * 10 * 60 * 1000) // Random 0-10 min stagger
+          : result.nextFollowUpAt;
+
+        const isLongLead = result.priority === 1;
+        await updateLeadFields(lead.id, {
+          nextFollowUpAt: capDate(newDate, isLongLead),
+          cadencePosition: result.cadencePosition,
+          preferredChannel: result.channel,
+        });
+        stats.rescheduled++;
+
+        const hoursOverdue = lead.nextFollowUpAt
+          ? Math.round((Date.now() - new Date(lead.nextFollowUpAt).getTime()) / (60 * 60 * 1000))
+          : 0;
+        console.log(`[OverdueCatchUp] Lead ${lead.id} (${lead.name || "?"}) was ${hoursOverdue}h overdue → rescheduled: ${result.reason}`);
+      } catch (err) {
+        console.error(`[OverdueCatchUp] Error processing lead ${lead.id}:`, err);
+        stats.errors++;
+        // Best-effort: reschedule to 2 hours from now
+        try {
+          await updateLeadFields(lead.id, { nextFollowUpAt: new Date(Date.now() + 2 * 60 * 60 * 1000) });
+        } catch { /* best effort */ }
+      }
+    }
+
+    console.log(`[OverdueCatchUp] Complete: ${stats.processed} processed, ${stats.rescheduled} rescheduled, ${stats.errors} errors`);
+  } catch (err) {
+    console.error("[OverdueCatchUp] Fatal error:", err);
+  } finally {
+    catchupRunning = false;
   }
   return stats;
 }
