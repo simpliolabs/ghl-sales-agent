@@ -16,6 +16,7 @@ import AcceptInvite from "./pages/AcceptInvite";
 import AuditLog from "./pages/AuditLog";
 import WebhookLogs from "./pages/WebhookLogs";
 import HandoffQueue from "./pages/HandoffQueue";
+import SelfLearning from "./pages/SelfLearning";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -32,6 +33,7 @@ function Router() {
       <Route path="/audit-log" component={AuditLog} />
       <Route path="/webhook-logs" component={WebhookLogs} />
       <Route path="/handoff-queue" component={HandoffQueue} />
+      <Route path="/self-learning" component={SelfLearning} />
       <Route path="/invite/:token" component={AcceptInvite} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />

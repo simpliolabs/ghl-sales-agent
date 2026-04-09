@@ -379,6 +379,10 @@ export async function addBrainCouncilAudit(data: {
   correctionSent?: number;
   correctionMessage?: string;
   correctionReason?: string;
+  // Phase 4: Self-Learning metadata
+  experimentId?: string;
+  variant?: string;
+  persona?: string;
 }) {
   const db = await getDb();
   if (!db) return;

@@ -117,6 +117,10 @@ export interface BrainCouncilOutput {
   violationCategory?: string;
   fallbackUsed: boolean;
   fallbackMessage?: string;
+  // Phase 4: Self-Learning Loop metadata
+  experimentId?: string;  // A/B experiment this message belongs to
+  variant?: "A" | "B";   // Which variant was assigned
+  persona?: string;       // Normalized persona (church, corporate, etc.)
 }
 
 export type ViolationCategory = "irrelevant_research" | "form_data_ignored" | "wrong_business" | "generic_opener" | "missing_framework" | "safety_violation" | "unanswered_question" | "info_not_acknowledged" | "repeated_question" | "ignored_request" | "channel_mismatch" | "unverified_claim";

@@ -20,6 +20,14 @@ import { getContacts, getPipelines } from "./ghl";
 import { invokeLLM } from "./_core/llm";
 import { scoreLeadQuick } from "./ai-brain";
 import { getPatternAnalysis, backfillOutcomes } from "./outcome-engine";
+import {
+  createExperiment, listExperiments, evaluateExperiment,
+  evaluateAllExperiments, setExperimentStatus,
+} from "./ab-testing";
+import {
+  getPersonaMatrix, normalizePersona, generateDailySnapshot,
+  getOutcomeTrends, getPersonaLearningContext, backfillPersonaOnOutcomes,
+} from "./persona-learning";
 import { processOverdueFollowUps, processOverdueCatchUp } from "./follow-up-trigger";
 import { compressSchedule, MAX_FOLLOWUP_DELAY_MS } from "./scheduling-engine";
 import { runAndStoreSupervisorCycle, getSupervisorStatus } from "./supervisor";
@@ -363,6 +371,89 @@ export const appRouter = router({
     updateRole: adminProcedure.input(z.object({ userId: z.number(), role: z.enum(["admin", "viewer"]) })).mutation(async ({ input }) => {
       await updateUserRole(input.userId, input.role);
       return { success: true };
+    }),
+  }),
+
+  // ============================================================
+  // PHASE 4: SELF-LEARNING LOOP
+  // ============================================================
+  learning: router({
+    // --- A/B Experiments ---
+    experiments: protectedProcedure.query(async () => listExperiments()),
+    activeExperiments: protectedProcedure.query(async () => listExperiments("active")),
+    experimentResults: protectedProcedure.input(z.object({ experimentId: z.string() })).query(async ({ input }) => {
+      return evaluateExperiment(input.experimentId);
+    }),
+    pauseExperiment: adminProcedure.input(z.object({ experimentId: z.string() })).mutation(async ({ input }) => {
+      return setExperimentStatus(input.experimentId, "paused");
+    }),
+    resumeExperiment: adminProcedure.input(z.object({ experimentId: z.string() })).mutation(async ({ input }) => {
+      return setExperimentStatus(input.experimentId, "active");
+    }),
+    evaluateAllExperiments: adminProcedure.mutation(async () => {
+      return evaluateAllExperiments();
+    }),
+    createExperiment: adminProcedure.input(z.object({
+      name: z.string(),
+      hypothesis: z.string(),
+      variantADescription: z.string(),
+      variantBDescription: z.string(),
+      variantAConfig: z.record(z.string(), z.string()),
+      variantBConfig: z.record(z.string(), z.string()),
+      targetSegment: z.string().optional(),
+      targetChannel: z.string().optional(),
+      targetApproach: z.string().optional(),
+      primaryMetric: z.enum(["reply_rate", "conversion_rate", "positive_rate"]).optional(),
+      sampleSizeTarget: z.number().optional(),
+      confidenceThreshold: z.number().optional(),
+      autoAdopt: z.boolean().optional(),
+    })).mutation(async ({ input }) => {
+      return createExperiment(input);
+    }),
+    evaluateExperiment: adminProcedure.input(z.object({ experimentId: z.string() })).mutation(async ({ input }) => {
+      return evaluateExperiment(input.experimentId);
+    }),
+
+    // --- Persona Matrix ---
+    personaMatrix: protectedProcedure.query(async () => {
+      return getPersonaMatrix();
+    }),
+    personaLearningContext: protectedProcedure.input(z.object({ persona: z.string() })).query(async ({ input }) => {
+      return getPersonaLearningContext(input.persona);
+    }),
+    backfillPersona: adminProcedure.mutation(async () => {
+      const count = await backfillPersonaOnOutcomes();
+      return { updated: count };
+    }),
+
+    // --- Daily Snapshots / Trends ---
+    outcomeTrends: protectedProcedure.input(z.object({ days: z.number().optional() }).optional()).query(async ({ input }) => {
+      return getOutcomeTrends(input?.days || 14);
+    }),
+    triggerSnapshot: adminProcedure.mutation(async () => {
+      await generateDailySnapshot();
+      return { success: true };
+    }),
+
+    // --- Combined Dashboard Data ---
+    dashboardSummary: protectedProcedure.query(async () => {
+      const [patterns, allExperiments, matrix, trends] = await Promise.all([
+        getPatternAnalysis(),
+        listExperiments(),
+        getPersonaMatrix(),
+        getOutcomeTrends(14),
+      ]);
+      return {
+        patterns,
+        experiments: {
+          total: allExperiments.length,
+          active: allExperiments.filter((e: any) => e.status === "active").length,
+          completed: allExperiments.filter((e: any) => e.status === "completed").length,
+          recent: allExperiments.slice(0, 5),
+        },
+        personaMatrix: matrix,
+        trends,
+      };
     }),
   }),
 

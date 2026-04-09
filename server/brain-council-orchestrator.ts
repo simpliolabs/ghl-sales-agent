@@ -46,6 +46,8 @@ import type {
   BrainCouncilInput,
   BrainCouncilOutput,
 } from "./brain-types";
+import { assignVariant } from "./ab-testing";
+import { normalizePersona, getPersonaLearningContext } from "./persona-learning";
 
 // Re-export types so callers only need one import
 export type { BrainCouncilInput, BrainCouncilOutput } from "./brain-types";
@@ -354,6 +356,34 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
       }
     }
 
+    // --- PHASE 4: PERSONA & A/B SETUP ---
+    const persona = normalizePersona(context.lead.omnisendSegment);
+    let experimentAssignment: { experimentId: string; variant: "A" | "B"; config: Record<string, string> } | null = null;
+    try {
+      experimentAssignment = await assignVariant(
+        input.leadId,
+        context.lead.omnisendSegment,
+        input.channel,
+        undefined, // approach not yet known
+      );
+      if (experimentAssignment) {
+        console.log(`[BrainCouncil] A/B: lead ${input.leadId} → ${experimentAssignment.experimentId} variant ${experimentAssignment.variant}`);
+      }
+    } catch (err) {
+      console.error(`[BrainCouncil] A/B assignment error (non-fatal):`, err);
+    }
+
+    // Inject persona-specific learning context for Strategist
+    let personaLearningBlock = "";
+    try {
+      personaLearningBlock = await getPersonaLearningContext(persona);
+    } catch (err) {
+      console.error(`[BrainCouncil] Persona learning error (non-fatal):`, err);
+    }
+    if (personaLearningBlock) {
+      (context as any)._personaLearningBlock = personaLearningBlock;
+    }
+
     // BRAIN 1: STRATEGIST
     console.log(`[BrainCouncil] Running Strategist...`);
     const strategy = await runStrategist(input, context);
@@ -400,6 +430,27 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
         console.log(`[BrainCouncil] 🎯 CONV STATE OVERRIDE: Lead is FULFILLED — overriding '${strategy.approach}' → 'post_delivery'`);
         (strategy as any).approach = "post_delivery";
         (strategy as any).reasoning = `[FULFILLED STATE OVERRIDE] ${strategy.reasoning}`;
+      }
+    }
+
+    // --- PHASE 4: A/B VARIANT OVERRIDE ---
+    // If an experiment is active and its config overrides framework/approach, apply it
+    if (experimentAssignment) {
+      const cfg = experimentAssignment.config;
+      if (cfg.framework && cfg.framework !== strategy.framework) {
+        console.log(`[BrainCouncil] A/B override: framework ${strategy.framework} → ${cfg.framework} (experiment ${experimentAssignment.experimentId} variant ${experimentAssignment.variant})`);
+        (strategy as any).framework = cfg.framework;
+        (strategy as any).reasoning = `[A/B TEST: variant ${experimentAssignment.variant}] ${strategy.reasoning}`;
+      }
+      if (cfg.approach && cfg.approach !== strategy.approach) {
+        console.log(`[BrainCouncil] A/B override: approach ${strategy.approach} → ${cfg.approach}`);
+        (strategy as any).approach = cfg.approach;
+      }
+      if (cfg.toneDirective) {
+        (strategy as any).toneDirective = cfg.toneDirective;
+      }
+      if (cfg.maxLength) {
+        (strategy as any).maxLength = parseInt(cfg.maxLength);
       }
     }
 
@@ -637,6 +688,10 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
         violationCategory: undefined,
         ownerNotified: 0,
         fallbackUsed: 0,
+        // Phase 4: Self-Learning metadata
+        experimentId: experimentAssignment?.experimentId,
+        variant: experimentAssignment?.variant,
+        persona,
       });
     } catch (auditErr) {
       console.error('[BrainCouncil] Audit log error (non-fatal):', auditErr);
@@ -671,6 +726,10 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
       researchSummary: research.summary,
       blocked: false,
       fallbackUsed: false,
+      // Phase 4: Self-Learning metadata
+      experimentId: experimentAssignment?.experimentId,
+      variant: experimentAssignment?.variant,
+      persona,
     };
   } finally {
     // ALWAYS release the DB lock, no matter what happened

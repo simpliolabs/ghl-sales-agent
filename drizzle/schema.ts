@@ -236,6 +236,10 @@ export const brainCouncilAudit = mysqlTable("brain_council_audit", {
   correctionSent: tinyint("correctionSent").default(0), // 1 = apology + correct message was auto-sent
   correctionMessage: text("correctionMessage"), // the correction/apology message that was sent
   correctionReason: text("correctionReason"), // why correction was needed
+  // Phase 4: Self-Learning metadata
+  experimentId: varchar("experimentId", { length: 64 }),
+  variant: varchar("variant", { length: 1 }),
+  persona: varchar("persona", { length: 64 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -252,6 +256,11 @@ export const messageOutcomes = mysqlTable("message_outcomes", {
   segment: varchar("segment", { length: 64 }),
   agentName: varchar("agentName", { length: 128 }),
   personalizationTier: int("personalizationTier"),
+  // A/B experiment tracking
+  experimentId: varchar("experimentId", { length: 64 }),
+  variant: varchar("variant", { length: 1 }),
+  // Persona tracking
+  persona: varchar("persona", { length: 64 }),
   // Outcome signals
   gotReply: tinyint("gotReply").default(0), // 1 = lead replied within attribution window
   replyMinutes: int("replyMinutes"), // how fast they replied (null = no reply)
@@ -358,3 +367,77 @@ export const supervisorAudit = mysqlTable("supervisor_audit", {
   success: tinyint("success").default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
+
+// ============================================================
+// PHASE 4: SELF-LEARNING LOOP
+// ============================================================
+
+// A/B Experiments — controlled tests of message variants
+export const abExperiments = mysqlTable("ab_experiments", {
+  id: int("id").autoincrement().primaryKey(),
+  experimentId: varchar("experimentId", { length: 64 }).notNull().unique(),
+  name: varchar("name", { length: 255 }).notNull(),
+  hypothesis: text("hypothesis").notNull(),
+  variantADescription: text("variantADescription").notNull(),
+  variantBDescription: text("variantBDescription").notNull(),
+  variantAConfig: json("variantAConfig").notNull(),
+  variantBConfig: json("variantBConfig").notNull(),
+  targetSegment: varchar("targetSegment", { length: 64 }),
+  targetChannel: varchar("targetChannel", { length: 32 }),
+  targetApproach: varchar("targetApproach", { length: 64 }),
+  primaryMetric: varchar("primaryMetric", { length: 32 }).notNull().default("reply_rate"),
+  sampleSizeTarget: int("sampleSizeTarget").notNull().default(50),
+  confidenceThreshold: int("confidenceThreshold").notNull().default(95),
+  variantASamples: int("variantASamples").default(0),
+  variantBSamples: int("variantBSamples").default(0),
+  variantASuccesses: int("variantASuccesses").default(0),
+  variantBSuccesses: int("variantBSuccesses").default(0),
+  winnerVariant: varchar("winnerVariant", { length: 1 }),
+  pValue: varchar("pValue", { length: 16 }),
+  status: varchar("status", { length: 16 }).notNull().default("active"),
+  autoAdopt: tinyint("autoAdopt").default(1),
+  adoptedAt: timestamp("adoptedAt"),
+  startedAt: timestamp("startedAt").defaultNow().notNull(),
+  endedAt: timestamp("endedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AbExperiment = typeof abExperiments.$inferSelect;
+export type InsertAbExperiment = typeof abExperiments.$inferInsert;
+
+// A/B Assignments — which variant each lead is assigned to
+export const abAssignments = mysqlTable("ab_assignments", {
+  id: int("id").autoincrement().primaryKey(),
+  experimentId: varchar("experimentId", { length: 64 }).notNull(),
+  leadId: int("leadId").notNull(),
+  variant: varchar("variant", { length: 1 }).notNull(),
+  assignedAt: timestamp("assignedAt").defaultNow().notNull(),
+});
+
+export type AbAssignment = typeof abAssignments.$inferSelect;
+export type InsertAbAssignment = typeof abAssignments.$inferInsert;
+
+// Daily Performance Snapshots — time-series outcome tracking
+export const dailySnapshots = mysqlTable("daily_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  snapshotDate: varchar("snapshotDate", { length: 10 }).notNull(),
+  messagesSent: int("messagesSent").default(0),
+  repliesReceived: int("repliesReceived").default(0),
+  replyRate: int("replyRate").default(0),
+  positiveRate: int("positiveRate").default(0),
+  conversionRate: int("conversionRate").default(0),
+  dncRate: int("dncRate").default(0),
+  avgReplyMinutes: int("avgReplyMinutes").default(0),
+  frameworkBreakdown: json("frameworkBreakdown"),
+  channelBreakdown: json("channelBreakdown"),
+  personaBreakdown: json("personaBreakdown"),
+  experimentBreakdown: json("experimentBreakdown"),
+  stageAdvances: int("stageAdvances").default(0),
+  leadsWon: int("leadsWon").default(0),
+  leadsLost: int("leadsLost").default(0),
+  pipelineValueAdded: int("pipelineValueAdded").default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type DailySnapshot = typeof dailySnapshots.$inferSelect;
+export type InsertDailySnapshot = typeof dailySnapshots.$inferInsert;

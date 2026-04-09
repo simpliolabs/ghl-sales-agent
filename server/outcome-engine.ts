@@ -12,7 +12,7 @@
 
 import { eq, desc, and, sql, gte, isNull } from "drizzle-orm";
 import { getDb } from "./db";
-import { brainCouncilAudit, messageOutcomes, leads, conversations, pipelineEvents } from "../drizzle/schema";
+import { brainCouncilAudit, messageOutcomes, leads, conversations, pipelineEvents, abExperiments } from "../drizzle/schema";
 import { invokeLLM } from "./_core/llm";
 import { cached, patternCache } from "./cache";
 import { DNC_KEYWORDS } from "./scheduling-engine";
@@ -93,6 +93,10 @@ export async function attributeReply(opts: {
     segment: undefined, // will be enriched by pattern analysis
     agentName: audit.composerFromName,
     personalizationTier: audit.strategyTier ? parseInt(audit.strategyTier) : undefined,
+    // Phase 4: Self-Learning metadata from audit
+    experimentId: (audit as any).experimentId || undefined,
+    variant: (audit as any).variant || undefined,
+    persona: (audit as any).persona || undefined,
     gotReply: 1,
     replyMinutes,
     replySentiment: sentiment,
@@ -160,6 +164,10 @@ export async function attributeStageAdvance(opts: {
       channel: audit.channel,
       agentName: audit.composerFromName,
       personalizationTier: audit.strategyTier ? parseInt(audit.strategyTier) : undefined,
+      // Phase 4: Self-Learning metadata from audit
+      experimentId: (audit as any).experimentId || undefined,
+      variant: (audit as any).variant || undefined,
+      persona: (audit as any).persona || undefined,
       stageAdvanced: 1,
       toStage: opts.toStage,
       converted: isConversion ? 1 : 0,
@@ -420,6 +428,38 @@ async function _buildLearningContextUncached(segment?: string): Promise<string> 
     }
   }
 
+  // Phase 4: A/B experiment winners — auto-adopted strategies
+  try {
+    const db = await getDb();
+    if (db) {
+      const completedExperiments = await db.select()
+        .from(abExperiments)
+        .where(and(
+          eq(abExperiments.status, "completed"),
+          sql`${abExperiments.winnerVariant} IS NOT NULL`,
+        ))
+        .orderBy(desc(abExperiments.endedAt))
+        .limit(5);
+
+      if (completedExperiments.length > 0) {
+        lines.push("");
+        lines.push("A/B TEST WINNERS (proven strategies — ADOPT these):");
+        for (const exp of completedExperiments) {
+          const winnerConfig = exp.winnerVariant === "A"
+            ? (exp.variantAConfig as Record<string, string>)
+            : (exp.variantBConfig as Record<string, string>);
+          const winnerDesc = exp.winnerVariant === "A" ? exp.variantADescription : exp.variantBDescription;
+          const aRate = (exp.variantASamples as number) > 0 ? Math.round(((exp.variantASuccesses as number) / (exp.variantASamples as number)) * 100) : 0;
+          const bRate = (exp.variantBSamples as number) > 0 ? Math.round(((exp.variantBSuccesses as number) / (exp.variantBSamples as number)) * 100) : 0;
+          lines.push(`  ✅ ${exp.name}: Winner = Variant ${exp.winnerVariant} (${winnerDesc}). A: ${aRate}% vs B: ${bRate}%. Config: ${JSON.stringify(winnerConfig)}`);
+          if (exp.targetSegment) lines.push(`     Applies to segment: ${exp.targetSegment}`);
+        }
+      }
+    }
+  } catch (err) {
+    // Non-fatal — experiment data is supplementary
+  }
+
   return lines.join("\n");
 }
 
@@ -448,6 +488,9 @@ export async function backfillOutcomes(): Promise<number> {
     agentName: brainCouncilAudit.composerFromName,
     tier: brainCouncilAudit.strategyTier,
     sentAt: brainCouncilAudit.createdAt,
+    experimentId: brainCouncilAudit.experimentId,
+    variant: brainCouncilAudit.variant,
+    persona: brainCouncilAudit.persona,
   })
     .from(brainCouncilAudit)
     .leftJoin(messageOutcomes, eq(brainCouncilAudit.id, messageOutcomes.auditId))
@@ -514,6 +557,10 @@ export async function backfillOutcomes(): Promise<number> {
       segment: lead?.segment || undefined,
       agentName: entry.agentName,
       personalizationTier: entry.tier ? parseInt(entry.tier) : undefined,
+      // Phase 4: Self-Learning metadata from audit
+      experimentId: entry.experimentId || undefined,
+      variant: entry.variant || undefined,
+      persona: entry.persona || undefined,
       gotReply: gotReply ? 1 : 0,
       replyMinutes,
       replySentiment: sentiment,

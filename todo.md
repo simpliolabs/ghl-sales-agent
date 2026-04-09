@@ -446,3 +446,20 @@
 - [x] P3.5: Sidebar navigation — Handoff Queue added with UserCheck icon
 - [x] P3.6: scheduleDistribution + handoffQueue tRPC endpoints added to leads router
 - [x] P3.7: All 508 tests passing
+
+## PHASE 4 — SELF-LEARNING LOOP
+- [x] P4.1: Schema — Add ab_experiments table (experimentId, name, hypothesis, variantA/B descriptions, metric, status, startedAt, endedAt, winnerVariant, sampleSizeTarget, confidenceLevel)
+- [x] P4.2: Schema — Add ab_assignments table (experimentId, leadId, variant, assignedAt) + extend message_outcomes with experimentId + variant columns
+- [x] P4.3: Build server/ab-testing.ts — experiment lifecycle (create, assign variant, record outcome, evaluate winner)
+- [x] P4.4: Wire A/B variant assignment into Brain Council orchestrator (before Strategist call, check active experiments, assign variant, pass to Strategist)
+- [x] P4.5: Build statistical significance engine (chi-squared test for reply rates, conversion rates, with configurable confidence threshold)
+- [x] P4.6: Auto-adopt winners — when experiment reaches significance, auto-update Strategist promoted learnings with winning variant
+- [x] P4.7: Build persona-outcome aggregation — enrich message_outcomes.segment from lead data, aggregate reply/conversion rates per persona × framework × channel
+- [x] P4.8: Build persona-specific strategy recommendations — getPersonaLearningContext(persona) returns "for Schools: use SOCIAL_PROOF, avoid HORMOZI_ACA" style directives
+- [x] P4.9: Wire persona learning into Strategist prompt (inject persona-specific recommendations when lead's segment is known)
+- [x] P4.10: Build time-series outcome tracking — daily snapshots of reply rate, conversion rate, DNC rate, avg response time
+- [x] P4.11: Build outcome trend analysis — detect improving/declining metrics, alert on significant changes
+- [x] P4.12: Build Self-Learning dashboard page — experiment status, persona performance matrix, outcome trends, auto-adopted rules
+- [x] P4.13: Admin endpoints — createExperiment, listExperiments, evaluateExperiment, getPersonaMatrix, getOutcomeTrends
+- [x] P4.14: Wire daily snapshot timer into webhooks.ts (runs once per day at midnight)
+- [x] P4.15: Tests for A/B testing, persona learning, outcome trends, and statistical significance

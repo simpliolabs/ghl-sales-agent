@@ -293,10 +293,12 @@ ${await getPromotedLearningsBlock()}
 
 ${getStrategistStageBlock(lead.pipelineStage)}
 
+${(context as any)._personaLearningBlock || ""}
+
 STEP 1: Detect the awareness level from the incoming message and conversation history.
 STEP 2: Choose the approach that matches the awareness level.
 STEP 3: Choose the framework. Remember the FRAMEWORK DIVERSITY RULE — last framework was "${state?.lastFrameworkUsed || "none"}".
-STEP 4: Produce your strategic directive. PRIORITIZE frameworks and channels with proven higher reply rates from the learning data above (if available).`;
+STEP 4: Produce your strategic directive. PRIORITIZE frameworks and channels with proven higher reply rates from the learning data above (if available). If PERSONA-SPECIFIC LEARNING DATA is available above, use it to select the best-performing framework and channel for this persona.`;
 
   const response = await invokeLLM({
     messages: [
