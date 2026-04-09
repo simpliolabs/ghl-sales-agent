@@ -25,7 +25,7 @@ import { createTask, addNote, updateOpportunityStage, getOpportunitiesByContact 
 import { handleChannelDnc, allChannelsExhausted, detectDncChannel } from "./channel-fallback";
 import { calculateNextFollowUp } from "./scheduling-engine";
 import { STAGES, SALES_AGENTS, DESIGNER } from "./webhook-helpers";
-import { getNqStageId } from "../shared/ghl-stages";
+import { getNqStageId, getQualifiedStageId, getDeliveredStageId } from "../shared/ghl-stages";
 import type { ConversationState, StateTransitionResult } from "./conversation-state";
 import type { IntentResult } from "./intent-classifier";
 
@@ -108,7 +108,21 @@ async function handleCommitted(ctx: DispatchContext, intent: IntentResult): Prom
     actions.push("Added commitment note to GHL");
   } catch { /* best effort */ }
 
-  // 3. Schedule follow-up for proof delivery (check in 2 days if no proof sent)
+  // 3. Move pipeline to Qualified stage (customer confirmed → they're qualified)
+  if (ctx.ghlOpportunityId && ctx.ghlPipelineId) {
+    const qualifiedStageId = getQualifiedStageId(ctx.ghlPipelineId);
+    if (qualifiedStageId) {
+      try {
+        await updateOpportunityStage(ctx.ghlOpportunityId, qualifiedStageId);
+        actions.push(`Moved pipeline to Qualified stage`);
+        console.log(`[ActionDispatcher] Lead ${ctx.leadId}: Moved to Qualified (${qualifiedStageId})`);
+      } catch (err: any) {
+        errors.push(`Failed to move to Qualified: ${err?.message}`);
+      }
+    }
+  }
+
+  // 4. Schedule follow-up for proof delivery (check in 2 days if no proof sent)
   try {
     const schedule = await calculateNextFollowUp({
       leadId: ctx.leadId,
@@ -282,6 +296,20 @@ async function handleFulfilled(ctx: DispatchContext): Promise<DispatchResult> {
     actions.push(`Scheduled post-delivery follow-up: ${schedule.reason}`);
   } catch (err: any) {
     errors.push(`Failed to schedule post-delivery follow-up: ${err?.message}`);
+  }
+
+  // 2. Move pipeline to Delivered/Won stage
+  if (ctx.ghlOpportunityId && ctx.ghlPipelineId) {
+    const deliveredStageId = getDeliveredStageId(ctx.ghlPipelineId);
+    if (deliveredStageId) {
+      try {
+        await updateOpportunityStage(ctx.ghlOpportunityId, deliveredStageId);
+        actions.push(`Moved pipeline to Delivered/Won stage`);
+        console.log(`[ActionDispatcher] Lead ${ctx.leadId}: Moved to Delivered (${deliveredStageId})`);
+      } catch (err: any) {
+        errors.push(`Failed to move to Delivered: ${err?.message}`);
+      }
+    }
   }
 
   try {

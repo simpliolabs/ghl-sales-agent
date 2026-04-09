@@ -16,12 +16,11 @@ describe("Lead Disposition Engine — Structural Tests", () => {
     expect(src).toContain("export async function runDispositionSweep");
   });
 
-  it("lead-disposition.ts has NOT_QUALIFIED_STAGE_IDS for both pipelines", () => {
+  it("lead-disposition.ts uses centralized ghl-stages for NQ stage IDs", () => {
     const src = readFile("lead-disposition.ts");
-    expect(src).toContain("OpojlMx3cTa0ts0e2pMc"); // Bulk Printing Pipeline
-    expect(src).toContain("5YIrCvKmzb27yXHP3fBF"); // 100 T-shirt Inquiry
-    expect(src).toContain("6f1ca442-4a6b-490f-bf49-95a5870f7f86"); // Bulk Printing NQ stage
-    expect(src).toContain("6ca358e4-db09-4818-9896-ab21bad0c0e7"); // 100 T-shirt NQ stage
+    // Must import from shared/ghl-stages instead of hardcoding IDs
+    expect(src).toContain("ghl-stages");
+    expect(src).toContain("getNqStageId");
   });
 
   it("lead-disposition.ts has moveToNotQualified function", () => {
@@ -96,29 +95,29 @@ describe("DNC → Not Qualified Pipeline — All Entry Points", () => {
     const src = readFile("follow-up-trigger.ts");
     // Must set pipelineStage to not_qualified when DNC detected
     expect(src).toContain('pipelineStage: "not_qualified"');
-    // Must have the NQ stage IDs
-    expect(src).toContain("6f1ca442-4a6b-490f-bf49-95a5870f7f86");
+    // Must use centralized getNqStageId helper
+    expect(src).toContain("getNqStageId");
   });
 
   it("webhook-contact.ts moves DNC leads to not_qualified (not just humanTakeover)", () => {
     const src = readFile("webhook-contact.ts");
     // Must set pipelineStage to not_qualified when DNC detected
     expect(src).toContain('pipelineStage: "not_qualified"');
-    // Must have the NQ stage IDs
-    expect(src).toContain("6f1ca442-4a6b-490f-bf49-95a5870f7f86");
+    // Must use centralized getNqStageId helper
+    expect(src).toContain("getNqStageId");
   });
 
-  it("all DNC handlers use the same NQ stage IDs", () => {
+  it("all DNC handlers use centralized ghl-stages instead of hardcoded IDs", () => {
     const files = ["brain-council-orchestrator.ts", "follow-up-trigger.ts", "webhook-contact.ts", "lead-disposition.ts"];
-    const bulkNqId = "6f1ca442-4a6b-490f-bf49-95a5870f7f86";
-    const inquiryNqId = "6ca358e4-db09-4818-9896-ab21bad0c0e7";
-
     for (const file of files) {
       const src = readFile(file);
-      expect(src).toContain(bulkNqId);
-      // lead-disposition.ts and brain-council-orchestrator.ts have both pipeline IDs
-      // follow-up-trigger.ts and webhook-contact.ts should also have both
+      // All files must import from shared/ghl-stages (either static or dynamic import)
+      expect(src).toContain("ghl-stages");
     }
+    // The centralized file must have the real NQ stage IDs
+    const centralSrc = fs.readFileSync(path.join(__dirname, "../shared/ghl-stages.ts"), "utf-8");
+    expect(centralSrc).toContain("6f1ca442-4a6b-490f-bf49-95a5870f7f86"); // Bulk Printing NQ
+    expect(centralSrc).toContain("6ca358e4-db09-4818-9896-ab21bad0c0e7"); // T-shirt Inquiry NQ
   });
 });
 

@@ -206,11 +206,8 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
               try {
                 if (leadRow.ghlOpportunityId && leadRow.ghlPipelineId) {
                   const { updateOpportunityStage } = await import("./ghl");
-                  const NQ_STAGES: Record<string, string> = {
-                    "OpojlMx3cTa0ts0e2pMc": "6f1ca442-4a6b-490f-bf49-95a5870f7f86",
-                    "5YIrCvKmzb27yXHP3fBF": "6ca358e4-db09-4818-9896-ab21bad0c0e7",
-                  };
-                  const nqStageId = NQ_STAGES[leadRow.ghlPipelineId];
+                  const { getNqStageId } = await import("../shared/ghl-stages");
+                  const nqStageId = getNqStageId(leadRow.ghlPipelineId);
                   if (nqStageId) await updateOpportunityStage(leadRow.ghlOpportunityId, nqStageId);
                 }
               } catch { /* best effort GHL update */ }

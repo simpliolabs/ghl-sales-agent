@@ -36,11 +36,7 @@ import { buildJourneyFromLead, recordConversationOutcome } from "./learning-loop
 
 const MAX_PER_CYCLE = 20;
 
-// GHL "Not Qualified" stage IDs per pipeline
-const NOT_QUALIFIED_STAGE_IDS: Record<string, string> = {
-  "OpojlMx3cTa0ts0e2pMc": "6f1ca442-4a6b-490f-bf49-95a5870f7f86", // Bulk Printing Pipeline
-  "5YIrCvKmzb27yXHP3fBF": "6ca358e4-db09-4818-9896-ab21bad0c0e7", // 100 T-shirt Inquiry
-};
+import { NOT_QUALIFIED_STAGE_IDS, getNqStageId } from "../shared/ghl-stages";
 
 interface DispositionStats {
   processed: number;
@@ -57,7 +53,7 @@ async function moveToNotQualified(leadId: number, ghlOpportunityId: string | nul
   try {
     // Update GHL pipeline stage if we have the opportunity ID
     // ALWAYS update local DB first — prevents infinite retry loops
-    const nqStageId = (ghlPipelineId && NOT_QUALIFIED_STAGE_IDS[ghlPipelineId]) || null;
+    const nqStageId = getNqStageId(ghlPipelineId);
     await updateLeadFields(leadId, {
       pipelineStage: "not_qualified",
       ...(nqStageId ? { ghlStageId: nqStageId } : {}),

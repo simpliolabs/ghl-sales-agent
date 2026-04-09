@@ -369,3 +369,6 @@
 - [x] ARCH Phase D: Wire learning promotions into Strategist (promoted patterns injected into prompt)
 - [x] ARCH Phase D: Add learning loop timer to webhooks.ts (periodic promotion scan + error-memory sweep)
 - [x] ARCH Phase D: Tests for learning-loop and error-memory modules
+- [x] Confirm real GHL pipeline stage IDs via API and update shared/ghl-stages.ts
+- [x] Replace all 5 hardcoded NQ_STAGES/stage ID maps with centralized shared/ghl-stages.ts imports
+- [x] Action Dispatcher now uses real Qualified + Delivered stage IDs for committed/fulfilled transitions

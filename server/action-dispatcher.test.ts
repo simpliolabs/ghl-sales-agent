@@ -53,6 +53,32 @@ vi.mock("../shared/ghl-stages", () => ({
     };
     return map[pipelineId] || null;
   }),
+  getQualifiedStageId: vi.fn((pipelineId: string) => {
+    const map: Record<string, string> = {
+      "OpojlMx3cTa0ts0e2pMc": "dee13ae5-1db8-45aa-9f4a-33a6b271cb94",
+      "5YIrCvKmzb27yXHP3fBF": "45c2fc05-fe5f-4427-9523-f0f8ae000a39",
+    };
+    return map[pipelineId] || null;
+  }),
+  getDeliveredStageId: vi.fn((pipelineId: string) => {
+    const map: Record<string, string> = {
+      "OpojlMx3cTa0ts0e2pMc": "117d9332-7654-42bc-92de-829ae3be6337",
+      "5YIrCvKmzb27yXHP3fBF": "b3bec5e2-0b24-41fd-bbbc-fcf37b073e78",
+    };
+    return map[pipelineId] || null;
+  }),
+  NOT_QUALIFIED_STAGE_IDS: {
+    "OpojlMx3cTa0ts0e2pMc": "6f1ca442-4a6b-490f-bf49-95a5870f7f86",
+    "5YIrCvKmzb27yXHP3fBF": "6ca358e4-db09-4818-9896-ab21bad0c0e7",
+  },
+  CONTACTED_STAGE_IDS: {
+    "OpojlMx3cTa0ts0e2pMc": "6dbcb373-9832-4c45-a5e6-176f92685f67",
+    "5YIrCvKmzb27yXHP3fBF": "6501f3bf-b2a9-4c0f-935f-fc8441f6deb0",
+  },
+  NEW_LEAD_STAGE_IDS: new Set([
+    "69534612-6905-413a-a3b9-3c3de2365a6a",
+    "a54400ac-e9df-44e2-8872-45ccccf9a442",
+  ]),
 }));
 
 vi.mock("./webhook-helpers", () => ({
