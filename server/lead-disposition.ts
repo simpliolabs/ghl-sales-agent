@@ -55,31 +55,24 @@ interface DispositionStats {
 async function moveToNotQualified(leadId: number, ghlOpportunityId: string | null, ghlPipelineId: string | null, reason: string): Promise<boolean> {
   try {
     // Update GHL pipeline stage if we have the opportunity ID
-    if (ghlOpportunityId && ghlPipelineId) {
-      const nqStageId = NOT_QUALIFIED_STAGE_IDS[ghlPipelineId];
-      if (nqStageId) {
+    // ALWAYS update local DB first — prevents infinite retry loops
+    const nqStageId = (ghlPipelineId && NOT_QUALIFIED_STAGE_IDS[ghlPipelineId]) || null;
+    await updateLeadFields(leadId, {
+      pipelineStage: "not_qualified",
+      ...(nqStageId ? { ghlStageId: nqStageId } : {}),
+      humanTakeover: 1, // Keep locked — don't re-engage DNC leads
+    });
+
+    // Best-effort GHL pipeline update
+    if (ghlOpportunityId && nqStageId) {
+      try {
         await updateOpportunityStage(ghlOpportunityId, nqStageId);
-        await updateLeadFields(leadId, {
-          pipelineStage: "not_qualified",
-          ghlStageId: nqStageId,
-          humanTakeover: 1, // Keep locked — don't re-engage DNC leads
-        });
         console.log(`[Disposition] Lead ${leadId} → Not Qualified in GHL (reason: ${reason})`);
-      } else {
-        // Unknown pipeline — just update local DB
-        await updateLeadFields(leadId, {
-          pipelineStage: "not_qualified",
-          humanTakeover: 1,
-        });
-        console.log(`[Disposition] Lead ${leadId} → Not Qualified (local only, unknown pipeline ${ghlPipelineId}) (reason: ${reason})`);
+      } catch (ghlErr: any) {
+        console.warn(`[Disposition] Lead ${leadId} → Not Qualified (local DB updated, GHL API failed: ${ghlErr?.message}). Reason: ${reason}`);
       }
     } else {
-      // No GHL opportunity — just update local DB
-      await updateLeadFields(leadId, {
-        pipelineStage: "not_qualified",
-        humanTakeover: 1,
-      });
-      console.log(`[Disposition] Lead ${leadId} → Not Qualified (local only, no GHL opp) (reason: ${reason})`);
+      console.log(`[Disposition] Lead ${leadId} → Not Qualified (local only) (reason: ${reason})`);
     }
 
     // Add a note to the lead in GHL
@@ -167,7 +160,7 @@ export async function runDispositionSweep(): Promise<DispositionStats> {
       .where(and(
         eq(leads.humanTakeover, 1),
         sql`${leads.pipelineStage} != 'not_qualified'`,
-        sql`${leads.createdAt} < DATE_SUB(NOW(), INTERVAL 7 DAY)`, // Only leads older than 7 days
+        sql`${leads.createdAt} < DATE_SUB(NOW(), INTERVAL 3 DAY)`, // Only leads older than 3 days
       ))
       .limit(MAX_PER_CYCLE * 2); // Fetch more than we need, we'll filter
 
@@ -236,7 +229,7 @@ export async function runDispositionSweep(): Promise<DispositionStats> {
       .where(and(
         eq(leads.humanTakeover, 1),
         sql`${leads.pipelineStage} != 'not_qualified'`,
-        sql`${leads.createdAt} < DATE_SUB(NOW(), INTERVAL 7 DAY)`,
+        sql`${leads.createdAt} < DATE_SUB(NOW(), INTERVAL 3 DAY)`,
         or(
           isNull(leads.lastAgentActivityAt),
           lte(leads.lastAgentActivityAt, new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))

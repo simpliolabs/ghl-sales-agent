@@ -152,8 +152,8 @@ describe("Stale Takeover Expiry", () => {
     expect(src).toContain("7 * 24 * 60 * 60 * 1000");
   });
 
-  it("lead-disposition.ts only processes leads older than 7 days", () => {
+  it("lead-disposition.ts only processes leads older than 3 days", () => {
     const src = readFile("lead-disposition.ts");
-    expect(src).toContain("INTERVAL 7 DAY");
+    expect(src).toContain("INTERVAL 3 DAY");
   });
 });

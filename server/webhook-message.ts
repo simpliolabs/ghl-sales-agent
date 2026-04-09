@@ -35,6 +35,7 @@ import {
   MAX_LLM_RETRIES,
   formatEmailHtml,
 } from "./webhook-helpers";
+import { processInboundState, type ConversationState } from "./conversation-state";
 
 export async function handleMessageWebhook(payload: Record<string, unknown>, res: Response) {
   const contactId = payload.contactId as string;
@@ -119,6 +120,41 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   });
 
   await updateLeadFields(lead!.id, { lastMessageAt: new Date() });
+
+  // --- PHASE A: CONVERSATION STATE MACHINE (observation mode) ---
+  // Classifies intent and computes state transition for every inbound message.
+  // State is persisted to DB but does NOT yet drive routing decisions.
+  if (direction === "inbound") {
+    try {
+      const currentConvState = (lead!.convState || "new_lead") as ConversationState;
+      const lastMsgAt = lead!.lastMessageAt ? new Date(lead!.lastMessageAt).getTime() : Date.now();
+      const daysSinceLastResponse = (Date.now() - lastMsgAt) / (1000 * 60 * 60 * 24);
+      const allChannelsBlocked = !!(lead!.dndSms && lead!.dndEmail && lead!.dndFb && lead!.dndWhatsapp && lead!.dndGmb);
+      const quickHistory = (await getConversationHistory(lead!.id, 15))
+        .reverse()
+        .map((c: any) => `[${c.senderType}/${c.channel}] ${c.messageBody}`)
+        .join("\n");
+
+      const stateResult = await processInboundState({
+        leadId: lead!.id,
+        message: effectiveMessageBody,
+        conversationHistory: quickHistory,
+        currentState: currentConvState,
+        pipelineStage: lead!.pipelineStage || undefined,
+        humanTakeover: lead!.humanTakeover === 1,
+        daysSinceLastResponse,
+        allChannelsBlocked,
+        existingIntentHistory: (lead!.intentHistory as any) || [],
+      });
+
+      if (stateResult.changed) {
+        console.log(`[Webhook/ConvState] Lead ${lead!.id} (${lead!.name || "Unknown"}): ${stateResult.previousState} → ${stateResult.newState} | intent=${stateResult.intent.intent} (${stateResult.intent.confidence}%)`);
+      }
+    } catch (stateErr) {
+      // Non-fatal — state machine errors must never block message processing
+      console.error(`[Webhook/ConvState] Error for lead ${lead!.id} (non-fatal):`, stateErr);
+    }
+  }
 
   // --- SELF-LEARNING: Attribute this reply to the AI message that caused it ---
   if (direction === "inbound") {

@@ -135,4 +135,7 @@ export type LeadContext = {
   unansweredCount: number;
   lookbackContext: string;  // Lookback engine analysis: keyContext, recommendedApproach, status, sentiment
   lastInteractionSummary: string; // Cross-session memory: 1-sentence summary of last Brain Council interaction
+  // Phase A: Conversation State Machine (observation mode — read-only context)
+  convState?: string;  // Current conversation state (new_lead, exploring, interested, committed, etc.)
+  intentHistory?: Array<{ intent: string; confidence: number; reasoning: string; closingSignal: boolean; timestamp: number }>;
 };

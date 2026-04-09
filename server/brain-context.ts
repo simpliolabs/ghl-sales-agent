@@ -104,6 +104,9 @@ export async function buildLeadContext(leadId: number): Promise<LeadContext> {
     unansweredCount,
     lookbackContext,
     lastInteractionSummary: state?.lastInteractionSummary ? String(state.lastInteractionSummary) : "",
+    // Phase A: Conversation State Machine (observation mode)
+    convState: lead.convState || "new_lead",
+    intentHistory: (lead.intentHistory as any) || [],
   };
 }
 

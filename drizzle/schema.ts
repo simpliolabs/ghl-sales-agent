@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, json, tinyint } from "drizzle-orm/mysql-core";
+import { int, bigint, mysqlEnum, mysqlTable, text, timestamp, varchar, json, tinyint } from "drizzle-orm/mysql-core";
 
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
@@ -70,6 +70,10 @@ export const leads = mysqlTable("leads", {
   dndWhatsapp: varchar("dndWhatsapp", { length: 32 }),
   dndGmb: varchar("dndGmb", { length: 32 }),
   dndSyncedAt: timestamp("dndSyncedAt"),
+  // Conversation State Machine (Phase A)
+  convState: varchar("convState", { length: 20 }).default("new_lead"),
+  convStateUpdatedAt: bigint("convStateUpdatedAt", { mode: "number" }),
+  intentHistory: json("intentHistory"), // last 10 classified intents [{intent, confidence, timestamp}]
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

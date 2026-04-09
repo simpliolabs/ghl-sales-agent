@@ -5,6 +5,7 @@ vi.mock("./db", () => ({
   upsertLead: vi.fn().mockResolvedValue({ id: 1, name: "Test Lead", businessName: "Test Co", email: "test@test.com", phone: "+1234567890", assignedAgent: null, pipelineValue: null }),
   addConversation: vi.fn().mockResolvedValue({ id: 1 }),
   addPipelineEvent: vi.fn().mockResolvedValue(undefined),
+  getPipelineEvents: vi.fn().mockResolvedValue([]),
   getLeadByGhlContactId: vi.fn().mockResolvedValue({ id: 1, name: "Test Lead", businessName: "Test Co", email: "test@test.com", phone: "+1234567890", assignedAgent: "Abby Bouwer", humanTakeover: 0, lastAgentActivityAt: null, pipelineValue: 500 }),
   updateLeadFields: vi.fn().mockResolvedValue(undefined),
   upsertAiState: vi.fn().mockResolvedValue(undefined),
@@ -700,5 +701,129 @@ describe("Concurrent message dedup lock", () => {
 
     const actions = [res1.body.action, res2.body.action];
     expect(actions).toContain("dedup_blocked");
+  });
+});
+
+describe("Permanent DB-level pipeline dedup", () => {
+  let app: ReturnType<typeof createTestApp>;
+
+  beforeEach(() => {
+    app = createTestApp();
+    vi.clearAllMocks();
+    _resetPipelineLockForTests();
+  });
+
+  it("blocks duplicate pipeline webhook when same fromStage+toStage already in DB", async () => {
+    const { getPipelineEvents, addPipelineEvent } = await import("./db");
+    // Simulate that this exact transition was already recorded
+    (getPipelineEvents as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { fromStage: "New Lead", toStage: "Qualified", timestamp: new Date(Date.now() - 3 * 60 * 60 * 1000) }, // 3 hours ago
+    ]);
+
+    const res = await request(app).post("/api/webhooks/ghl").send({
+      contactId: "contact_123",
+      type: "PipelineStageChanged",
+      previousStage: "New Lead",
+      currentStage: "Qualified",
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.action).toBe("pipeline_db_dedup_blocked");
+    // Should NOT have inserted a new pipeline event
+    expect(addPipelineEvent).not.toHaveBeenCalled();
+  });
+
+  it("allows same toStage from a DIFFERENT fromStage (legitimate re-entry)", async () => {
+    const { getPipelineEvents, addPipelineEvent } = await import("./db");
+    // Lead was previously moved New Lead → Qualified, but now is being moved Proof Sent → Qualified (re-entry)
+    (getPipelineEvents as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { fromStage: "New Lead", toStage: "Qualified", timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000) },
+    ]);
+
+    const res = await request(app).post("/api/webhooks/ghl").send({
+      contactId: "contact_123",
+      type: "PipelineStageChanged",
+      previousStage: "Proof Sent",
+      currentStage: "Qualified",
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.stage).toBe("Qualified");
+    // Should have inserted a new pipeline event for this new transition
+    expect(addPipelineEvent).toHaveBeenCalledWith(expect.objectContaining({
+      fromStage: "Proof Sent",
+      toStage: "Qualified",
+    }));
+  });
+
+  it("blocks duplicate even hours after the first event (permanent, not time-windowed)", async () => {
+    const { getPipelineEvents, addPipelineEvent } = await import("./db");
+    // Event from 48 hours ago — old time-windowed dedup would have let this through
+    (getPipelineEvents as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { fromStage: "Qualified", toStage: "Quote Sent", timestamp: new Date(Date.now() - 48 * 60 * 60 * 1000) },
+    ]);
+
+    const res = await request(app).post("/api/webhooks/ghl").send({
+      contactId: "contact_123",
+      type: "PipelineStageChanged",
+      previousStage: "Qualified",
+      currentStage: "Quote Sent",
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.action).toBe("pipeline_db_dedup_blocked");
+    expect(addPipelineEvent).not.toHaveBeenCalled();
+  });
+
+  it("allows first-ever pipeline event for a lead (empty event history)", async () => {
+    const { getPipelineEvents, addPipelineEvent } = await import("./db");
+    (getPipelineEvents as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    const res = await request(app).post("/api/webhooks/ghl").send({
+      contactId: "contact_123",
+      type: "PipelineStageChanged",
+      previousStage: "New Lead",
+      currentStage: "Contacted",
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.stage).toBe("Contacted");
+    expect(addPipelineEvent).toHaveBeenCalled();
+  });
+
+  it("handles null fromStage correctly (some GHL events have no previousStage)", async () => {
+    const { getPipelineEvents, addPipelineEvent } = await import("./db");
+    // Already have a null→Qualified event
+    (getPipelineEvents as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { fromStage: null, toStage: "Qualified", timestamp: new Date(Date.now() - 60 * 60 * 1000) },
+    ]);
+
+    const res = await request(app).post("/api/webhooks/ghl").send({
+      contactId: "contact_123",
+      type: "PipelineStageChanged",
+      currentStage: "Qualified",
+      // No previousStage — will be undefined, normalized to null
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.action).toBe("pipeline_db_dedup_blocked");
+    expect(addPipelineEvent).not.toHaveBeenCalled();
+  });
+
+  it("works on legacy /api/webhooks/ghl/pipeline endpoint too", async () => {
+    const { getPipelineEvents, addPipelineEvent } = await import("./db");
+    (getPipelineEvents as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { fromStage: "New Lead", toStage: "Qualified", timestamp: new Date(Date.now() - 10 * 60 * 60 * 1000) },
+    ]);
+
+    const res = await request(app).post("/api/webhooks/ghl/pipeline").send({
+      contactId: "contact_123",
+      previousStage: "New Lead",
+      currentStage: "Qualified",
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.action).toBe("pipeline_db_dedup_blocked");
+    expect(addPipelineEvent).not.toHaveBeenCalled();
   });
 });

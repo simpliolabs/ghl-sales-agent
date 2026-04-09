@@ -3,7 +3,7 @@
  */
 
 import { Response } from "express";
-import { getLeadByGhlContactId, addPipelineEvent, updateLeadFields, addConversation, addAgentAssignment, getAgentWorkload, isAiOffline } from "./db";
+import { getLeadByGhlContactId, addPipelineEvent, getPipelineEvents, updateLeadFields, addConversation, addAgentAssignment, getAgentWorkload, isAiOffline } from "./db";
 import { calculateNextFollowUp } from "./scheduling-engine";
 import { createTask, addNote } from "./ghl";
 import { attributeStageAdvance } from "./outcome-engine";
@@ -147,6 +147,20 @@ export async function handlePipelineWebhook(payload: Record<string, unknown>, re
 
   const lead = await getLeadByGhlContactId(contactId);
   if (!lead) { res.status(404).json({ error: "Lead not found" }); return; }
+
+  // --- DB-LEVEL DEDUP: Permanent — block if this exact stage transition already recorded ---
+  // Uses fromStage+toStage as the dedup key so a lead CAN re-enter a stage
+  // from a different origin (e.g. "Proof Sent" → "Qualified" is allowed even if
+  // "New Lead" → "Qualified" was already processed).
+  const recentEvents = await getPipelineEvents(lead.id);
+  const isDuplicate = recentEvents.some((evt: { fromStage: string | null; toStage: string }) => {
+    return evt.fromStage === (fromStage || null) && evt.toStage === toStage;
+  });
+  if (isDuplicate) {
+    console.log(`[Webhook/Pipeline] DB-dedup blocked: lead ${lead.id} already has "${fromStage || '(none)'}" → "${toStage}" transition`);
+    res.json({ success: true, action: "pipeline_db_dedup_blocked" });
+    return;
+  }
 
   await addPipelineEvent({ leadId: lead.id, fromStage, toStage, triggeredBy: "webhook" });
 

@@ -321,3 +321,29 @@
 - [x] FIX: Channel-specific DNC — "Stop" on SMS blocks SMS only, escalate to next channel (Email→FB→IG→WhatsApp→Live_Chat). Not Qualified only when ALL channels exhausted. handleChannelDnc in channel-fallback.ts, wired into all 4 DNC entry points.
 - [x] FIX: Live Chat channel ignored — normalizeChannel now preserves Live_Chat (type 15), sendMessage/buildSendOpts/strategist/composer all support Live_Chat. Urgency rules added.
 - [x] FIX: Contact info capture — Strategist shows CONTACT GAP alert, Composer has CRITICAL prompt when both email+phone missing, hints when one is missing. Live Chat gets special capture rules.
+
+## Architecture v2.0 — Modular Refactor
+- [x] Run disposition sweep on 110 frozen leads — 64 escalated to email, 46 takeover expired, 0 errors (8 batches)
+- [ ] Fix duplicate GHL notes (triple-fire on same pipeline event)
+- [ ] ARCH Phase A: Add conv_state + conv_state_updated_at + intent_history columns to leads (DB migration)
+- [ ] ARCH Phase A: Build conversation-state.ts module (10 states, state transitions, DB persistence)
+- [ ] ARCH Phase A: Build intent-classifier.ts module (fast LLM classification of inbound messages)
+- [ ] ARCH Phase A: Wire state machine into webhook-message.ts (classify every inbound)
+- [ ] ARCH Phase A: Wire state machine into brain-council-orchestrator.ts (read state before Brain Council)
+- [ ] ARCH Phase A: Add conversation_outcomes + learnings tables (DB migration)
+- [ ] ARCH Phase A: Tests for state machine and intent classifier
+- [ ] ARCH Phase B: Build action-dispatcher.ts (committed→task+pipeline, dnc_channel→fallback, fulfilled→Won)
+- [ ] ARCH Phase B: Wire action-dispatcher into state machine transitions
+- [ ] ARCH Phase C: Create sales-brain/ directory, download sales-mastery frameworks
+- [ ] ARCH Phase C: Build closer.ts and objection-handler.ts from sales-mastery references
+- [ ] ARCH Phase C: Refactor strategist.ts and composer.ts to lean versions that read state
+- [ ] ARCH Phase D: Build learning-engine/ (outcome-tracker.ts, LEARNINGS.md, ERRORS.md)
+- [ ] ARCH Phase D: Implement memory-self-heal error recovery patterns
+- [ ] ARCH Phase D: Implement self-improving-agent outcome-based promotion (auto-promote with notification, 1-year retention)
+- [x] FIX: Permanent DB-level pipeline dedup — remove 2-hour time window, use fromStage+toStage as permanent dedup key
+- [x] ARCH Phase A: Add conv_state, conv_state_updated_at, intent_history columns to leads table
+- [x] ARCH Phase A: Build server/intent-classifier.ts — fast LLM intent classification
+- [x] ARCH Phase A: Build server/conversation-state.ts — state machine with 10 states + transitions
+- [x] ARCH Phase A: Wire state machine into webhook-message.ts (observation mode)
+- [x] ARCH Phase A: Wire state into brain-council-orchestrator.ts context (observation mode)
+- [x] ARCH Phase A: Tests for intent classifier and conversation state machine
