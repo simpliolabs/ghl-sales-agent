@@ -375,6 +375,35 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
       }
     }
 
+    // ============================================================
+    // PHASE B: CONVERSATION STATE ROUTING
+    // Override Strategist approach based on conversation state machine.
+    // This ensures committed leads aren't re-pitched and objecting leads
+    // get proper objection handling instead of generic follow-up.
+    // ============================================================
+    if (context.convState) {
+      const convState = context.convState;
+      if (convState === "committed" && strategy.approach !== "confirm_details" && strategy.approach !== "acknowledge_info") {
+        console.log(`[BrainCouncil] 🎯 CONV STATE OVERRIDE: Lead is COMMITTED — overriding '${strategy.approach}' → 'confirm_details'`);
+        (strategy as any).approach = "confirm_details";
+        (strategy as any).framework = "DIRECT_RESPONSE";
+        (strategy as any).angle = "Confirm order details and next steps — customer has already committed";
+        (strategy as any).reasoning = `[COMMITTED STATE OVERRIDE] ${strategy.reasoning}`;
+        (strategy as any).avoidPoints = [...(strategy.avoidPoints || []), "Do NOT re-pitch or sell", "Do NOT ask if they're interested", "Do NOT use urgency tactics"];
+      } else if (convState === "objecting" && strategy.approach !== "answer_question") {
+        console.log(`[BrainCouncil] 🎯 CONV STATE OVERRIDE: Lead is OBJECTING — overriding '${strategy.approach}' → 'answer_question'`);
+        (strategy as any).approach = "answer_question";
+        (strategy as any).framework = "DIRECT_RESPONSE";
+        (strategy as any).angle = "Address the customer's specific concern directly and empathetically";
+        (strategy as any).reasoning = `[OBJECTING STATE OVERRIDE] ${strategy.reasoning}`;
+        (strategy as any).avoidPoints = [...(strategy.avoidPoints || []), "Do NOT ignore their concern", "Do NOT push harder", "Do NOT use high-pressure tactics"];
+      } else if (convState === "fulfilled" && strategy.approach !== "post_delivery" && strategy.approach !== "relationship_nurture") {
+        console.log(`[BrainCouncil] 🎯 CONV STATE OVERRIDE: Lead is FULFILLED — overriding '${strategy.approach}' → 'post_delivery'`);
+        (strategy as any).approach = "post_delivery";
+        (strategy as any).reasoning = `[FULFILLED STATE OVERRIDE] ${strategy.reasoning}`;
+      }
+    }
+
     // --- PROGRAMMATIC FRAMEWORK DIVERSITY ENFORCEMENT ---
     // If the Strategist picked the same outreach framework as the last 2 messages, override it.
     // Responsive frameworks (DIRECT_RESPONSE, VALUE_FIRST) are exempt — they're context-appropriate.

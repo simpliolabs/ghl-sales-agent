@@ -347,3 +347,10 @@
 - [x] ARCH Phase A: Wire state machine into webhook-message.ts (observation mode)
 - [x] ARCH Phase A: Wire state into brain-council-orchestrator.ts context (observation mode)
 - [x] ARCH Phase A: Tests for intent classifier and conversation state machine
+
+## Architecture v2.0 — Phase B: Action Dispatcher
+- [x] ARCH Phase B: Build server/action-dispatcher.ts — centralized state-to-GHL-action mapper
+- [x] ARCH Phase B: Centralize GHL stage ID maps into shared/ghl-stages.ts (eliminate 5+ duplicate NQ_STAGES maps)
+- [x] ARCH Phase B: Wire action dispatcher into processInboundState in webhook-message.ts (dispatch on state change)
+- [x] ARCH Phase B: Brain Council reads convState — committed leads get confirmation response, not re-pitched
+- [x] ARCH Phase B: Tests for action dispatcher (committed→task+pipeline, dnc→fallback, fulfilled→Won)

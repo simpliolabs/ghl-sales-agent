@@ -36,6 +36,7 @@ import {
   formatEmailHtml,
 } from "./webhook-helpers";
 import { processInboundState, type ConversationState } from "./conversation-state";
+import { dispatchStateActions, buildDispatchContext } from "./action-dispatcher";
 
 export async function handleMessageWebhook(payload: Record<string, unknown>, res: Response) {
   const contactId = payload.contactId as string;
@@ -149,6 +150,22 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
 
       if (stateResult.changed) {
         console.log(`[Webhook/ConvState] Lead ${lead!.id} (${lead!.name || "Unknown"}): ${stateResult.previousState} → ${stateResult.newState} | intent=${stateResult.intent.intent} (${stateResult.intent.confidence}%)`);
+
+        // --- PHASE B: ACTION DISPATCHER ---
+        // Translate state transitions into GHL actions (tasks, pipeline moves, notes)
+        try {
+          const dispatchCtx = buildDispatchContext(lead!, channel);
+          const dispatchResult = await dispatchStateActions(stateResult, dispatchCtx);
+          if (dispatchResult.actionsExecuted.length > 0) {
+            console.log(`[Webhook/Dispatch] Lead ${lead!.id}: ${dispatchResult.actionsExecuted.join(", ")}`);
+          }
+          if (dispatchResult.errors.length > 0) {
+            console.warn(`[Webhook/Dispatch] Lead ${lead!.id}: Errors: ${dispatchResult.errors.join(", ")}`);
+          }
+        } catch (dispatchErr) {
+          // Non-fatal — dispatch errors must never block message processing
+          console.error(`[Webhook/Dispatch] Error for lead ${lead!.id} (non-fatal):`, dispatchErr);
+        }
       }
     } catch (stateErr) {
       // Non-fatal — state machine errors must never block message processing
