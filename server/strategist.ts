@@ -16,6 +16,7 @@
 import { invokeLLM } from "./_core/llm";
 import type { BrainCouncilInput, StrategyDecision, LeadContext } from "./brain-types";
 import { buildLearningContext } from "./outcome-engine";
+import { getPromotedLearnings } from "./learning-loop";
 
 const STRATEGIST_PROMPT = `You are the STRATEGIST brain for Adorb Custom Tees' AI outreach system.
 
@@ -211,6 +212,21 @@ async function getLearningBlock(segment?: string | null): Promise<string> {
   }
 }
 
+// Cache promoted learnings for 10 minutes
+let _promotedCache: { text: string; expires: number } | null = null;
+
+async function getPromotedLearningsBlock(): Promise<string> {
+  if (_promotedCache && Date.now() < _promotedCache.expires) return _promotedCache.text;
+  try {
+    const text = await getPromotedLearnings();
+    _promotedCache = { text, expires: Date.now() + 10 * 60 * 1000 };
+    return text;
+  } catch (err) {
+    console.error('[Strategist] Failed to get promoted learnings:', err);
+    return '';
+  }
+}
+
 export async function runStrategist(input: BrainCouncilInput, context: LeadContext): Promise<StrategyDecision> {
   const { lead, state, historyStr, isFirstResponse, leadAgeDays, urgencyStage, unansweredCount, lookbackContext } = context;
 
@@ -265,6 +281,8 @@ INCOMING MESSAGE:
 ${input.incomingMessage}
 
 ${await getLearningBlock(lead.omnisendSegment)}
+
+${await getPromotedLearningsBlock()}
 
 STEP 1: Detect the awareness level from the incoming message and conversation history.
 STEP 2: Choose the approach that matches the awareness level.

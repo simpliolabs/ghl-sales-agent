@@ -7,6 +7,7 @@ import { getLeadByGhlContactId, addPipelineEvent, getPipelineEvents, updateLeadF
 import { calculateNextFollowUp } from "./scheduling-engine";
 import { createTask, addNote } from "./ghl";
 import { attributeStageAdvance } from "./outcome-engine";
+import { buildJourneyFromLead, recordConversationOutcome } from "./learning-loop";
 import {
   SALES_AGENTS,
   DESIGNER,
@@ -207,6 +208,21 @@ export async function handlePipelineWebhook(payload: Record<string, unknown>, re
     } catch (err) { console.error("[Webhook] Failed to send stage notification:", err); }
   } else if (aiOffline && notification) {
     console.log(`[Pipeline] AI offline — skipping stage notification for lead ${lead.id} (${toStage})`);
+  }
+
+  // --- LEARNING LOOP: Record conversation outcome on terminal stages ---
+  const TERMINAL_WON_STAGES: string[] = [STAGES.DELIVERED];
+  const TERMINAL_LOST_STAGES = ["Not Qualified", "Lost"];
+  const isTerminalWon = TERMINAL_WON_STAGES.includes(toStage);
+  const isTerminalLost = TERMINAL_LOST_STAGES.some(s => toStage.toLowerCase().includes(s.toLowerCase()));
+  if (isTerminalWon || isTerminalLost) {
+    try {
+      const outcome = isTerminalWon ? "won" as const : "lost" as const;
+      const journey = await buildJourneyFromLead(lead.id, outcome, toStage);
+      if (journey) await recordConversationOutcome(journey);
+    } catch (err) {
+      console.error('[Webhook/Learn] Conversation outcome recording error (non-fatal):', err);
+    }
   }
 
   res.json({ success: true, stage: toStage });

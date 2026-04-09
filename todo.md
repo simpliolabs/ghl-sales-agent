@@ -360,3 +360,12 @@
 - [x] ARCH Phase C: Build server/objection-handler.ts — specialized objection handling module
 - [x] ARCH Phase C: Wire closer and objection-handler into Brain Council orchestrator
 - [x] ARCH Phase C: Tests for closer and objection-handler modules
+
+## Architecture v2.0 — Phase D: Learning Loop
+- [x] ARCH Phase D: Add conversation_outcomes and learnings tables to schema + migration
+- [x] ARCH Phase D: Build server/learning-loop.ts — structured logging, recurrence tracking, auto-promotion
+- [x] ARCH Phase D: Build server/error-memory.ts — error pattern detection and self-healing
+- [x] ARCH Phase D: Wire learning loop into outcome-engine (record conversation outcomes on won/lost/stale/dnc)
+- [x] ARCH Phase D: Wire learning promotions into Strategist (promoted patterns injected into prompt)
+- [x] ARCH Phase D: Add learning loop timer to webhooks.ts (periodic promotion scan + error-memory sweep)
+- [x] ARCH Phase D: Tests for learning-loop and error-memory modules

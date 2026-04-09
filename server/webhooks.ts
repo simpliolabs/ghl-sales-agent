@@ -22,6 +22,8 @@ import { processOverdueFollowUps } from "./follow-up-trigger";
 import { runLookback } from "./lookback-engine";
 import { runBrainCouncilSelfReview } from "./brain-council-review";
 import { runDispositionSweep } from "./lead-disposition";
+import { runPromotionScan } from "./learning-loop";
+import { seedKnownErrors } from "./error-memory";
 
 // --- IN-MEMORY DEDUP LOCK ---
 // Prevents concurrent processing of the same message webhook.
@@ -114,6 +116,28 @@ export function createWebhookRouter(): Router {
       console.error('[Learn/Timer] Initial backfill error:', err);
     }
   }, 60 * 1000);
+
+  // --- LEARNING LOOP: Promotion scan every 2 hours ---
+  setInterval(async () => {
+    try {
+      const result = await runPromotionScan();
+      if (result.promoted > 0 || result.demoted > 0) {
+        console.log(`[Learn/Promotion] Scan: ${result.promoted} promoted, ${result.demoted} demoted, ${result.total} evaluated`);
+      }
+    } catch (err) {
+      console.error('[Learn/Promotion] Scan error:', err);
+    }
+  }, 2 * 60 * 60 * 1000);
+
+  // --- ERROR MEMORY: Seed known errors on startup ---
+  setTimeout(async () => {
+    try {
+      const seeded = await seedKnownErrors();
+      console.log(`[ErrorMemory/Timer] Seeded ${seeded} known error patterns`);
+    } catch (err) {
+      console.error('[ErrorMemory/Timer] Seed error:', err);
+    }
+  }, 90 * 1000);
 
   // --- FOLLOW-UP TRIGGER: Process overdue leads every 10 minutes ---
   setInterval(async () => {

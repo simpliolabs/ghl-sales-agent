@@ -67,6 +67,25 @@ vi.mock("./lead-researcher", () => ({
   researchLead: vi.fn().mockResolvedValue({ summary: "Test research", businessType: "brand", potentialNeeds: ["t-shirts"], notes: "" }),
 }));
 
+vi.mock("./conversation-state", () => ({
+  processInboundState: vi.fn().mockResolvedValue({ previousState: "new_lead", newState: "exploring", changed: true, reason: "test" }),
+}));
+
+vi.mock("./action-dispatcher", () => ({
+  dispatchActions: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("./learning-loop", () => ({
+  buildJourneyFromLead: vi.fn().mockResolvedValue(null),
+  recordConversationOutcome: vi.fn().mockResolvedValue(undefined),
+  runPromotionScan: vi.fn().mockResolvedValue({ promoted: 0, demoted: 0, total: 0 }),
+}));
+
+vi.mock("./error-memory", () => ({
+  seedKnownErrors: vi.fn().mockResolvedValue(0),
+  recordError: vi.fn().mockResolvedValue({ found: false, signature: "test", occurrenceCount: 0, knownFix: null, rootCause: null, prevention: null, fixApplied: false }),
+}));
+
 import { createWebhookRouter, _resetPipelineLockForTests } from "./webhooks";
 import express from "express";
 import request from "supertest";

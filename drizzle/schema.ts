@@ -271,3 +271,65 @@ export const systemSettings = mysqlTable("system_settings", {
 });
 
 export type SystemSetting = typeof systemSettings.$inferSelect;
+
+// Learning Engine: Conversation-level outcome tracking (full journey per lead)
+export const conversationOutcomes = mysqlTable("conversation_outcomes", {
+  id: int("id").autoincrement().primaryKey(),
+  leadId: int("leadId").notNull(),
+  ghlContactId: varchar("ghlContactId", { length: 100 }).notNull(),
+  stateSequence: json("stateSequence").notNull(), // array of conv states traversed
+  approachesUsed: json("approachesUsed").notNull(), // array of approach types used
+  frameworksUsed: json("frameworksUsed"), // array of frameworks used
+  outcome: varchar("outcome", { length: 20 }).notNull(), // won, lost, stale, dnc
+  outcomeReason: varchar("outcomeReason", { length: 255 }), // e.g., "price_too_high", "no_reply_14d"
+  messageCount: int("messageCount").notNull(),
+  daysToOutcome: int("daysToOutcome").notNull(),
+  channel: varchar("channel", { length: 20 }).notNull(),
+  finalConvState: varchar("finalConvState", { length: 30 }),
+  pipelineValue: int("pipelineValue").default(0),
+  createdAt: bigint("createdAt", { mode: "number" }).notNull(),
+});
+
+export type ConversationOutcome = typeof conversationOutcomes.$inferSelect;
+export type InsertConversationOutcome = typeof conversationOutcomes.$inferInsert;
+
+// Learning Engine: Pattern-level learnings with recurrence tracking
+export const learnings = mysqlTable("learnings", {
+  id: int("id").autoincrement().primaryKey(),
+  patternKey: varchar("patternKey", { length: 100 }).notNull().unique(),
+  category: varchar("category", { length: 30 }).notNull(), // best_practice, avoid, correction, knowledge_gap
+  description: text("description").notNull(),
+  details: text("details"), // extended context, examples
+  suggestedAction: text("suggestedAction"), // what to do when this pattern is detected
+  recurrenceCount: int("recurrenceCount").default(1),
+  positiveOutcomes: int("positiveOutcomes").default(0),
+  negativeOutcomes: int("negativeOutcomes").default(0),
+  promotedToPrompt: tinyint("promotedToPrompt").default(0), // 1 = auto-promoted to Strategist
+  promotedAt: bigint("promotedAt", { mode: "number" }),
+  priority: varchar("priority", { length: 10 }).default("medium"), // low, medium, high, critical
+  source: varchar("source", { length: 30 }).default("auto"), // auto, manual, error_memory
+  createdAt: bigint("createdAt", { mode: "number" }).notNull(),
+  updatedAt: bigint("updatedAt", { mode: "number" }).notNull(),
+});
+
+export type Learning = typeof learnings.$inferSelect;
+export type InsertLearning = typeof learnings.$inferInsert;
+
+// Learning Engine: Error memory — tracks system errors and known fixes
+export const errorMemory = mysqlTable("error_memory", {
+  id: int("id").autoincrement().primaryKey(),
+  errorSignature: varchar("errorSignature", { length: 150 }).notNull().unique(), // hash of error type + context
+  errorType: varchar("errorType", { length: 50 }).notNull(), // ghl_api, llm_hallucination, channel_mismatch, etc.
+  errorMessage: text("errorMessage").notNull(),
+  rootCause: text("rootCause"),
+  knownFix: text("knownFix"), // description of the fix
+  fixApplied: tinyint("fixApplied").default(0), // 1 = fix was auto-applied
+  occurrenceCount: int("occurrenceCount").default(1),
+  lastOccurredAt: bigint("lastOccurredAt", { mode: "number" }).notNull(),
+  prevention: text("prevention"), // how to prevent this in the future
+  createdAt: bigint("createdAt", { mode: "number" }).notNull(),
+  updatedAt: bigint("updatedAt", { mode: "number" }).notNull(),
+});
+
+export type ErrorMemoryEntry = typeof errorMemory.$inferSelect;
+export type InsertErrorMemoryEntry = typeof errorMemory.$inferInsert;

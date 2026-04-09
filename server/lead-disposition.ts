@@ -32,6 +32,7 @@ import { handleChannelDnc, allChannelsExhausted as checkAllExhausted } from "./c
 import { leads, conversations } from "../drizzle/schema";
 import { eq, and, sql, isNull, lte, or } from "drizzle-orm";
 import { notifyOwner } from "./_core/notification";
+import { buildJourneyFromLead, recordConversationOutcome } from "./learning-loop";
 
 const MAX_PER_CYCLE = 20;
 
@@ -85,6 +86,16 @@ async function moveToNotQualified(leadId: number, ghlOpportunityId: string | nul
         }
       }
     } catch { /* best effort note */ }
+
+    // --- LEARNING LOOP: Record DNC/lost outcome ---
+    try {
+      const isDnc = reason.toLowerCase().includes('dnc') || reason.toLowerCase().includes('dnd') || reason.toLowerCase().includes('unsubscribe');
+      const outcome = isDnc ? 'dnc' as const : 'lost' as const;
+      const journey = await buildJourneyFromLead(leadId, outcome, reason);
+      if (journey) await recordConversationOutcome(journey);
+    } catch (learnErr) {
+      console.error('[Disposition/Learn] Outcome recording error (non-fatal):', learnErr);
+    }
 
     return true;
   } catch (err) {
