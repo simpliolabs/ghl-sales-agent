@@ -26,6 +26,7 @@
 import { invokeLLM } from "./_core/llm";
 import { BRAND, getSignatureBlock } from "../shared/brand-assets";
 import type { BrainCouncilInput, StrategyDecision, ResearchResult, ComposedMessage, LeadContext } from "./brain-types";
+import { getObjectionHandlerStageBlock } from "./stage-playbook";
 
 // ─── Objection Handling Frameworks ─────────────────────────────────────────
 
@@ -186,6 +187,8 @@ export async function runObjectionHandler(
 - Assigned Agent: ${lead.assignedAgent || "Adorb Custom Tees"}
 - Pipeline Stage: ${lead.pipelineStage}
 - Pipeline Value: $${lead.pipelineValue || "unknown"}
+
+${getObjectionHandlerStageBlock(lead.pipelineStage)}
 
 === CONVERSATION HISTORY ===
 ${input.externalHistory ? input.externalHistory + "\n" + historyStr : historyStr || "No previous messages"}

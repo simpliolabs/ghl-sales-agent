@@ -10,6 +10,7 @@
 
 import { classifyIntent, fallbackIntent, type IntentResult, type MessageIntent } from "./intent-classifier";
 import { updateLeadFields } from "./db";
+import { getStagePlaybook, isTerminalStage as isPlaybookTerminal, isAiProactiveAtStage } from "./stage-playbook";
 
 // ─── Conversation States ────────────────────────────────────────────────────
 
@@ -236,10 +237,36 @@ export async function processInboundState(params: {
  */
 export function stateFromPipelineStage(stage: string): ConversationState | null {
   const lower = stage.toLowerCase();
+  // Terminal stages
   if (lower.includes("delivered") || lower.includes("won") || lower.includes("completed")) return "fulfilled";
-  if (lower.includes("paid") || lower.includes("proof") || lower.includes("approved") || lower.includes("deposit")) return "committed";
   // Check "not qualified" / "lost" BEFORE "qualified" to avoid false match
   if (lower.includes("not qualified") || lower.includes("lost")) return "dnc_all";
-  if (lower.includes("qualified") || lower.includes("quote")) return "interested";
+  // Post-payment stages → committed (order is in progress)
+  if (lower.includes("paid") || lower.includes("approved") || lower.includes("deposit") || lower.includes("production") || lower.includes("ready")) return "committed";
+  // Proof stages → committed (proof is in progress)
+  if (lower.includes("proof sent")) return "committed";
+  // Quote sent → interested (waiting for acceptance)
+  if (lower.includes("quote")) return "interested";
+  // Qualified → interested (details confirmed, quote coming)
+  if (lower.includes("qualified")) return "interested";
+  // Contacted → exploring (conversation started)
+  if (lower.includes("contacted")) return "exploring";
+  // New Lead → new_lead
+  if (lower.includes("new lead")) return "new_lead";
   return null; // No state change implied by this stage
+}
+
+/**
+ * Check if the AI should proactively reach out at the current pipeline stage.
+ * Uses the Stage Playbook to determine proactivity.
+ */
+export function shouldAiBeProactive(pipelineStage: string | null | undefined): boolean {
+  return isAiProactiveAtStage(pipelineStage);
+}
+
+/**
+ * Check if the current pipeline stage is terminal (no further progression).
+ */
+export function isPipelineTerminal(pipelineStage: string | null | undefined): boolean {
+  return isPlaybookTerminal(pipelineStage);
 }

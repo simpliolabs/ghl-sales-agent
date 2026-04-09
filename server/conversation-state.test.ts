@@ -265,9 +265,14 @@ describe("stateFromPipelineStage", () => {
     expect(stateFromPipelineStage("Not Qualified")).toBe("dnc_all");
   });
 
-  it("returns null for unknown stages", () => {
-    expect(stateFromPipelineStage("New Lead")).toBeNull();
-    expect(stateFromPipelineStage("Contacted")).toBeNull();
+  it("maps New Lead and Contacted to conversation states", () => {
+    expect(stateFromPipelineStage("New Lead")).toBe("new_lead");
+    expect(stateFromPipelineStage("Contacted")).toBe("exploring");
+  });
+
+  it("returns null for truly unknown stages", () => {
+    expect(stateFromPipelineStage("Some Random Stage")).toBeNull();
+    expect(stateFromPipelineStage("Undefined Pipeline")).toBeNull();
   });
 });
 

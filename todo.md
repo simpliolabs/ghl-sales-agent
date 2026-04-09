@@ -372,3 +372,15 @@
 - [x] Confirm real GHL pipeline stage IDs via API and update shared/ghl-stages.ts
 - [x] Replace all 5 hardcoded NQ_STAGES/stage ID maps with centralized shared/ghl-stages.ts imports
 - [x] Action Dispatcher now uses real Qualified + Delivered stage IDs for committed/fulfilled transitions
+
+## Stage Playbook System + UI Fixes
+- [x] Build server/stage-playbook.ts — per-stage AI behavioral rules (goal, focus topics, never-do, signals, tone)
+- [x] Wire Stage Playbook into Strategist prompt (inject stage-specific instructions before approach selection)
+- [x] Wire Stage Playbook into Composer prompt (inject stage-specific do/don't rules into message composition)
+- [x] Wire Stage Playbook into Closer and Objection Handler (stage-aware closing/objection behavior)
+- [x] Wire Stage Playbook into conversation-state.ts (stage changes inform state transitions)
+- [x] Wire Stage Playbook into Action Dispatcher (stage-specific task descriptions and notes)
+- [x] Wire Stage Playbook into Learning Loop (record which stage rules were active during outcomes)
+- [x] UI: Add Active/Not Qualified tabs to Leads page (NQ leads separated from active leads)
+- [x] UI: Add missing "Qualified" and "In Production" stages to Pipeline Kanban
+- [x] Tests for Stage Playbook module and integrations

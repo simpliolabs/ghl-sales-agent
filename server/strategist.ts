@@ -17,6 +17,7 @@ import { invokeLLM } from "./_core/llm";
 import type { BrainCouncilInput, StrategyDecision, LeadContext } from "./brain-types";
 import { buildLearningContext } from "./outcome-engine";
 import { getPromotedLearnings } from "./learning-loop";
+import { getStrategistStageBlock } from "./stage-playbook";
 
 const STRATEGIST_PROMPT = `You are the STRATEGIST brain for Adorb Custom Tees' AI outreach system.
 
@@ -283,6 +284,8 @@ ${input.incomingMessage}
 ${await getLearningBlock(lead.omnisendSegment)}
 
 ${await getPromotedLearningsBlock()}
+
+${getStrategistStageBlock(lead.pipelineStage)}
 
 STEP 1: Detect the awareness level from the incoming message and conversation history.
 STEP 2: Choose the approach that matches the awareness level.

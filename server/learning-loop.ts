@@ -16,6 +16,7 @@
 
 import { eq, desc, sql, and, gte } from "drizzle-orm";
 import { getDb } from "./db";
+import { getPlaybookSummaryForLearning } from "./stage-playbook";
 import {
   conversationOutcomes,
   learnings,
@@ -46,6 +47,7 @@ export interface ConversationJourney {
   daysToOutcome: number;
   channel: string;
   finalConvState?: string;
+  finalStage?: string;       // Pipeline stage at time of outcome (e.g., "Delivered", "Not Qualified")
   pipelineValue?: number;
 }
 
@@ -189,6 +191,7 @@ export async function buildJourneyFromLead(leadId: number, outcome: "won" | "los
       daysToOutcome,
       channel: primaryChannel,
       finalConvState: convState || lead.pipelineStage || undefined,
+      finalStage: lead.pipelineStage || undefined,
       pipelineValue: lead.pipelineValue || 0,
     };
   } catch (err) {
@@ -355,7 +358,24 @@ function generatePatternKeys(journey: ConversationJourney): Array<{
     });
   }
 
-  // Pattern 5: Outcome reason (if provided)
+  // Pattern 5: Stage × Framework × Outcome (stage-aware learning)
+  if (journey.finalStage) {
+    const stageKey = journey.finalStage.toLowerCase().replace(/[\s\-\+]+/g, "_");
+    for (const fw of journey.frameworksUsed.slice(0, 2)) {
+      const key = `stage.${stageKey}.${fw.toLowerCase().replace(/\s+/g, "_")}.${journey.outcome}`;
+      patterns.push({
+        key,
+        category: isPositive ? "best_practice" : isNegative ? "avoid" : "correction",
+        description: `At stage "${journey.finalStage}", framework ${fw} led to ${journey.outcome}`,
+        details: `Stage playbook: ${getPlaybookSummaryForLearning(journey.finalStage)}. Channel: ${journey.channel}, Messages: ${journey.messageCount}`,
+        suggestedAction: isPositive
+          ? `Use ${fw} when leads are at "${journey.finalStage}" stage`
+          : `Avoid ${fw} at "${journey.finalStage}" — try alternative frameworks`,
+      });
+    }
+  }
+
+  // Pattern 6: Outcome reason (if provided)
   if (journey.outcomeReason) {
     const reasonKey = `reason.${journey.outcomeReason.toLowerCase().replace(/\s+/g, "_")}`;
     patterns.push({

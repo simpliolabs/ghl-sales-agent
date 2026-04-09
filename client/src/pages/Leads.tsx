@@ -1,15 +1,23 @@
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Users, Search, RefreshCw, CalendarClock, FileSearch } from "lucide-react";
+import { Users, Search, RefreshCw, CalendarClock, FileSearch, Ban } from "lucide-react";
 import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+
+type TabType = "active" | "not_qualified";
+
+function isNotQualified(stage: string | null | undefined): boolean {
+  if (!stage) return false;
+  const lower = stage.toLowerCase();
+  return lower.includes("not qualified") || lower === "lost";
+}
 
 export default function Leads() {
   const { data: leads, isLoading, refetch } = trpc.leads.list.useQuery();
@@ -21,18 +29,33 @@ export default function Leads() {
     onError: () => toast.error("Failed to sync contacts"),
   });
   const [search, setSearch] = useState("");
+  const [tab, setTab] = useState<TabType>("active");
   const [, setLocation] = useLocation();
 
+  const { activeLeads, nqLeads } = useMemo(() => {
+    if (!leads) return { activeLeads: [], nqLeads: [] };
+    const active: typeof leads = [];
+    const nq: typeof leads = [];
+    for (const l of leads) {
+      if (isNotQualified(l.pipelineStage)) {
+        nq.push(l);
+      } else {
+        active.push(l);
+      }
+    }
+    return { activeLeads: active, nqLeads: nq };
+  }, [leads]);
+
   const filtered = useMemo(() => {
-    if (!leads) return [];
-    if (!search) return leads;
+    const source = tab === "active" ? activeLeads : nqLeads;
+    if (!search) return source;
     const q = search.toLowerCase();
-    return leads.filter(l =>
+    return source.filter(l =>
       (l.name || "").toLowerCase().includes(q) ||
       (l.businessName || "").toLowerCase().includes(q) ||
       (l.email || "").toLowerCase().includes(q)
     );
-  }, [leads, search]);
+  }, [activeLeads, nqLeads, tab, search]);
 
   return (
     <DashboardLayout>
@@ -40,9 +63,9 @@ export default function Leads() {
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-              <Users className="h-6 w-6" /> All Leads
+              <Users className="h-6 w-6" /> Leads
             </h1>
-            <p className="text-muted-foreground mt-1">{leads?.length || 0} leads in system</p>
+            <p className="text-muted-foreground mt-1">{leads?.length || 0} total leads in system</p>
           </div>
           <Button onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending} variant="outline" size="sm">
             <RefreshCw className={`h-4 w-4 mr-2 ${syncMutation.isPending ? "animate-spin" : ""}`} />
@@ -50,9 +73,42 @@ export default function Leads() {
           </Button>
         </div>
 
+        {/* Tab Switcher */}
+        <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
+          <button
+            onClick={() => setTab("active")}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              tab === "active"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Users className="h-4 w-4" />
+            Active Leads
+            <Badge variant="secondary" className="ml-1 text-xs">{activeLeads.length}</Badge>
+          </button>
+          <button
+            onClick={() => setTab("not_qualified")}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              tab === "not_qualified"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Ban className="h-4 w-4" />
+            Not Qualified
+            <Badge variant="secondary" className="ml-1 text-xs">{nqLeads.length}</Badge>
+          </button>
+        </div>
+
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search leads by name, business, or email..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
+          <Input
+            placeholder={`Search ${tab === "active" ? "active" : "not qualified"} leads by name, business, or email...`}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-10"
+          />
         </div>
 
         {isLoading ? (
@@ -75,7 +131,12 @@ export default function Leads() {
                           <FileSearch className="h-3.5 w-3.5" /> Context
                         </span>
                       </th>
-                      <th className="text-left p-3 font-medium">Next Outreach</th>
+                      {tab === "active" && (
+                        <th className="text-left p-3 font-medium">Next Outreach</th>
+                      )}
+                      {tab === "not_qualified" && (
+                        <th className="text-left p-3 font-medium">Reason</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
@@ -95,7 +156,12 @@ export default function Leads() {
                           <td className="p-3 text-muted-foreground hidden sm:table-cell">{lead.businessName || "—"}</td>
                           <td className="p-3 text-muted-foreground hidden md:table-cell">{lead.email || "—"}</td>
                           <td className="p-3">
-                            <Badge variant="outline" className="text-xs">{lead.pipelineStage || "New Lead"}</Badge>
+                            <Badge
+                              variant="outline"
+                              className={`text-xs ${tab === "not_qualified" ? "border-red-300 text-red-600 dark:border-red-700 dark:text-red-400" : ""}`}
+                            >
+                              {lead.pipelineStage || "New Lead"}
+                            </Badge>
                           </td>
                           <td className="p-3 text-center">
                             <span className={`font-mono text-sm font-medium ${(lead.opportunityScore || 0) >= 80 ? "text-orange-600" : (lead.opportunityScore || 0) >= 50 ? "text-yellow-600" : "text-muted-foreground"}`}>
@@ -118,23 +184,32 @@ export default function Leads() {
                               <span className="text-xs text-muted-foreground/40">—</span>
                             )}
                           </td>
-                          <td className="p-3">
-                            {lead.nextFollowUpAt ? (
-                              <span className={`flex items-center gap-1 text-xs whitespace-nowrap ${
-                                new Date(lead.nextFollowUpAt) <= new Date()
-                                  ? "text-red-600 font-semibold"
-                                  : new Date(lead.nextFollowUpAt) <= new Date(Date.now() + 86400000)
-                                    ? "text-amber-600 font-medium"
-                                    : "text-muted-foreground"
-                              }`}>
-                                <CalendarClock className="h-3.5 w-3.5 shrink-0" />
-                                {new Date(lead.nextFollowUpAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}{" "}
-                                {new Date(lead.nextFollowUpAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                          {tab === "active" && (
+                            <td className="p-3">
+                              {lead.nextFollowUpAt ? (
+                                <span className={`flex items-center gap-1 text-xs whitespace-nowrap ${
+                                  new Date(lead.nextFollowUpAt) <= new Date()
+                                    ? "text-red-600 font-semibold"
+                                    : new Date(lead.nextFollowUpAt) <= new Date(Date.now() + 86400000)
+                                      ? "text-amber-600 font-medium"
+                                      : "text-muted-foreground"
+                                }`}>
+                                  <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+                                  {new Date(lead.nextFollowUpAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}{" "}
+                                  {new Date(lead.nextFollowUpAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-muted-foreground/40">Not scheduled</span>
+                              )}
+                            </td>
+                          )}
+                          {tab === "not_qualified" && (
+                            <td className="p-3">
+                              <span className="text-xs text-muted-foreground">
+                                {(lead as any).dncReason || (lead as any).dispositionReason || "—"}
                               </span>
-                            ) : (
-                              <span className="text-xs text-muted-foreground/40">Not scheduled</span>
-                            )}
-                          </td>
+                            </td>
+                          )}
                         </tr>
                       );
                     })}
@@ -146,8 +221,17 @@ export default function Leads() {
         ) : (
           <Card>
             <CardContent className="py-12 text-center">
-              <Users className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
-              <p className="text-muted-foreground">{search ? "No leads match your search." : "No leads yet. Click 'Sync from GHL' to import contacts."}</p>
+              {tab === "not_qualified" ? (
+                <>
+                  <Ban className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
+                  <p className="text-muted-foreground">{search ? "No not-qualified leads match your search." : "No not-qualified leads. Great — everyone's still in play!"}</p>
+                </>
+              ) : (
+                <>
+                  <Users className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
+                  <p className="text-muted-foreground">{search ? "No leads match your search." : "No leads yet. Click 'Sync from GHL' to import contacts."}</p>
+                </>
+              )}
             </CardContent>
           </Card>
         )}

@@ -28,6 +28,7 @@ import { STAGES, SALES_AGENTS, DESIGNER } from "./webhook-helpers";
 import { getNqStageId, getQualifiedStageId, getDeliveredStageId } from "../shared/ghl-stages";
 import type { ConversationState, StateTransitionResult } from "./conversation-state";
 import type { IntentResult } from "./intent-classifier";
+import { getStagePlaybook, getStageNote, getStageFollowUpDelay, getStageTaskContext } from "./stage-playbook";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -43,6 +44,7 @@ export interface DispatchContext {
   ghlOpportunityId: string | null;
   ghlPipelineId: string | null;
   channel: string;  // The channel the inbound message arrived on
+  pipelineStage: string | null;  // Current pipeline stage for Stage Playbook lookups
 }
 
 export interface DispatchResult {
@@ -97,13 +99,16 @@ async function handleCommitted(ctx: DispatchContext, intent: IntentResult): Prom
     console.error(`[ActionDispatcher] Lead ${ctx.leadId}: Failed to create mockup task:`, err);
   }
 
-  // 2. Add GHL note
+  // 2. Add GHL note (using Stage Playbook note template)
   try {
+    const playbook = getStagePlaybook(ctx.pipelineStage || "Qualified");
+    const noteText = playbook?.noteTemplate || getStageNote(ctx.pipelineStage);
     await addNote(ctx.ghlContactId,
       `🤖 AI State Machine: Customer COMMITTED\n` +
+      `Stage: ${ctx.pipelineStage || "Unknown"} → ${playbook?.nextStage || "Next"}\n` +
       `Intent: ${intent.intent} — "${intent.reasoning}"\n` +
       `Action: Mockup task created for ${DESIGNER}.\n` +
-      `Next: Designer builds proof → send to customer for approval.`
+      `Stage Note: ${noteText}`
     );
     actions.push("Added commitment note to GHL");
   } catch { /* best effort */ }
@@ -449,5 +454,6 @@ export function buildDispatchContext(lead: any, channel: string): DispatchContex
     ghlOpportunityId: lead.ghlOpportunityId || null,
     ghlPipelineId: lead.ghlPipelineId || null,
     channel,
+    pipelineStage: lead.pipelineStage || null,
   };
 }

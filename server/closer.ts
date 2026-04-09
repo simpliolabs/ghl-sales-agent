@@ -18,6 +18,7 @@
 import { invokeLLM } from "./_core/llm";
 import { BRAND, getSignatureBlock } from "../shared/brand-assets";
 import type { BrainCouncilInput, StrategyDecision, ResearchResult, ComposedMessage, LeadContext } from "./brain-types";
+import { getCloserStageBlock } from "./stage-playbook";
 
 // ─── Closing Frameworks ────────────────────────────────────────────────────
 
@@ -135,6 +136,8 @@ export async function runCloser(
 - Phone on file: ${lead.phone || "none"}
 - Assigned Agent: ${lead.assignedAgent || "Adorb Custom Tees"}
 - Pipeline Stage: ${lead.pipelineStage}
+
+${getCloserStageBlock(lead.pipelineStage)}
 
 === CONVERSATION HISTORY ===
 ${input.externalHistory ? input.externalHistory + "\n" + historyStr : historyStr || "No previous messages"}

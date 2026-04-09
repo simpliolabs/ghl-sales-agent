@@ -9,6 +9,7 @@
 import { invokeLLM } from "./_core/llm";
 import type { BrainCouncilInput, StrategyDecision, ResearchResult, ComposedMessage, LeadContext } from "./brain-types";
 import { BRAND, getBrandContext, getSignatureBlock } from "../shared/brand-assets";
+import { getComposerStageBlock } from "./stage-playbook";
 
 const COMPOSER_PROMPT = `You are the COMPOSER brain for Adorb Custom Tees' AI outreach system.
 
@@ -255,6 +256,8 @@ ${research.dataConfidence === "inferred" ? "⚠️ INFERRED DATA — some facts 
 ${!lead.email && !lead.phone ? "⚠️ CRITICAL: BOTH email AND phone are MISSING. Your #1 priority in this message is to naturally ask for contact details (email or phone) so we don't lose this lead. Weave it into the conversation — e.g., 'What\'s the best email or number to reach you at?' Do NOT skip this." : !lead.email ? "💡 Email is missing — if natural, ask for their email to send quotes/proofs." : !lead.phone ? "💡 Phone is missing — if natural, ask for their number for quick updates." : ""}
 - Assigned Agent: ${lead.assignedAgent || "Adorb Custom Tees"}
 - Pipeline Stage: ${lead.pipelineStage}
+
+${getComposerStageBlock(lead.pipelineStage)}
 
 ${context.lastInteractionSummary ? `=== LAST INTERACTION SUMMARY (cross-session memory) ===
 ${context.lastInteractionSummary}
