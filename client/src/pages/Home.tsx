@@ -1,7 +1,9 @@
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Flame, Users, Brain, TrendingUp, MessageSquare, UserCheck } from "lucide-react";
+import { Flame, Users, Brain, TrendingUp, MessageSquare, UserCheck, ShieldCheck, Activity, AlertTriangle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Home() {
@@ -9,6 +11,11 @@ export default function Home() {
   const { data: pipelineStats, isLoading: pipeLoading } = trpc.pipeline.stats.useQuery();
   const { data: hotLeads, isLoading: hotLoading } = trpc.leads.hot.useQuery();
   const { data: agentWork, isLoading: agentLoading } = trpc.agents.workload.useQuery();
+  const { data: supervisorStatus, isLoading: supLoading } = trpc.ai.supervisorStatus.useQuery(undefined, { refetchInterval: 60000 });
+  const triggerSupervisor = trpc.ai.triggerSupervisor.useMutation({
+    onSuccess: () => { utils.ai.supervisorStatus.invalidate(); },
+  });
+  const utils = trpc.useUtils();
 
   const totalPipelineValue = pipelineStats?.reduce((sum: number, s: { totalValue?: string }) => sum + parseFloat(s.totalValue || "0"), 0) || 0;
   const isLoading = perfLoading || pipeLoading || hotLoading || agentLoading;
@@ -78,6 +85,69 @@ export default function Home() {
             </CardContent>
           </Card>
         </div>
+
+        {/* ═══ SUPERVISOR HEALTH ═══ */}
+        <Card className={supervisorStatus?.healthy === false ? 'border-red-500/50' : supervisorStatus?.healthy ? 'border-emerald-500/30' : ''}>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4" />
+                Supervisor Health
+                {supervisorStatus && (
+                  <Badge variant={supervisorStatus.healthy ? 'default' : 'destructive'} className="ml-2 text-xs">
+                    {supervisorStatus.healthy ? 'Healthy' : 'Issues Detected'}
+                  </Badge>
+                )}
+              </CardTitle>
+              <Button size="sm" variant="outline" onClick={() => triggerSupervisor.mutate()} disabled={triggerSupervisor.isPending}>
+                {triggerSupervisor.isPending ? 'Running...' : 'Run Now'}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {supLoading ? (
+              <div className="space-y-3">{[1,2].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div>
+            ) : supervisorStatus ? (
+              <div className="space-y-4">
+                {supervisorStatus.lastCycle && (
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                    <div className="text-center"><p className="text-xl font-bold">{supervisorStatus.lastCycle.leadsChecked}</p><p className="text-xs text-muted-foreground">Leads Checked</p></div>
+                    <div className="text-center"><p className="text-xl font-bold">{supervisorStatus.lastCycle.violationsFound}</p><p className="text-xs text-muted-foreground">Violations</p></div>
+                    <div className="text-center"><p className="text-xl font-bold text-emerald-500">{supervisorStatus.lastCycle.correctionsMade}</p><p className="text-xs text-muted-foreground">Corrected</p></div>
+                    <div className="text-center"><p className="text-xl font-bold text-red-500">{supervisorStatus.lastCycle.correctionsFailed}</p><p className="text-xs text-muted-foreground">Failed</p></div>
+                    <div className="text-center"><p className="text-xl font-bold">{supervisorStatus.lastCycle.durationMs}ms</p><p className="text-xs text-muted-foreground">Duration</p></div>
+                  </div>
+                )}
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Timer Health</p>
+                  <div className="flex flex-wrap gap-2">
+                    {supervisorStatus.timerHealth.timers.map((t: any) => (
+                      <div key={t.name} className="flex items-center gap-1.5 text-xs">
+                        <div className={`w-2 h-2 rounded-full ${t.status === 'green' ? 'bg-emerald-500' : t.status === 'yellow' ? 'bg-yellow-500' : 'bg-red-500'}`} />
+                        <span className="text-muted-foreground">{t.name.replace('timer_', '').replace('_last_run', '')}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {supervisorStatus.lastCycle?.violations && supervisorStatus.lastCycle.violations.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">Recent Corrections</p>
+                    <div className="space-y-1 max-h-40 overflow-y-auto">
+                      {supervisorStatus.lastCycle.violations.slice(0, 10).map((v: any, i: number) => (
+                        <div key={i} className="flex items-start gap-2 text-xs">
+                          {v.success ? <Activity className="h-3 w-3 text-emerald-500 mt-0.5 shrink-0" /> : <AlertTriangle className="h-3 w-3 text-red-500 mt-0.5 shrink-0" />}
+                          <span className="text-muted-foreground">Lead #{v.leadId}: <span className="font-medium">{v.invariant}</span> — {v.correction}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Supervisor not yet initialized. It will run automatically in 3 minutes.</p>
+            )}
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>

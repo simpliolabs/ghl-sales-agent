@@ -24,6 +24,7 @@ import { runBrainCouncilSelfReview } from "./brain-council-review";
 import { runDispositionSweep } from "./lead-disposition";
 import { runPromotionScan } from "./learning-loop";
 import { seedKnownErrors } from "./error-memory";
+import { runAndStoreSupervisorCycle, logTimerHeartbeat } from "./supervisor";
 
 // --- IN-MEMORY DEDUP LOCK ---
 // Prevents concurrent processing of the same message webhook.
@@ -87,6 +88,35 @@ function releaseMessageLock(contactId: string, messageBody: string): void {
 export function createWebhookRouter(): Router {
   const router = Router();
 
+  // ═══ SUPERVISOR: 5-minute invariant enforcement cycle ═══
+  let supervisorRunning = false;
+  setInterval(async () => {
+    if (supervisorRunning) return;
+    supervisorRunning = true;
+    try {
+      const result = await runAndStoreSupervisorCycle();
+      console.log(`[Supervisor/Timer] Cycle: ${result.leadsChecked} checked, ${result.violationsFound} violations, ${result.correctionsMade} corrected, ${result.correctionsFailed} failed (${result.durationMs}ms)`);
+    } catch (err) {
+      console.error('[Supervisor/Timer] Error:', err);
+    } finally {
+      supervisorRunning = false;
+    }
+  }, 5 * 60 * 1000);
+
+  // Run initial Supervisor cycle 3 minutes after startup
+  setTimeout(async () => {
+    if (supervisorRunning) return;
+    supervisorRunning = true;
+    try {
+      const result = await runAndStoreSupervisorCycle();
+      console.log(`[Supervisor/Timer] Initial cycle: ${result.leadsChecked} checked, ${result.violationsFound} violations, ${result.correctionsMade} corrected (${result.durationMs}ms)`);
+    } catch (err) {
+      console.error('[Supervisor/Timer] Initial cycle error:', err);
+    } finally {
+      supervisorRunning = false;
+    }
+  }, 3 * 60 * 1000);
+
   // --- RETROACTIVE CORRECTION SCAN (every 15 minutes) ---
   setInterval(async () => {
     try {
@@ -102,6 +132,7 @@ export function createWebhookRouter(): Router {
     try {
       const created = await backfillOutcomes();
       if (created > 0) console.log(`[Learn/Timer] Backfilled ${created} outcome records`);
+      await logTimerHeartbeat('timer_outcomes_last_run');
     } catch (err) {
       console.error('[Learn/Timer] Backfill error:', err);
     }
@@ -144,6 +175,7 @@ export function createWebhookRouter(): Router {
     try {
       const result = await processOverdueFollowUps();
       if (result.processed > 0) console.log(`[FollowUp/Timer] ${result.sent} sent, ${result.skipped} skipped, ${result.errors} errors`);
+      await logTimerHeartbeat('timer_followup_last_run');
     } catch (err) {
       console.error('[FollowUp/Timer] Error:', err);
     }
@@ -154,6 +186,7 @@ export function createWebhookRouter(): Router {
     try {
       const result = await processOverdueFollowUps();
       console.log(`[FollowUp/Timer] Initial run: ${result.sent} sent, ${result.skipped} skipped, ${result.errors} errors`);
+      await logTimerHeartbeat('timer_followup_last_run');
     } catch (err) {
       console.error('[FollowUp/Timer] Initial run error:', err);
     }
@@ -167,6 +200,7 @@ export function createWebhookRouter(): Router {
     try {
       const result = await processOverdueCatchUp();
       if (result.processed > 0) console.log(`[OverdueCatchUp/Timer] ${result.processed} processed, ${result.rescheduled} rescheduled, ${result.errors} errors`);
+      await logTimerHeartbeat('timer_overdue_catchup_last_run');
     } catch (err) {
       console.error('[OverdueCatchUp/Timer] Error:', err);
     } finally {
@@ -203,6 +237,7 @@ export function createWebhookRouter(): Router {
       if (result.processed > 0) {
         console.log(`[Lookback/Timer] Drip: ${result.processed} analyzed (${result.engage} engage, ${result.skip} skip, ${result.caution} caution, ${result.humanNeeded} human, ${result.errors} errors)`);
       }
+      await logTimerHeartbeat('timer_lookback_last_run');
     } catch (err) {
       console.error('[Lookback/Timer] Drip error:', err);
     } finally {
@@ -240,6 +275,7 @@ export function createWebhookRouter(): Router {
       const { runFastMissedReplyScanner } = await import('./brain-council-review');
       const count = await runFastMissedReplyScanner();
       if (count > 0) console.log(`[FastScan/Timer] Responded to ${count} missed message(s) within 3-min window`);
+      await logTimerHeartbeat('timer_fastscan_last_run');
     } catch (err) {
       console.error('[FastScan/Timer] Error:', err);
     } finally {
@@ -255,6 +291,7 @@ export function createWebhookRouter(): Router {
     try {
       const stats = await runBrainCouncilSelfReview();
       if (stats.recovered > 0) console.log(`[CouncilReview/Timer] ${stats.reviewed} reviewed, ${stats.recovered} recovered, ${stats.skipped} skipped, ${stats.errors} errors`);
+      await logTimerHeartbeat('timer_selfreview_last_run');
     } catch (err) {
       console.error('[CouncilReview/Timer] Error:', err);
     } finally {
@@ -290,7 +327,8 @@ export function createWebhookRouter(): Router {
     } finally {
       dispositionRunning = false;
     }
-  }, 2 * 60 * 60 * 1000); // Every 2 hours
+      await logTimerHeartbeat('timer_disposition_last_run');
+  }, 30 * 60 * 1000); // Every 30 minutes (tightened from 2hr)
 
   // Run initial disposition sweep 3 minutes after startup
   setTimeout(async () => {

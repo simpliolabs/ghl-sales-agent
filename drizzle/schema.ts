@@ -333,3 +333,14 @@ export const errorMemory = mysqlTable("error_memory", {
 
 export type ErrorMemoryEntry = typeof errorMemory.$inferSelect;
 export type InsertErrorMemoryEntry = typeof errorMemory.$inferInsert;
+// Supervisor: Audit log for invariant violations and auto-corrections
+export const supervisorAudit = mysqlTable("supervisor_audit", {
+  id: int("id").autoincrement().primaryKey(),
+  cycleId: varchar("cycleId", { length: 64 }).notNull(),
+  invariant: varchar("invariant", { length: 64 }).notNull(),
+  leadId: int("leadId"),
+  violation: text("violation").notNull(),
+  correction: text("correction"),
+  success: tinyint("success").default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});

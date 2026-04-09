@@ -400,3 +400,13 @@
 - [x] BUG 1: Conversation history missing — Code already handles OutboundMessage webhooks correctly. GHL needs outbound message workflow trigger configured. No code change needed.
 - [x] BUG 2: nextFollowUpAt stuck in past — Removed 3-day age filter from stale takeover query. Added agent-silent release path (reschedules 2hr out, tries email/SMS when agent was on FB/IG).
 - [x] BUG 3: Segment "Unclassified" — businessName was enriched by message webhook but classifySegment never ran. Added post-enrichment segment classification in webhook-message.ts + backfillUnclassifiedSegments sweep + admin endpoint.
+
+## PHASE 1 — SUPERVISOR ARCHITECTURE (Self-Healing Foundation)
+- [x] P1.1: supervisor_audit table in drizzle schema + migration
+- [x] P1.2: server/supervisor.ts — 9-invariant enforcement engine (has_future_schedule, has_segment, has_research, human_takeover_stale, no_channel_dnd_conflict, score_is_current, not_orphaned, circuit_breaker_not_stuck, long_lead_not_neglected)
+- [x] P1.3: Wire 5-min Supervisor timer in webhooks.ts
+- [x] P1.4: Add heartbeat logging to ALL existing timers (7 timers: followup, lookback, fastscan, selfreview, disposition, outcomes, overdue_catchup)
+- [x] P1.5: Tighten disposition sweep from 2hr → 30min
+- [x] P1.6: Admin endpoints: supervisorStatus, triggerSupervisor, supervisorAuditLog
+- [x] P1.7: Supervisor Health panel on Home dashboard (timer health dots, violation log, run-now button)
+- [x] P1.8: Comprehensive tests for Supervisor (477 tests passing — 14 new supervisor tests)

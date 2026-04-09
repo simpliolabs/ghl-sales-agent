@@ -22,6 +22,7 @@ import { scoreLeadQuick } from "./ai-brain";
 import { getPatternAnalysis, backfillOutcomes } from "./outcome-engine";
 import { processOverdueFollowUps, processOverdueCatchUp } from "./follow-up-trigger";
 import { compressSchedule, MAX_FOLLOWUP_DELAY_MS } from "./scheduling-engine";
+import { runAndStoreSupervisorCycle, getSupervisorStatus } from "./supervisor";
 import { runLookback } from "./lookback-engine";
 import { runDispositionSweep } from "./lead-disposition";
 
@@ -173,6 +174,21 @@ export const appRouter = router({
       const { backfillUnclassifiedSegments } = await import("./scheduling-engine");
       const result = await backfillUnclassifiedSegments(input?.maxLeads ?? 50);
       return result;
+    }),
+    supervisorStatus: protectedProcedure.query(async () => getSupervisorStatus()),
+    triggerSupervisor: adminProcedure.mutation(async () => {
+      const result = await runAndStoreSupervisorCycle();
+      return result;
+    }),
+    supervisorAuditLog: protectedProcedure.input(z.object({
+      limit: z.number().optional().default(50),
+    }).optional()).query(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const db = await getDb();
+      if (!db) return [];
+      const { supervisorAudit } = await import("../drizzle/schema");
+      const { desc } = await import("drizzle-orm");
+      return db.select().from(supervisorAudit).orderBy(desc(supervisorAudit.createdAt)).limit(input?.limit ?? 50);
     }),
     triggerLookback: adminProcedure.input(z.object({
       maxLeads: z.number().optional().default(50),
