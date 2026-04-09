@@ -15,7 +15,7 @@ type TabType = "active" | "not_qualified";
 
 function isNotQualified(stage: string | null | undefined): boolean {
   if (!stage) return false;
-  const lower = stage.toLowerCase();
+  const lower = stage.toLowerCase().replace(/_/g, " ");
   return lower.includes("not qualified") || lower === "lost";
 }
 

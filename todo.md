@@ -384,3 +384,5 @@
 - [x] UI: Add Active/Not Qualified tabs to Leads page (NQ leads separated from active leads)
 - [x] UI: Add missing "Qualified" and "In Production" stages to Pipeline Kanban
 - [x] Tests for Stage Playbook module and integrations
+- [x] BUG: No active AI engagement today — INVESTIGATED: System IS active (80 messages in last 24h). Follow-ups drip-feed in small batches to avoid spam flags. 0 overdue follow-ups because all are scheduled ahead.
+- [x] BUG: Not Qualified leads not showing in their own tab on Leads page — FIXED: isNotQualified() now normalizes underscores (not_qualified → not qualified). Query limit increased from 200 to 5000 to include all leads.

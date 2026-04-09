@@ -56,7 +56,7 @@ export const appRouter = router({
   }),
 
   leads: router({
-    list: protectedProcedure.query(async () => getAllLeads(200)),
+    list: protectedProcedure.query(async () => getAllLeads(5000)),
     hot: protectedProcedure.query(async () => getHotLeads(80)),
     detail: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
       const lead = await getLeadById(input.id);
