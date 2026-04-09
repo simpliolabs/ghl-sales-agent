@@ -437,3 +437,12 @@
 ## GitHub Connector
 - [x] Test GitHub connector feature from Management UI — documented capabilities for user
 - [x] Document capabilities and provide brief to user
+
+## PHASE 3 — PORTAL UX COMPLETION
+- [x] P3.1: Home dashboard — Schedule Distribution chart (overdue/today/1-7d/8-14d/15-30d/30+), Pipeline Breakdown with values, System Health panel with 6 indicators
+- [x] P3.2: Lead Detail — added Email Engagement card (opens/clicks/bounces), Appointment card, Agent Notes card, Reschedule button, GHL direct link
+- [x] P3.3: Agent Handoff Queue page — shows all humanTakeover=1 leads with stale duration, last agent activity, release to AI button, GHL link
+- [x] P3.4: Settings — updated webhook instructions with 10 workflows (Core: 5 required + Phase 2: 5 recommended), Outbound Message marked CRITICAL
+- [x] P3.5: Sidebar navigation — Handoff Queue added with UserCheck icon
+- [x] P3.6: scheduleDistribution + handoffQueue tRPC endpoints added to leads router
+- [x] P3.7: All 508 tests passing

@@ -175,27 +175,49 @@ export default function Settings() {
                   </div>
                 </div>
                 <div className="rounded-lg border bg-white p-3">
-                  <p className="text-xs font-semibold mb-2">Create these 5 Workflows in GHL:</p>
+                  <p className="text-xs font-semibold mb-2">Create these 10 Workflows in GHL:</p>
                   <div className="text-xs text-muted-foreground space-y-2">
+                    <p className="text-xs font-medium text-foreground">Core (Required):</p>
                     <div className="flex items-start gap-2">
                       <Badge variant="outline" className="mt-0.5 shrink-0 text-[10px]">1</Badge>
-                      <div><strong>New Contact Created</strong> — Trigger: Contact Created → Webhook action → POST to URL above</div>
+                      <div><strong>New Contact Created</strong> — Trigger: Contact Created → Webhook → POST</div>
                     </div>
                     <div className="flex items-start gap-2">
                       <Badge variant="outline" className="mt-0.5 shrink-0 text-[10px]">2</Badge>
-                      <div><strong>Inbound Message Received</strong> — Trigger: Customer Replied → Webhook action → POST to URL above</div>
+                      <div><strong>Inbound Message</strong> — Trigger: Customer Replied → Webhook → POST</div>
                     </div>
                     <div className="flex items-start gap-2">
                       <Badge variant="outline" className="mt-0.5 shrink-0 text-[10px]">3</Badge>
-                      <div><strong>Pipeline Stage Changed</strong> — Trigger: Pipeline Stage Changed → Webhook action → POST to URL above</div>
+                      <div><strong>Outbound Message</strong> — Trigger: Outbound Message → Webhook → POST <Badge variant="destructive" className="text-[9px] ml-1">CRITICAL</Badge></div>
                     </div>
                     <div className="flex items-start gap-2">
                       <Badge variant="outline" className="mt-0.5 shrink-0 text-[10px]">4</Badge>
-                      <div><strong>Opportunity Value Updated</strong> — Trigger: Opportunity Changed → Webhook action → POST to URL above</div>
+                      <div><strong>Pipeline Stage Changed</strong> — Trigger: Pipeline Stage Changed → Webhook → POST</div>
                     </div>
                     <div className="flex items-start gap-2">
                       <Badge variant="outline" className="mt-0.5 shrink-0 text-[10px]">5</Badge>
-                      <div><strong>Task Completed</strong> — Trigger: Task Completed → Webhook action → POST to URL above</div>
+                      <div><strong>Opportunity Updated</strong> — Trigger: Opportunity Changed → Webhook → POST</div>
+                    </div>
+                    <p className="text-xs font-medium text-foreground mt-3">Phase 2 (Recommended):</p>
+                    <div className="flex items-start gap-2">
+                      <Badge variant="outline" className="mt-0.5 shrink-0 text-[10px]">6</Badge>
+                      <div><strong>Appointment Created/Updated</strong> — Trigger: Appointment Status → Webhook → POST</div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Badge variant="outline" className="mt-0.5 shrink-0 text-[10px]">7</Badge>
+                      <div><strong>Contact DND Changed</strong> — Trigger: Contact DND → Webhook → POST</div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Badge variant="outline" className="mt-0.5 shrink-0 text-[10px]">8</Badge>
+                      <div><strong>Note Added</strong> — Trigger: Note Created → Webhook → POST</div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Badge variant="outline" className="mt-0.5 shrink-0 text-[10px]">9</Badge>
+                      <div><strong>Email Events</strong> — Trigger: Email Opened/Clicked/Bounced → Webhook → POST</div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Badge variant="outline" className="mt-0.5 shrink-0 text-[10px]">10</Badge>
+                      <div><strong>Task Completed</strong> — Trigger: Task Completed → Webhook → POST</div>
                     </div>
                   </div>
                 </div>
@@ -208,7 +230,7 @@ export default function Settings() {
                     <li>Add an <strong>Action → Webhook</strong></li>
                     <li>Set method to <strong>POST</strong>, paste the URL above</li>
                     <li>Save and <strong>Publish</strong> the workflow</li>
-                    <li>Repeat for all 5 workflows listed above</li>
+                    <li>Repeat for all 10 workflows listed above</li>
                   </ol>
                 </div>
                 <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3">

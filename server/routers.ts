@@ -87,6 +87,52 @@ export const appRouter = router({
       });
       return { success: true, scheduledAt: newDate.toISOString() };
     }),
+    scheduleDistribution: protectedProcedure.query(async () => {
+      const now = new Date();
+      const endOfToday = new Date(now); endOfToday.setHours(23, 59, 59, 999);
+      const in7d = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const in14d = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+      const in30d = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      const allLeads = await getAllLeads(5000);
+      let overdue = 0, today = 0, week1 = 0, week2 = 0, month = 0, beyond = 0, noSchedule = 0, humanTakeover = 0;
+      for (const l of allLeads) {
+        if (l.humanTakeover === 1) { humanTakeover++; continue; }
+        if (!l.nextFollowUpAt) { noSchedule++; continue; }
+        const d = new Date(l.nextFollowUpAt);
+        if (d <= now) overdue++;
+        else if (d <= endOfToday) today++;
+        else if (d <= in7d) week1++;
+        else if (d <= in14d) week2++;
+        else if (d <= in30d) month++;
+        else beyond++;
+      }
+      return { overdue, today, week1, week2, month, beyond, noSchedule, humanTakeover };
+    }),
+    handoffQueue: protectedProcedure.query(async () => {
+      const allLeads = await getAllLeads(5000);
+      const now = Date.now();
+      return allLeads
+        .filter(l => l.humanTakeover === 1)
+        .map(l => {
+          const lastActivity = l.lastAgentActivityAt ? new Date(l.lastAgentActivityAt).getTime() : (l.updatedAt ? new Date(l.updatedAt).getTime() : 0);
+          const silentHours = lastActivity ? Math.round((now - lastActivity) / (60 * 60 * 1000)) : null;
+          const isStale = silentHours !== null && silentHours >= 24;
+          const isOverdue = !!(l.nextFollowUpAt && new Date(l.nextFollowUpAt) <= new Date());
+          return {
+            id: l.id, name: l.name, businessName: l.businessName,
+            email: l.email, phone: l.phone, assignedAgent: l.assignedAgent,
+            pipelineStage: l.pipelineStage, opportunityScore: l.opportunityScore,
+            nextFollowUpAt: l.nextFollowUpAt, lastAgentActivityAt: l.lastAgentActivityAt,
+            silentHours, isStale, isOverdue,
+            source: l.source, omnisendSegment: l.omnisendSegment,
+          };
+        })
+        .sort((a, b) => {
+          if (a.isStale && !b.isStale) return -1;
+          if (!a.isStale && b.isStale) return 1;
+          return (b.silentHours || 0) - (a.silentHours || 0);
+        });
+    }),
     bulkScore: adminProcedure.mutation(async () => {
       // Score all leads that don't have a score yet (or score is 0)
       const allLeads = await getAllLeads(5000);
