@@ -17,7 +17,9 @@ import {
   upsertLead, getLeadByGhlContactId, updateLeadFields, addConversation, upsertAiState,
   getConversationHistory, getRecentAiOutboundCount, addBrainCouncilAudit, getBrainCouncilAuditForLead,
 } from "./db";
-import { shouldHandoffToAgent, generateContactNotes, estimateOrderValue } from "./ai-brain";
+import { shouldHandoffToAgent, generateContactNotes, estimateOrderValue, classifySegment } from "./ai-brain";
+import { researchLead } from "./lead-researcher";
+import { pushContactToOmnisend } from "./omnisend";
 import { runBrainCouncil } from "./brain-council-orchestrator";
 import { calculateNextFollowUp, checkRateLimits } from "./scheduling-engine";
 import { sendMessage, updateContactCustomField, createTask, addNote, fetchGhlConversationHistory, getContact, updateContactAssignment, AGENT_GHL_USER_IDS } from "./ghl";
@@ -109,6 +111,46 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
         console.log(`[Webhook/Msg] Enriched lead ${lead!.id} with: ${Object.keys(updates).join(", ")}`);
         lead = { ...lead!, ...updates } as typeof lead;
       }
+    }
+  }
+
+  // --- POST-ENRICHMENT SEGMENT CLASSIFICATION ---
+  // If businessName is now available but segment is still NULL, run classification.
+  // This catches leads where Contact Created webhook arrived without businessName
+  // and the message webhook later enriched it (e.g. lead #690005).
+  if (lead!.businessName && !lead!.omnisendSegment) {
+    try {
+      const segment = await classifySegment(lead!.businessName, lead!.website || undefined);
+      const segmentUpdates: Record<string, unknown> = { omnisendSegment: segment };
+      try {
+        const research = await researchLead({
+          name: lead!.name || undefined,
+          businessName: lead!.businessName || undefined,
+          source: lead!.source || undefined,
+          website: lead!.website || undefined,
+          segment,
+          email: lead!.email || undefined,
+        });
+        segmentUpdates.researchData = research;
+      } catch (resErr) {
+        console.error(`[Webhook/Msg] Research failed for lead ${lead!.id}:`, resErr);
+      }
+      await updateLeadFields(lead!.id, segmentUpdates);
+      console.log(`[Webhook/Msg] Post-enrichment segment classification for lead ${lead!.id}: ${segment}`);
+
+      // Push to Omnisend if email available
+      if (lead!.email) {
+        const nameParts = (lead!.name || "").split(" ");
+        await pushContactToOmnisend({
+          email: lead!.email,
+          firstName: nameParts[0],
+          lastName: nameParts.slice(1).join(" "),
+          phone: lead!.phone || undefined,
+          tags: [segment],
+        }).catch(err => console.error(`[Webhook/Msg] Omnisend push failed:`, err));
+      }
+    } catch (segErr) {
+      console.error(`[Webhook/Msg] Segment classification failed for lead ${lead!.id}:`, segErr);
     }
   }
 

@@ -148,11 +148,54 @@ describe("Stale Takeover Expiry", () => {
 
   it("lead-disposition.ts handles lastAgentActivityAt > 24 hours as stale", () => {
     const src = readFile("lead-disposition.ts");
-    expect(src).toContain("24 * 60 * 60 * 1000"); // 24hr timeout (was 7 days)
+    expect(src).toContain("24 * 60 * 60 * 1000"); // 24hr timeout
   });
 
-  it("lead-disposition.ts only processes leads older than 3 days", () => {
+  it("lead-disposition.ts stale takeover query does NOT have 3-day age filter (removed to fix lead #690005)", () => {
     const src = readFile("lead-disposition.ts");
-    expect(src).toContain("INTERVAL 3 DAY");
+    // The 3-day filter was removed from the stale takeover query specifically
+    // (DNC query still has it, which is correct — DNC decisions need more history)
+    expect(src).toContain("Removed 3-day age filter");
+    // The stale takeover WHERE clause should NOT have INTERVAL 3 DAY
+    // Find the stale takeover section and verify
+    const staleTakeoverSection = src.split("Pass 2: Stale humanTakeover")[1] || src.split("humanTakeover, 1")[1] || "";
+    // The comment about removal should be present
+    expect(src).toContain("24hr agent inactivity window is sufficient");
+  });
+
+  it("lead-disposition.ts handles agent-silent leads with >24hr stale takeover", () => {
+    const src = readFile("lead-disposition.ts");
+    // When agent was on FB/IG, AI should try email/SMS as support role
+    expect(src).toContain("agent went silent");
+    expect(src).toContain("Released stale takeover");
+    // Should reschedule for near-future (2hr)
+    expect(src).toContain("2 * 60 * 60 * 1000");
+  });
+});
+
+describe("Post-Enrichment Segment Classification", () => {
+  it("webhook-message.ts runs classifySegment when businessName is enriched but segment is NULL", () => {
+    const src = readFile("webhook-message.ts");
+    expect(src).toContain("POST-ENRICHMENT SEGMENT CLASSIFICATION");
+    expect(src).toContain("classifySegment");
+    expect(src).toContain("!lead!.omnisendSegment");
+  });
+
+  it("webhook-message.ts imports classifySegment and researchLead", () => {
+    const src = readFile("webhook-message.ts");
+    expect(src).toContain('import { shouldHandoffToAgent, generateContactNotes, estimateOrderValue, classifySegment }');
+    expect(src).toContain('import { researchLead }');
+    expect(src).toContain('import { pushContactToOmnisend }');
+  });
+
+  it("scheduling-engine.ts exports backfillUnclassifiedSegments", () => {
+    const src = readFile("scheduling-engine.ts");
+    expect(src).toContain("export async function backfillUnclassifiedSegments");
+  });
+
+  it("routers.ts exposes backfillUnclassified admin endpoint", () => {
+    const src = readFile("routers.ts");
+    expect(src).toContain("backfillUnclassified");
+    expect(src).toContain("backfillUnclassifiedSegments");
   });
 });

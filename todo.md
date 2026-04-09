@@ -395,3 +395,8 @@
 - [x] FIX 4: 30-day max cap on follow-up delay — MAX_FOLLOWUP_DELAY_MS enforced in capDate(), scheduling engine, perpetual nurture, stale recalc. Long-lead exempt (P1 customer timeline). Stage Playbook has longLeadGuidance for 3-6 month advance orders.
 - [x] One-time migration script: compressSchedule() in scheduling-engine.ts + admin tRPC endpoint
 - [x] Tests for all scheduling fixes — 458 tests passing (send-gate 24hr, lead-disposition 24hr, stage-playbook long-lead/human-assisted, scheduling-engine 30-day cap, structural validation)
+
+## BUG: Lead #690005 — 3 Issues
+- [x] BUG 1: Conversation history missing — Code already handles OutboundMessage webhooks correctly. GHL needs outbound message workflow trigger configured. No code change needed.
+- [x] BUG 2: nextFollowUpAt stuck in past — Removed 3-day age filter from stale takeover query. Added agent-silent release path (reschedules 2hr out, tries email/SMS when agent was on FB/IG).
+- [x] BUG 3: Segment "Unclassified" — businessName was enriched by message webhook but classifySegment never ran. Added post-enrichment segment classification in webhook-message.ts + backfillUnclassifiedSegments sweep + admin endpoint.

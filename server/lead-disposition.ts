@@ -236,10 +236,12 @@ export async function runDispositionSweep(): Promise<DispositionStats> {
       .where(and(
         eq(leads.humanTakeover, 1),
         sql`${leads.pipelineStage} != 'not_qualified'`,
-        sql`${leads.createdAt} < DATE_SUB(NOW(), INTERVAL 3 DAY)`,
+        // NOTE: Removed 3-day age filter — the 24hr agent inactivity window is sufficient
+        // to prevent premature release of fresh leads. Previously this blocked leads
+        // younger than 3 days from stale takeover processing (e.g. lead #690005).
         or(
           isNull(leads.lastAgentActivityAt),
-          lte(leads.lastAgentActivityAt, new Date(Date.now() - 24 * 60 * 60 * 1000)) // 24hr timeout (was 7 days)
+          lte(leads.lastAgentActivityAt, new Date(Date.now() - 24 * 60 * 60 * 1000)) // 24hr timeout
         ),
       ))
       .limit(MAX_PER_CYCLE);
@@ -284,10 +286,9 @@ export async function runDispositionSweep(): Promise<DispositionStats> {
         continue;
       }
 
-      // No email available or email also blocked — check if truly stale
+      // No email available or email also blocked — release takeover and reschedule
       if (!candidate.lastAgentActivityAt) {
         // NULL lastAgentActivityAt with humanTakeover=1 — this is the permanent freeze bug
-        // If no email available, move to not_qualified
         if (!hasEmail || !emailNotBlocked) {
           const success = await moveToNotQualified(
             candidate.id,
@@ -307,6 +308,21 @@ export async function runDispositionSweep(): Promise<DispositionStats> {
           stats.processed++;
           stats.takeoverExpired++;
         }
+      } else {
+        // HAS lastAgentActivityAt but it's >24hr old — agent went silent
+        // Release takeover and reschedule for near-future AI follow-up
+        // If agent was on FB/IG, AI can try email/SMS as a support role
+        const agentChannel = candidate.preferredChannel || "SMS";
+        const useEmail = hasEmail && emailNotBlocked && (agentChannel === "FB" || agentChannel === "IG" || alreadyOnEmail);
+        const newChannel = useEmail ? "EMAIL" : (candidate.preferredChannel || "SMS");
+        await updateLeadFields(candidate.id, {
+          humanTakeover: 0,
+          preferredChannel: newChannel,
+          nextFollowUpAt: new Date(Date.now() + 2 * 60 * 60 * 1000), // 2hr from now
+        });
+        console.log(`[Disposition] Lead ${candidate.id} → Released stale takeover (agent silent >24hr), channel: ${newChannel}, next follow-up in 2hr`);
+        stats.processed++;
+        stats.takeoverExpired++;
       }
     }
 

@@ -959,3 +959,97 @@ export async function compressSchedule(options: CompressOptions): Promise<Compre
 
   return result;
 }
+
+
+// ============================================================
+// BACKFILL UNCLASSIFIED SEGMENTS
+// ============================================================
+// Finds leads with businessName but no omnisendSegment and runs
+// classification + research. Catches leads where the Contact Created
+// webhook arrived without businessName and enrichment happened later.
+// ============================================================
+
+export async function backfillUnclassifiedSegments(maxLeads: number = 50): Promise<{
+  processed: number;
+  classified: number;
+  errors: number;
+}> {
+  const result = { processed: 0, classified: 0, errors: 0 };
+
+  try {
+    const db = await getDb();
+    if (!db) return result;
+
+    // Find leads with businessName but no segment
+    const unclassified = await db
+      .select({
+        id: leads.id,
+        name: leads.name,
+        businessName: leads.businessName,
+        website: leads.website,
+        source: leads.source,
+        email: leads.email,
+      })
+      .from(leads)
+      .where(and(
+        sql`${leads.businessName} IS NOT NULL AND ${leads.businessName} != ''`,
+        sql`(${leads.omnisendSegment} IS NULL OR ${leads.omnisendSegment} = '')`,
+        sql`${leads.pipelineStage} != 'not_qualified'`,
+      ))
+      .limit(maxLeads);
+
+    console.log(`[BackfillSegment] Found ${unclassified.length} leads with businessName but no segment`);
+
+    for (const lead of unclassified) {
+      try {
+        const { classifySegment } = await import("./ai-brain");
+        const { researchLead } = await import("./lead-researcher");
+        const { pushContactToOmnisend } = await import("./omnisend");
+        const { updateLeadFields } = await import("./db");
+
+        const segment = await classifySegment(lead.businessName!, lead.website || undefined);
+        const updates: Record<string, unknown> = { omnisendSegment: segment };
+
+        try {
+          const research = await researchLead({
+            name: lead.name || undefined,
+            businessName: lead.businessName || undefined,
+            source: lead.source || undefined,
+            website: lead.website || undefined,
+            segment,
+            email: lead.email || undefined,
+          });
+          updates.researchData = research;
+        } catch {
+          // Research is best-effort
+        }
+
+        await updateLeadFields(lead.id, updates);
+        result.classified++;
+
+        // Push to Omnisend
+        if (lead.email) {
+          const nameParts = (lead.name || "").split(" ");
+          await pushContactToOmnisend({
+            email: lead.email,
+            firstName: nameParts[0],
+            lastName: nameParts.slice(1).join(" "),
+            phone: undefined,
+            tags: [segment],
+          }).catch(() => {});
+        }
+
+        console.log(`[BackfillSegment] Lead ${lead.id} (${lead.businessName}) → ${segment}`);
+      } catch (err) {
+        console.error(`[BackfillSegment] Error classifying lead ${lead.id}:`, err);
+        result.errors++;
+      }
+      result.processed++;
+    }
+  } catch (err) {
+    console.error("[BackfillSegment] Fatal error:", err);
+    result.errors++;
+  }
+
+  return result;
+}

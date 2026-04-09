@@ -167,6 +167,13 @@ export const appRouter = router({
       });
       return result;
     }),
+    backfillUnclassified: adminProcedure.input(z.object({
+      maxLeads: z.number().optional().default(50),
+    }).optional()).mutation(async ({ input }) => {
+      const { backfillUnclassifiedSegments } = await import("./scheduling-engine");
+      const result = await backfillUnclassifiedSegments(input?.maxLeads ?? 50);
+      return result;
+    }),
     triggerLookback: adminProcedure.input(z.object({
       maxLeads: z.number().optional().default(50),
       delayBetweenMs: z.number().optional().default(3000),
