@@ -18,6 +18,7 @@ import type { BrainCouncilInput, StrategyDecision, LeadContext } from "./brain-t
 import { buildLearningContext } from "./outcome-engine";
 import { getPromotedLearnings } from "./learning-loop";
 import { getStrategistStageBlock } from "./stage-playbook";
+import { getTrainingCorpus, getPersonaGuidance } from "../shared/sales-training";
 
 const STRATEGIST_PROMPT = `You are the STRATEGIST brain for Adorb Custom Tees' AI outreach system.
 
@@ -266,6 +267,11 @@ ${context.lastInteractionSummary ? `
 LAST INTERACTION SUMMARY (cross-session memory):
 ${context.lastInteractionSummary}
 IMPORTANT: This is a summary of the last AI interaction with this lead. Use it to maintain continuity — do NOT repeat what was already discussed or offered.` : ""}
+
+${getPersonaGuidance(lead.omnisendSegment)}
+
+=== AI SALES TRAINING ===
+${getTrainingCorpus({ includePricing: true, includeBrandVoice: false, includePersonas: false, includeSalesProcess: true, includeCompetitive: true, includeSeasonal: true, includeEscalation: true })}
 
 FORM DATA (if any):
 ${input.formData?.map(f => `- ${f.label}: ${f.value}`).join("\n") || "None"}

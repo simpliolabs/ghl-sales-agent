@@ -410,3 +410,30 @@
 - [x] P1.6: Admin endpoints: supervisorStatus, triggerSupervisor, supervisorAuditLog
 - [x] P1.7: Supervisor Health panel on Home dashboard (timer health dots, violation log, run-now button)
 - [x] P1.8: Comprehensive tests for Supervisor (477 tests passing — 14 new supervisor tests)
+
+## PHASE 2A — WEBHOOK EXPANSION
+- [x] P2A.1: Add webhook handler for GHL Appointment events (handleAppointmentWebhook — tracks nextAppointmentAt, appointmentStatus, appointmentId)
+- [x] P2A.2: Add webhook handler for GHL Contact DND changes (handleContactDndWebhook — syncs per-channel DND to our DB)
+- [x] P2A.3: Add webhook handler for GHL Note events (handleNoteWebhook — stores lastAgentNote, lastAgentNoteAt)
+- [x] P2A.4: Add webhook handler for GHL Email events (handleEmailEventWebhook — tracks opens, clicks, bounces, unsubscribes)
+- [x] P2A.5: Add webhook handler for GHL Opportunity updates (handleOpportunityWebhook — monetary value, status changes)
+- [x] P2A.6: Extend detectEventType with 5 new event types (appointment, note, email_event, contact_dnd, opportunity)
+- [x] P2A.7: Add email engagement columns to leads table (emailOpens, emailClicks, emailBounces, emailUnsubscribed, lastEmailOpenAt, lastEmailClickAt)
+- [x] P2A.8: Add appointment columns to leads table (nextAppointmentAt, appointmentStatus, appointmentId)
+- [x] P2A.9: Add agent notes columns to leads table (lastAgentNote, lastAgentNoteAt)
+- [x] P2A.10: Wire all 5 new handlers into webhooks.ts switch statement
+- [x] P2A.11: Tests for all new webhook handlers (508 tests passing)
+
+## PHASE 2B — AI TRAINING CORPUS
+- [x] P2B.1: Build shared/sales-training.ts — complete training corpus (PRICING_MATRIX, BRAND_VOICE_GUIDE, PERSONA_PLAYBOOKS, SALES_PROCESS_GUIDE, COMPETITIVE_INTEL, SEASONAL_CALENDAR, ESCALATION_RULES)
+- [x] P2B.2: Wire training corpus into Strategist (getTrainingCorpus + getPersonaGuidance — full pricing, personas, competitive, seasonal, escalation)
+- [x] P2B.3: Wire training corpus into Composer (getCompactTrainingCorpus + getPersonaGuidance — brand voice, pricing, persona-specific tone)
+- [x] P2B.4: Wire training corpus into Closer (getCompactTrainingCorpus — pricing + escalation for closing)
+- [x] P2B.5: Wire training corpus into Objection Handler (getCompactTrainingCorpus — pricing + competitive + escalation)
+- [x] P2B.6: Wire training corpus into QC (PRICING_MATRIX + ESCALATION_RULES for factual verification)
+- [x] P2B.7: Wire training corpus into ai-brain.ts legacy fallback (getCompactTrainingCorpus)
+- [x] P2B.8: Tests for training corpus modules and Brain Council integration (508 tests passing)
+
+## GitHub Connector
+- [x] Test GitHub connector feature from Management UI — documented capabilities for user
+- [x] Document capabilities and provide brief to user

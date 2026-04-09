@@ -112,7 +112,32 @@ export async function sendMessageWithRetry(
 }
 
 // --- EVENT TYPE DETECTION ---
-export function detectEventType(payload: Record<string, unknown>): "contact" | "message" | "pipeline" | "task" | "unknown" {
+export type WebhookEventType = "contact" | "message" | "pipeline" | "task" | "appointment" | "note" | "email_event" | "contact_dnd" | "opportunity" | "unknown";
+
+export function detectEventType(payload: Record<string, unknown>): WebhookEventType {
+  // --- Appointment events (GHL API v2 + workflow) ---
+  if (payload.type === "AppointmentCreate" || payload.type === "AppointmentUpdate" || payload.type === "AppointmentDelete"
+    || payload.event === "appointment.scheduled" || payload.event === "appointment.rescheduled"
+    || payload.event === "appointment.cancelled" || payload.event === "appointment.noshow"
+    || payload.event === "appointment.completed" || payload.appointmentStatus) return "appointment";
+  // --- Note events (GHL API v2 + workflow) ---
+  if (payload.type === "NoteCreate" || payload.type === "NoteUpdate" || payload.event === "note.create"
+    || payload.event === "note.update" || payload.event === "note.delete"
+    || (payload.noteBody && payload.contactId)) return "note";
+  // --- Email engagement events (GHL API v2) ---
+  if (payload.event === "email.opened" || payload.event === "email.clicked"
+    || payload.event === "email.bounced" || payload.event === "email.complained"
+    || payload.event === "email.unsubscribed" || payload.type === "EmailStats"
+    || (payload.emailEvent && typeof payload.emailEvent === "string")) return "email_event";
+  // --- Contact DND changes (GHL API v2 + workflow) ---
+  if (payload.type === "ContactDndUpdate" || payload.event === "contact.dnd.update"
+    || (payload.dndSettings && payload.contactId)) return "contact_dnd";
+  // --- Opportunity (non-pipeline) updates ---
+  if (payload.event === "opportunity.monetary_value.update" || payload.event === "opportunity.status.update"
+    || payload.event === "opportunity.create" || payload.event === "opportunity.delete"
+    || payload.type === "OpportunityCreate" || payload.type === "OpportunityUpdate"
+    || payload.type === "OpportunityMonetaryValueUpdate" || payload.type === "OpportunityStatusUpdate") return "opportunity";
+  // --- Existing event types ---
   if (payload.type === "ContactCreate" || payload.type === "ContactUpdate" || payload.event === "contact.create") return "contact";
   if (payload.type === "InboundMessage" || payload.type === "OutboundMessage" || payload.event === "message.received" || payload.messageType) return "message";
   if (payload.type === "PipelineStageChanged" || payload.event === "opportunity.stageUpdate" || payload.currentStage || payload.toStage) return "pipeline";

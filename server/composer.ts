@@ -10,6 +10,7 @@ import { invokeLLM } from "./_core/llm";
 import type { BrainCouncilInput, StrategyDecision, ResearchResult, ComposedMessage, LeadContext } from "./brain-types";
 import { BRAND, getBrandContext, getSignatureBlock } from "../shared/brand-assets";
 import { getComposerStageBlock } from "./stage-playbook";
+import { getCompactTrainingCorpus, getPersonaGuidance } from "../shared/sales-training";
 
 const COMPOSER_PROMPT = `You are the COMPOSER brain for Adorb Custom Tees' AI outreach system.
 
@@ -271,6 +272,11 @@ ${input.formData?.map(f => `- ${f.label}: ${f.value}`).join("\n") || "None"}
 
 === KNOWLEDGE BASE (includes pricing data — USE THIS for quotes) ===
 ${kbContent || "No knowledge base uploaded"}
+
+=== AI SALES TRAINING (pricing matrix, brand voice, competitive intel, escalation rules) ===
+${getCompactTrainingCorpus()}
+
+${getPersonaGuidance(lead.omnisendSegment)}
 
 ${tweakInstructions ? `=== ADMIN BEHAVIOR ADJUSTMENTS ===\n${tweakInstructions}` : ""}
 

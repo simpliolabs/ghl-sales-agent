@@ -27,6 +27,7 @@ import { invokeLLM } from "./_core/llm";
 import { BRAND, getSignatureBlock } from "../shared/brand-assets";
 import type { BrainCouncilInput, StrategyDecision, ResearchResult, ComposedMessage, LeadContext } from "./brain-types";
 import { getObjectionHandlerStageBlock } from "./stage-playbook";
+import { getCompactTrainingCorpus } from "../shared/sales-training";
 
 // ─── Objection Handling Frameworks ─────────────────────────────────────────
 
@@ -198,6 +199,9 @@ ${input.formData?.map(f => `- ${f.label}: ${f.value}`).join("\n") || "None"}
 
 === KNOWLEDGE BASE (includes pricing data — USE THIS for price objections) ===
 ${kbContent || "No knowledge base uploaded"}
+
+=== AI SALES TRAINING (pricing matrix, competitive intel, escalation rules) ===
+${getCompactTrainingCorpus()}
 
 ${tweakInstructions ? `=== ADMIN BEHAVIOR ADJUSTMENTS ===\n${tweakInstructions}` : ""}
 

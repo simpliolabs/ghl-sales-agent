@@ -70,6 +70,20 @@ export const leads = mysqlTable("leads", {
   dndWhatsapp: varchar("dndWhatsapp", { length: 32 }),
   dndGmb: varchar("dndGmb", { length: 32 }),
   dndSyncedAt: timestamp("dndSyncedAt"),
+  // Email engagement tracking (from GHL email events)
+  emailOpens: int("emailOpens").default(0),
+  emailClicks: int("emailClicks").default(0),
+  emailBounces: int("emailBounces").default(0),
+  emailUnsubscribed: tinyint("emailUnsubscribed").default(0),
+  lastEmailOpenAt: timestamp("lastEmailOpenAt"),
+  lastEmailClickAt: timestamp("lastEmailClickAt"),
+  // Appointment tracking (from GHL appointment events)
+  nextAppointmentAt: timestamp("nextAppointmentAt"),
+  appointmentStatus: varchar("appointmentStatus", { length: 32 }), // scheduled, confirmed, showed, no_show, cancelled
+  appointmentId: varchar("appointmentId", { length: 128 }),
+  // Agent notes (from GHL note events — latest agent note for context)
+  lastAgentNote: text("lastAgentNote"),
+  lastAgentNoteAt: timestamp("lastAgentNoteAt"),
   // Conversation State Machine (Phase A)
   convState: varchar("convState", { length: 20 }).default("new_lead"),
   convStateUpdatedAt: bigint("convStateUpdatedAt", { mode: "number" }),

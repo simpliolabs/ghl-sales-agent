@@ -2,6 +2,7 @@ import { invokeLLM } from "./_core/llm";
 import { getDb } from "./db";
 import { aiState, aiTweaks, knowledgeFiles, conversations, leads } from "../drizzle/schema";
 import { eq, desc } from "drizzle-orm";
+import { getCompactTrainingCorpus } from "../shared/sales-training";
 
 const SYSTEM_PROMPT = `You are the AI sales brain for Adorb Custom Tees — a custom printing powerhouse based in Hallandale Beach, Florida.
 
@@ -253,6 +254,9 @@ ${externalHistory ? externalHistory + "\n" + historyStr : historyStr || "No prev
 
 KNOWLEDGE BASE:
 ${kbContent || "No knowledge base uploaded yet"}
+
+AI SALES TRAINING (pricing matrix, competitive intel, escalation rules):
+${getCompactTrainingCorpus()}
 
 ${tweakInstructions ? `ADMIN BEHAVIOR ADJUSTMENTS:\n${tweakInstructions}` : ""}
 

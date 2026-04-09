@@ -19,6 +19,7 @@ import { invokeLLM } from "./_core/llm";
 import { BRAND, getSignatureBlock } from "../shared/brand-assets";
 import type { BrainCouncilInput, StrategyDecision, ResearchResult, ComposedMessage, LeadContext } from "./brain-types";
 import { getCloserStageBlock } from "./stage-playbook";
+import { getCompactTrainingCorpus } from "../shared/sales-training";
 
 // ─── Closing Frameworks ────────────────────────────────────────────────────
 
@@ -147,6 +148,9 @@ ${input.formData?.map(f => `- ${f.label}: ${f.value}`).join("\n") || "None"}
 
 === KNOWLEDGE BASE ===
 ${kbContent || "No knowledge base uploaded"}
+
+=== AI SALES TRAINING (pricing, competitive intel, escalation rules) ===
+${getCompactTrainingCorpus()}
 
 ${tweakInstructions ? `=== ADMIN BEHAVIOR ADJUSTMENTS ===\n${tweakInstructions}` : ""}
 

@@ -17,6 +17,7 @@ import type {
   ViolationCategory,
 } from "./brain-types";
 import { BRAND } from "../shared/brand-assets";
+import { PRICING_MATRIX, ESCALATION_RULES } from "../shared/sales-training";
 
 // ============================================================
 // QC REVIEWER
@@ -182,6 +183,12 @@ ${input.formData?.map(f => `- ${f.label}: ${f.value}`).join("\n") || "None"}
 
 === KNOWLEDGE BASE (for factual verification) ===
 ${context.kbContent || "No knowledge base content available"}
+
+=== PRICING MATRIX (verify pricing claims against this) ===
+${PRICING_MATRIX}
+
+=== ESCALATION RULES (verify escalation decisions) ===
+${ESCALATION_RULES}
 
 === INCOMING MESSAGE BEING RESPONDED TO ===
 ${input.incomingMessage}

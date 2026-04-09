@@ -16,6 +16,7 @@ import { handleContactWebhook } from "./webhook-contact";
 import { handleMessageWebhook } from "./webhook-message";
 import { handlePipelineWebhook } from "./webhook-pipeline";
 import { handleTaskWebhook } from "./webhook-task";
+import { handleAppointmentWebhook, handleNoteWebhook, handleEmailEventWebhook, handleContactDndWebhook, handleOpportunityWebhook } from "./webhook-events";
 import { retroactiveCorrectionScan } from "./auto-correction";
 import { backfillOutcomes } from "./outcome-engine";
 import { processOverdueFollowUps, processOverdueCatchUp } from "./follow-up-trigger";
@@ -414,6 +415,26 @@ export function createWebhookRouter(): Router {
         case "task":
           action = "task_handler";
           await handleTaskWebhook(payload, res);
+          break;
+        case "appointment":
+          action = "appointment_handler";
+          await handleAppointmentWebhook(payload, res);
+          break;
+        case "note":
+          action = "note_handler";
+          await handleNoteWebhook(payload, res);
+          break;
+        case "email_event":
+          action = "email_event_handler";
+          await handleEmailEventWebhook(payload, res);
+          break;
+        case "contact_dnd":
+          action = "contact_dnd_handler";
+          await handleContactDndWebhook(payload, res);
+          break;
+        case "opportunity":
+          action = "opportunity_handler";
+          await handleOpportunityWebhook(payload, res);
           break;
         default:
           if ((typeof payload.body === "string" && payload.body) || (typeof payload.message === "string" && payload.message) || payload.messageType) {
