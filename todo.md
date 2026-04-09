@@ -354,3 +354,9 @@
 - [x] ARCH Phase B: Wire action dispatcher into processInboundState in webhook-message.ts (dispatch on state change)
 - [x] ARCH Phase B: Brain Council reads convState — committed leads get confirmation response, not re-pitched
 - [x] ARCH Phase B: Tests for action dispatcher (committed→task+pipeline, dnc→fallback, fulfilled→Won)
+
+## Architecture v2.0 — Phase C: Sales Brain Refactor
+- [x] ARCH Phase C: Build server/closer.ts — specialized closing module for committed leads
+- [x] ARCH Phase C: Build server/objection-handler.ts — specialized objection handling module
+- [x] ARCH Phase C: Wire closer and objection-handler into Brain Council orchestrator
+- [x] ARCH Phase C: Tests for closer and objection-handler modules

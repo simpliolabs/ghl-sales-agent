@@ -32,6 +32,8 @@ import { buildLeadContext, invalidateLeadCache } from "./brain-context";
 import { runStrategist } from "./strategist";
 import { runResearcher, emptyResearch } from "./researcher";
 import { runComposer } from "./composer";
+import { runCloser } from "./closer";
+import { runObjectionHandler } from "./objection-handler";
 import {
   runQC,
   detectViolations,
@@ -441,10 +443,24 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
       : await runResearcher(input, context, strategy);
     console.log(`[BrainCouncil] Research: ${research.summary.substring(0, 100)}...`);
 
-    // BRAIN 3: COMPOSER
-    console.log(`[BrainCouncil] Running Composer...`);
-    let composed = await runComposer(input, context, strategy, research);
-    console.log(`[BrainCouncil] Composed: "${composed.message.substring(0, 80)}..." (${composed.message.length} chars)`);
+    // BRAIN 3: COMPOSER (or specialized Sales Brain based on convState)
+    let composed;
+    const useCloser = context.convState === "committed";
+    const useObjectionHandler = context.convState === "objecting";
+
+    if (useCloser) {
+      console.log(`[BrainCouncil] Running CLOSER (committed lead)...`);
+      composed = await runCloser(input, context, strategy, research);
+      console.log(`[BrainCouncil] Closer: "${composed.message.substring(0, 80)}..." (${composed.message.length} chars)`);
+    } else if (useObjectionHandler) {
+      console.log(`[BrainCouncil] Running OBJECTION HANDLER (objecting lead)...`);
+      composed = await runObjectionHandler(input, context, strategy, research);
+      console.log(`[BrainCouncil] ObjectionHandler: "${composed.message.substring(0, 80)}..." (${composed.message.length} chars)`);
+    } else {
+      console.log(`[BrainCouncil] Running Composer...`);
+      composed = await runComposer(input, context, strategy, research);
+      console.log(`[BrainCouncil] Composed: "${composed.message.substring(0, 80)}..." (${composed.message.length} chars)`);
+    }
 
     // BRAIN 4: QC REVIEWER
     console.log(`[BrainCouncil] Running QC Reviewer...`);
