@@ -703,16 +703,31 @@ export async function calculateNextFollowUp(input: SchedulingInput): Promise<Sch
   // ============================================================
   // FALLBACK: Active conversation, no AI suggestion
   // ============================================================
-  const fallbackHours = score >= 70 ? 2 : score >= 40 ? 4 : 8;
+  // Base delay by score, but ESCALATE based on consecutive unanswered messages.
+  // This prevents spamming leads who haven't replied despite being in the active conversation window.
+  let fallbackHours: number;
+  if (consecutiveUnanswered >= 3) {
+    // 3+ unanswered: treat like silence cadence — minimum 48h between messages
+    fallbackHours = Math.max(48, 24 * consecutiveUnanswered);
+  } else if (consecutiveUnanswered >= 2) {
+    // 2 unanswered: slow down significantly — 24h minimum
+    fallbackHours = 24;
+  } else if (consecutiveUnanswered >= 1) {
+    // 1 unanswered: moderate delay — 12h minimum
+    fallbackHours = score >= 70 ? 12 : score >= 40 ? 16 : 24;
+  } else {
+    // Active back-and-forth conversation — quick follow-up OK
+    fallbackHours = score >= 70 ? 2 : score >= 40 ? 4 : 8;
+  }
   const followUpDate = new Date(Date.now() + fallbackHours * 60 * 60 * 1000);
   const adjustedDate = pushToNextBusinessHour(followUpDate, channel);
 
   return {
     nextFollowUpAt: adjustedDate,
-    reason: `[Fallback] Active conversation, score ${score} — follow-up in ${fallbackHours}h`,
+    reason: `[Fallback] Active conversation, score ${score}, ${consecutiveUnanswered} unanswered — follow-up in ${fallbackHours}h`,
     priority: 2,
     channel,
-    cadencePosition: 0,
+    cadencePosition: Math.min(consecutiveUnanswered, 5),
     isDnc: false,
   };
 }

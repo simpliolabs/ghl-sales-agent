@@ -271,7 +271,12 @@ ENGAGEMENT STATE:
 - First response? ${isFirstResponse ? "YES — this is the very first message to this lead" : "NO — there are prior messages"}
 - Lead age: ${leadAgeDays} days (${urgencyStage})
 - Channel: ${input.channel}${input.channel === "Live_Chat" ? " ⚠️ LIVE VISITOR ON WEBSITE — respond immediately, keep it short" : ""}
-- Unanswered outbound messages: ${unansweredCount}
+- Unanswered outbound messages: ${unansweredCount}${unansweredCount >= 2 ? `
+** CRITICAL: ${unansweredCount} consecutive messages with NO reply. The lead is NOT engaging. DO NOT ask the same questions again.
+- Your approach MUST shift to VALUE-FIRST: provide something useful (pricing range, example, social proof) WITHOUT requiring a response.
+- If prior messages asked about quantity/print sides/colors, DO NOT repeat those questions. Instead: assume common defaults and offer a sample quote.
+- Consider: the lead may have lost interest. A fresh angle or different framework is essential.` : unansweredCount >= 1 ? `
+Note: 1 unanswered message. If your prior message asked a question, do NOT repeat it. Try a different angle or provide value first.` : ``}
 - Total messages: ${context.convHistory.length}
 - Email on file: ${lead.email ? "YES" : "NO"}
 - Phone on file: ${lead.phone ? "YES" : "NO"}

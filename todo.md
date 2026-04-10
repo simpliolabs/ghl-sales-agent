@@ -527,3 +527,9 @@
   - FIX 1: getLeadsDueForFollowUp + lookback engine now filter out not_qualified/lost leads
   - FIX 2: Graceful exit guard blocks sending and retires lead (humanTakeover=1) instead of sending goodbye message
   - FIX 3: Not-interested detection in GHL history — agent notes like "not interested" permanently retire leads from outreach
+- [x] BUG: B.J. Noel Jr. received 3 nearly identical messages in 2 hours all asking same question about quantity/print sides:
+  - [x] FIX 1: Composer anti-repetition — added SAME-QUESTION DETECTION rules + semantic keyword buckets in QC (quantity, print_sides, event_type, etc.)
+  - [x] FIX 2: Scheduling fallback — now factors in consecutiveUnanswered count (1=24h, 2=48h, 3+=72h minimum)
+  - [x] FIX 3: ai_state.messageCount — now properly incremented in both follow-up-trigger.ts and webhook-message.ts
+  - [x] FIX 4: Strategist prompt — warns when 2+ unanswered, forces VALUE-FIRST approach instead of more questions
+  - [x] FIX 5: QC bucket detection — catches rephrased questions via 10 info buckets + fallback word-overlap check

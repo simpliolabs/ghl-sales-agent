@@ -24,6 +24,7 @@ vi.mock("./db", () => ({
   syncGhlDnd: vi.fn().mockResolvedValue(undefined),
   isChannelDnd: vi.fn().mockResolvedValue(false),
   getBlockedChannels: vi.fn().mockResolvedValue([]),
+  getAiState: vi.fn().mockResolvedValue({ messageCount: 0 }),
 }));
 
 vi.mock("./ai-brain", () => ({
@@ -75,6 +76,8 @@ vi.mock("./conversation-state", () => ({
 
 vi.mock("./action-dispatcher", () => ({
   dispatchActions: vi.fn().mockResolvedValue(undefined),
+  dispatchStateActions: vi.fn().mockResolvedValue({ actions: [], executed: 0 }),
+  buildDispatchContext: vi.fn().mockReturnValue({ leadId: 1, channel: "SMS", stage: "new_lead" }),
 }));
 
 vi.mock("./learning-loop", () => ({

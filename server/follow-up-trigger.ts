@@ -14,7 +14,7 @@
  * - Logs every engagement attempt
  */
 
-import { getLeadsDueForFollowUp, getConversationHistory, updateLeadFields, addConversation, upsertAiState, getRecentAiOutboundCount, addBrainCouncilAudit, getBrainCouncilAuditForLead, isAiOffline, getLastEmailThreadId } from "./db";
+import { getLeadsDueForFollowUp, getConversationHistory, updateLeadFields, addConversation, upsertAiState, getAiState, getRecentAiOutboundCount, addBrainCouncilAudit, getBrainCouncilAuditForLead, isAiOffline, getLastEmailThreadId } from "./db";
 import { runBrainCouncil } from "./brain-council-orchestrator";
 import { calculateNextFollowUp, checkRateLimits, capDate, checkDnc } from "./scheduling-engine";
 import { sendMessage, addNote, fetchGhlConversationHistory, getContact } from "./ghl";
@@ -451,7 +451,10 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
             : sendResult.correctionTaken?.includes("sms") ? "SMS"
             : channel;
           await addConversation({ leadId, channel: actualChannel, direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName, emailMessageId: sendResult.emailMessageId || undefined });
-          await upsertAiState(leadId, { lastAngleUsed: aiResponse.angle, lastFrameworkUsed: aiResponse.framework, extractedDates: aiResponse.extractedDates as unknown as undefined, messageCount: undefined });
+          // Increment messageCount so cadence backoff works correctly
+          const currentAiState = await getAiState(leadId);
+          const newMsgCount = ((currentAiState as any)?.messageCount || 0) + 1;
+          await upsertAiState(leadId, { lastAngleUsed: aiResponse.angle, lastFrameworkUsed: aiResponse.framework, extractedDates: aiResponse.extractedDates as unknown as undefined, messageCount: newMsgCount });
           await updateLeadFields(leadId, { opportunityScore: aiResponse.score, omnisendSegment: aiResponse.segment, lastMessageAt: new Date(), lastOutboundChannel: actualChannel });
           if (sendResult.correctionTaken) {
             console.log(`[FollowUp] ✅ Sent follow-up to lead ${leadId} (${leadName}) via ${actualChannel} [correction: ${sendResult.correctionTaken}]`);

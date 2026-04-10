@@ -14,7 +14,7 @@
 
 import { Response } from "express";
 import {
-  upsertLead, getLeadByGhlContactId, updateLeadFields, addConversation, upsertAiState, getLastEmailThreadId,
+  upsertLead, getLeadByGhlContactId, updateLeadFields, addConversation, upsertAiState, getAiState, getLastEmailThreadId,
   getConversationHistory, getRecentAiOutboundCount, addBrainCouncilAudit, getBrainCouncilAuditForLead,
 } from "./db";
 import { shouldHandoffToAgent, generateContactNotes, estimateOrderValue, classifySegment } from "./ai-brain";
@@ -674,7 +674,10 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   }
 
   await addConversation({ leadId: lead!.id, channel: sendChannel, direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName, emailMessageId: normalSendResult.emailMessageId || undefined });
-  await upsertAiState(lead!.id, { lastAngleUsed: aiResponse.angle, lastFrameworkUsed: aiResponse.framework, extractedDates: aiResponse.extractedDates as unknown as undefined, messageCount: undefined });
+  // Increment messageCount so cadence backoff works correctly
+  const currentAiStateForCount = await getAiState(lead!.id);
+  const newMsgCount = ((currentAiStateForCount as any)?.messageCount || 0) + 1;
+  await upsertAiState(lead!.id, { lastAngleUsed: aiResponse.angle, lastFrameworkUsed: aiResponse.framework, extractedDates: aiResponse.extractedDates as unknown as undefined, messageCount: newMsgCount });
   await updateLeadFields(lead!.id, { opportunityScore: aiResponse.score, omnisendSegment: aiResponse.segment });
   try { await updateContactCustomField(contactId, [{ id: "opportunity_score", field_value: String(aiResponse.score) }]); } catch { /* custom field may not exist yet */ }
 

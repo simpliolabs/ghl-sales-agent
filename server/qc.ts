@@ -310,36 +310,98 @@ export function detectViolations(
     return { category: "safety_violation", reason: `Message contains potentially unsafe promise: ${safetyPatterns.find(p => msg.includes(p))}` };
   }
 
-  // 7a. REPEATED OPENER — composed message starts with the same words as a prior outbound
+  // 7a. REPEATED OPENER — composed message starts with a similar pattern as prior outbound
   if (context.priorOutbound && context.priorOutbound.length > 0) {
-    const composedOpener = composed.message.trim().split(/\s+/).slice(0, 5).join(" ").toLowerCase();
+    const composedWords = composed.message.trim().split(/\s+/).map(w => w.toLowerCase());
+    // Check first 3 words (catches "Hey B.J.!" pattern regardless of what follows)
+    const composedOpener3 = composedWords.slice(0, 3).join(" ");
+    // Also check "Hey [Name]!" pattern specifically
+    const isHeyNamePattern = /^hey\s+\S+[!.,]?$/i.test(composedWords.slice(0, 2).join(" "));
+    let heyNameCount = isHeyNamePattern ? 1 : 0; // count composed as 1 if it matches
     for (const prior of context.priorOutbound) {
-      const priorOpener = (prior.messageBody || "").trim().split(/\s+/).slice(0, 5).join(" ").toLowerCase();
-      if (priorOpener.length > 5 && composedOpener === priorOpener) {
-        return { category: "repeated_opener" as ViolationCategory, reason: `Message starts with "${composedOpener}" which is identical to a prior outbound opener. Anti-repetition rule violated.` };
+      const priorWords = (prior.messageBody || "").trim().split(/\s+/).map((w: string) => w.toLowerCase());
+      const priorOpener3 = priorWords.slice(0, 3).join(" ");
+      // Exact 3-word opener match
+      if (priorOpener3.length > 3 && composedOpener3 === priorOpener3) {
+        return { category: "repeated_opener" as ViolationCategory, reason: `Message starts with "${composedOpener3}" which matches a prior outbound opener. Anti-repetition rule violated.` };
       }
+      // "Hey [Name]!" pattern used too many times
+      if (/^hey\s+\S+[!.,]?$/i.test(priorWords.slice(0, 2).join(" "))) {
+        heyNameCount++;
+      }
+    }
+    // Block if "Hey [Name]" pattern used 2+ times already
+    if (isHeyNamePattern && heyNameCount > 2) {
+      return { category: "repeated_opener" as ViolationCategory, reason: `"Hey [Name]" opener already used ${heyNameCount - 1} times in prior messages. Must use a completely different opener.` };
     }
   }
 
-  // 7b. REPEATED QUESTION — composed message asks something already asked in prior outbound
+  // 7b. REPEATED QUESTION/ASK — detect when composed message asks for the SAME INFORMATION as prior outbound
+  // Uses semantic keyword buckets instead of word-overlap to catch rephrased questions
   if (context.priorOutbound && context.priorOutbound.length > 0) {
-    // Extract questions from composed message
-    const composedQs = composed.message.match(/[^.!?]*\?/g) || [];
-    // Extract questions from prior outbound messages
-    const priorQuestions: string[] = [];
-    for (const prior of context.priorOutbound) {
-      const body = (prior.messageBody || "").toLowerCase();
-      const qs = body.match(/[^.!?]*\?/g) || [];
-      priorQuestions.push(...qs.map((q: string) => q.trim()));
+    // Define information-request buckets: if a message contains keywords from a bucket, it's "asking for" that info
+    const INFO_BUCKETS: Array<{ name: string; keywords: string[] }> = [
+      { name: "quantity", keywords: ["quantity", "how many", "number of", "count", "total", "pieces"] },
+      { name: "print_sides", keywords: ["print side", "1 or 2", "one or two", "1-sided", "2-sided", "single side", "double side", "front and back", "front only"] },
+      { name: "design", keywords: ["design", "artwork", "logo", "graphic", "layout"] },
+      { name: "color", keywords: ["color", "colour", "shade", "navy", "black", "white"] },
+      { name: "size", keywords: ["size", "sizing", "small", "medium", "large", "xl", "2xl", "3xl"] },
+      { name: "timeline", keywords: ["when do you need", "deadline", "by when", "rush", "turnaround", "how soon"] },
+      { name: "budget", keywords: ["budget", "price range", "spending", "afford"] },
+      { name: "contact_info", keywords: ["email", "phone", "number", "reach you", "best way to contact"] },
+      { name: "event_type", keywords: ["what kind of event", "what type of event", "what event", "planning this for", "occasion", "what are these for"] },
+      { name: "purpose", keywords: ["what are you looking for", "what do you need", "interested in", "looking for"] },
+    ];
+    const matchBuckets = (text: string): Set<string> => {
+      const lower = text.toLowerCase();
+      const matched = new Set<string>();
+      for (const bucket of INFO_BUCKETS) {
+        if (bucket.keywords.some(kw => lower.includes(kw))) matched.add(bucket.name);
+      }
+      return matched;
+    };
+    const composedBuckets = matchBuckets(composed.message);
+    if (composedBuckets.size > 0) {
+      // Check each prior outbound AI message for the same info requests
+      // Include messages where senderType is "ai" OR not set (backward compat with tests/older data)
+      const priorAiMessages = context.priorOutbound.filter((p: any) => !p.senderType || p.senderType === "ai");
+      for (const prior of priorAiMessages) {
+        const priorBuckets = matchBuckets(prior.messageBody || "");
+        const overlap = Array.from(composedBuckets).filter(b => priorBuckets.has(b));
+        // If 1+ info buckets overlap, this is asking for the same thing
+        if (overlap.length >= 1) {
+          return { category: "repeated_question" as ViolationCategory, reason: `Message asks for the same information (${overlap.join(", ")}) that overlaps with prior outbound question: "${String(prior.messageBody).substring(0, 80)}..."` };
+        }
+      }
     }
-    // Check for overlap: if any composed question's core words match a prior question
-    for (const cq of composedQs) {
-      const cqWords = cq.toLowerCase().trim().split(/\s+/).filter(w => w.length > 3);
-      if (cqWords.length < 2) continue; // skip very short questions
-      for (const pq of priorQuestions) {
-        const matchCount = cqWords.filter(w => pq.includes(w)).length;
-        if (matchCount >= Math.ceil(cqWords.length * 0.6)) {
-          return { category: "repeated_question", reason: `Composed message asks "${cq.trim()}" which overlaps with prior outbound question "${pq.trim()}"` };
+    // Fallback: extract questions (sentences ending with ?) and check word overlap
+    const extractQuestions = (text: string): string[] => {
+      return text.split(/[.!?]+/).filter(s => {
+        const trimmed = s.trim();
+        // Include sentences that end with ? OR contain question words
+        return /\?$/.test(trimmed) || /^(what|how|when|where|which|can you|do you|are you|would you)/i.test(trimmed);
+      }).map(s => s.trim().toLowerCase());
+    };
+    const composedQuestions = extractQuestions(composed.message);
+    if (composedQuestions.length > 0) {
+      const priorAiMsgs = context.priorOutbound.filter((p: any) => !p.senderType || p.senderType === "ai");
+      for (const prior of priorAiMsgs) {
+        const priorQuestions = extractQuestions(prior.messageBody || "");
+        for (const cq of composedQuestions) {
+          for (const pq of priorQuestions) {
+            // Word overlap check: if 50%+ of significant words match
+            const stopWords = new Set(["the", "a", "an", "is", "are", "do", "you", "your", "we", "our", "for", "to", "in", "of", "and", "or", "this", "that", "it", "i", "me", "my"]);
+            const getWords = (s: string) => s.split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w));
+            const cWords = getWords(cq);
+            const pWords = new Set(getWords(pq));
+            if (cWords.length >= 2 && pWords.size >= 2) {
+              const matchCount = cWords.filter(w => pWords.has(w)).length;
+              const overlapRatio = matchCount / Math.min(cWords.length, pWords.size);
+              if (overlapRatio >= 0.5) {
+                return { category: "repeated_question" as ViolationCategory, reason: `Question "${cq.substring(0, 60)}" overlaps with prior outbound question: "${pq.substring(0, 60)}"` };
+              }
+            }
+          }
         }
       }
     }
