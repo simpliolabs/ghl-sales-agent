@@ -259,6 +259,37 @@ export async function sendMessageWithRetry(
 export type WebhookEventType = "contact" | "message" | "pipeline" | "task" | "appointment" | "note" | "email_event" | "contact_dnd" | "opportunity" | "unknown";
 
 export function detectEventType(payload: Record<string, unknown>): WebhookEventType {
+  // --- Workflow-name-based detection (highest priority — explicit intent from GHL workflow app) ---
+  // These payloads arrive from installed GHL workflow apps and carry a workflow.name field
+  const workflowName = (
+    (payload.workflow as Record<string, unknown>)?.name ||
+    payload.workflowName ||
+    payload.workflow_name ||
+    ""
+  ) as string;
+  const wn = workflowName.toLowerCase();
+  if (wn) {
+    // Agent outbound message (manual send from GHL UI)
+    if (wn.includes("outbound message manual") || wn.includes("agent outbound") || wn.includes("outbound manual")) return "message";
+    // Outbound workflow message (sent by automation — still route as message so we can detect source)
+    if (wn.includes("outbound message workflow") || wn.includes("outbound workflow")) return "message";
+    // Email engagement events
+    if (wn.includes("email event") || wn.includes("email open") || wn.includes("email click") ||
+        wn.includes("email bounce") || wn.includes("email unsubscribe")) return "email_event";
+    // Appointment events
+    if (wn.includes("appointment") || wn.includes("booking")) return "appointment";
+    // DND / opt-out events
+    if (wn.includes("dnd") || wn.includes("opt out") || wn.includes("do not disturb")) return "contact_dnd";
+    // Note events
+    if (wn.includes("note") || wn.includes("agent note")) return "note";
+    // Opportunity events
+    if (wn.includes("opportunity") || wn.includes("deal")) return "opportunity";
+    // Contact events
+    if (wn.includes("contact create") || wn.includes("new contact") || wn.includes("new lead")) return "contact";
+    // Pipeline events
+    if (wn.includes("pipeline") || wn.includes("stage change") || wn.includes("stage moved")) return "pipeline";
+  }
+
   // --- Appointment events (GHL API v2 + workflow) ---
   if (payload.type === "AppointmentCreate" || payload.type === "AppointmentUpdate" || payload.type === "AppointmentDelete"
     || payload.event === "appointment.scheduled" || payload.event === "appointment.rescheduled"
@@ -311,8 +342,43 @@ export function normalizeWorkflowPayload(payload: Record<string, unknown>): Reco
   const msg = normalized.message as Record<string, unknown> | undefined;
   if (msg && typeof msg === "object" && msg.body && !normalized.body) {
     normalized.body = msg.body;
-    // Map message.type to a direction hint (type 2 = SMS inbound in GHL)
-    if (!normalized.direction) normalized.direction = "inbound";
+    // Detect direction from message type or workflow name
+    if (!normalized.direction) {
+      const wn2 = (
+        (normalized.workflow as Record<string, unknown>)?.name ||
+        normalized.workflowName ||
+        normalized.workflow_name ||
+        ""
+      ) as string;
+      if (wn2.toLowerCase().includes("outbound")) {
+        normalized.direction = "outbound";
+      } else {
+        normalized.direction = "inbound";
+      }
+    }
+  }
+
+  // Normalize outbound message payloads that don't have nested message.body
+  // (some GHL workflow apps send the body at top level with a direction field)
+  if (!normalized.direction) {
+    const wn3 = (
+      (normalized.workflow as Record<string, unknown>)?.name ||
+      normalized.workflowName ||
+      normalized.workflow_name ||
+      ""
+    ) as string;
+    if (wn3.toLowerCase().includes("outbound")) {
+      normalized.direction = "outbound";
+    }
+  }
+
+  // Normalize email event payloads from workflow apps
+  // GHL email event workflow payloads may carry event type in different fields
+  if (!normalized.emailEvent && normalized.email_event) {
+    normalized.emailEvent = normalized.email_event;
+  }
+  if (!normalized.emailEvent && normalized.event_type) {
+    normalized.emailEvent = normalized.event_type;
   }
 
   // Normalize workflow-based pipeline payloads

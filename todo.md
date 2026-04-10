@@ -471,3 +471,11 @@
 - [x] SE.4: Carrier block / 422 undeliverable → flag dndSms on lead, attempt email fallback
 - [x] SE.5: Log corrective action taken in follow-up trigger (errorType + correctionTaken logged)
 - [x] SE.6: Tests for each error scenario (558 tests passing)
+
+## GHL OUTBOUND MESSAGE WEBHOOK SUBSCRIPTION
+- [ ] OB.1: Research GHL webhook subscription API endpoints (list, create, delete)
+- [ ] OB.2: Build ghl-webhook-subscriptions.ts — register/list/delete GHL app-level webhook subscriptions
+- [ ] OB.3: Register OutboundMessage subscription pointing to our webhook URL on server startup
+- [ ] OB.4: Handle OutboundMessage events — detect source="app" (agent) vs source="api" (our AI) and act accordingly
+- [ ] OB.5: Add Settings UI panel showing subscription status with register/refresh button
+- [ ] OB.6: Tests for subscription management and OutboundMessage handling

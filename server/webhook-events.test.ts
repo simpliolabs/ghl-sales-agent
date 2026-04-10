@@ -104,6 +104,75 @@ describe("webhook-helpers detectEventType extensions", () => {
     const result = detectEventType({ randomField: true });
     expect(result).toBe("unknown");
   });
+
+  // --- Workflow-name-based detection (new GHL workflow app payloads) ---
+  it("should detect agent outbound message via workflow.name", async () => {
+    const { detectEventType } = await import("./webhook-helpers");
+    const result = detectEventType({
+      contact_id: "abc123",
+      message: {},
+      workflow: { id: "wf1", name: "Adorb AI - Agent Outbound Message" },
+    });
+    expect(result).toBe("message");
+  });
+
+  it("should detect email events via workflow.name", async () => {
+    const { detectEventType } = await import("./webhook-helpers");
+    const result = detectEventType({
+      contact_id: "abc123",
+      workflow: { id: "wf2", name: "Adorb AI - Email Events" },
+    });
+    expect(result).toBe("email_event");
+  });
+
+  it("should detect appointment via workflow.name", async () => {
+    const { detectEventType } = await import("./webhook-helpers");
+    const result = detectEventType({
+      contact_id: "abc123",
+      workflow: { id: "wf3", name: "Adorb AI - Appointment Status" },
+    });
+    expect(result).toBe("appointment");
+  });
+
+  it("should detect DND via workflow.name", async () => {
+    const { detectEventType } = await import("./webhook-helpers");
+    const result = detectEventType({
+      contact_id: "abc123",
+      workflow: { id: "wf4", name: "Adorb AI - Contact DND Changed" },
+    });
+    expect(result).toBe("contact_dnd");
+  });
+
+  it("should detect opportunity via workflow.name", async () => {
+    const { detectEventType } = await import("./webhook-helpers");
+    const result = detectEventType({
+      contact_id: "abc123",
+      workflow: { id: "wf5", name: "Adorb AI - Opportunity Updated" },
+    });
+    expect(result).toBe("opportunity");
+  });
+
+  it("normalizeWorkflowPayload should set direction=outbound for agent outbound workflow", async () => {
+    const { normalizeWorkflowPayload } = await import("./webhook-helpers");
+    const result = normalizeWorkflowPayload({
+      contact_id: "abc123",
+      message: { body: "Hello from agent" },
+      workflow: { id: "wf1", name: "Adorb AI - Agent Outbound Message" },
+    });
+    expect(result.direction).toBe("outbound");
+    expect(result.contactId).toBe("abc123");
+    expect(result.body).toBe("Hello from agent");
+  });
+
+  it("normalizeWorkflowPayload should set direction=outbound even with empty message body", async () => {
+    const { normalizeWorkflowPayload } = await import("./webhook-helpers");
+    const result = normalizeWorkflowPayload({
+      contact_id: "abc123",
+      message: {},
+      workflow: { id: "wf1", name: "Adorb AI - Agent Outbound Message" },
+    });
+    expect(result.direction).toBe("outbound");
+  });
 });
 
 // ─── Sales Training Corpus Tests ───────────────────────────────────────────
