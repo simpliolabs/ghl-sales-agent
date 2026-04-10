@@ -244,6 +244,39 @@ export const appRouter = router({
       const { desc } = await import("drizzle-orm");
       return db.select().from(supervisorAudit).orderBy(desc(supervisorAudit.createdAt)).limit(input?.limit ?? 50);
     }),
+    resetLearningData: adminProcedure.input(z.object({
+      confirm: z.literal("RESET_CONFIRMED"),
+      archiveBefore: z.string().optional(), // ISO date string — archive records before this date
+    })).mutation(async ({ input }) => {
+      const db = await (await import("./db")).getDb();
+      if (!db) throw new Error("Database unavailable");
+      const { messageOutcomes, conversationOutcomes, learnings } = await import("../drizzle/schema");
+      const { lt, sql: drizzleSql } = await import("drizzle-orm");
+      const { patternCache } = await import("./cache");
+      const cutoff = input.archiveBefore ? new Date(input.archiveBefore) : new Date();
+      // Count before deletion
+      const [moBefore] = await db.select({ count: drizzleSql<number>`COUNT(*)` }).from(messageOutcomes).where(lt(messageOutcomes.createdAt, cutoff));
+      const cutoffMs = cutoff.getTime();
+      const [coBefore] = await db.select({ count: drizzleSql<number>`COUNT(*)` }).from(conversationOutcomes).where(lt(conversationOutcomes.createdAt, cutoffMs));
+      const [lBefore] = await db.select({ count: drizzleSql<number>`COUNT(*)` }).from(learnings);
+      // Delete pre-cutoff message outcomes (biased data from broken diversity system)
+      await db.delete(messageOutcomes).where(lt(messageOutcomes.createdAt, cutoff));
+      // Delete pre-cutoff conversation outcomes
+      await db.delete(conversationOutcomes).where(lt(conversationOutcomes.createdAt, cutoffMs));
+      // Delete all auto-generated learnings (they'll regenerate from fresh data)
+      await db.delete(learnings);
+      // Invalidate all learning caches so next request starts fresh
+      patternCache.clear();
+      console.log(`[LearningReset] Archived ${moBefore.count} message outcomes, ${coBefore.count} conversation outcomes, ${lBefore.count} learnings before ${cutoff.toISOString()}`);
+      return {
+        success: true,
+        archivedMessageOutcomes: moBefore.count,
+        archivedConversationOutcomes: coBefore.count,
+        archivedLearnings: lBefore.count,
+        cutoffDate: cutoff.toISOString(),
+        message: `Learning data reset. System will rebuild unbiased performance data from new messages going forward.`,
+      };
+    }),
     triggerLookback: adminProcedure.input(z.object({
       maxLeads: z.number().optional().default(50),
       delayBetweenMs: z.number().optional().default(3000),

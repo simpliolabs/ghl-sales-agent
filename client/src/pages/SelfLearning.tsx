@@ -11,8 +11,12 @@ import { useState, useMemo } from "react";
 import {
   FlaskConical, TrendingUp, Users, BarChart3, RefreshCw, Play, Pause,
   CheckCircle2, XCircle, Clock, ArrowUpRight, ArrowDownRight, Minus,
-  Beaker, Target, Lightbulb, ChevronDown, ChevronUp,
+  Beaker, Target, Lightbulb, ChevronDown, ChevronUp, Trash2, AlertTriangle,
 } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 // ============================================================
 // HELPER COMPONENTS
@@ -102,6 +106,13 @@ export default function SelfLearning() {
     onSuccess: (data) => toast.success(`Evaluated: ${data.evaluated} experiments, ${data.completed} completed`),
     onError: () => toast.error("Evaluation failed"),
   });
+  const resetLearning = trpc.ai.resetLearningData.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Learning data reset — ${data.archivedMessageOutcomes} outcomes cleared. Starting fresh.`);
+      refetchSummary();
+    },
+    onError: (err) => toast.error(`Reset failed: ${err.message}`),
+  });
   const backfillPersona = trpc.learning.backfillPersona.useMutation({
     onSuccess: (data) => toast.success(`Backfilled persona on ${data.updated} outcomes`),
     onError: () => toast.error("Backfill failed"),
@@ -137,6 +148,37 @@ export default function SelfLearning() {
                   <Beaker className={`h-3.5 w-3.5 mr-1 ${evaluateAll.isPending ? "animate-spin" : ""}`} />
                   Evaluate All
                 </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button size="sm" variant="outline" className="text-destructive border-destructive/40 hover:bg-destructive/10">
+                      <Trash2 className="h-3.5 w-3.5 mr-1" /> Reset Learning Data
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle className="flex items-center gap-2">
+                        <AlertTriangle className="h-5 w-5 text-amber-500" /> Reset Learning Data?
+                      </AlertDialogTitle>
+                      <AlertDialogDescription asChild>
+                        <div className="space-y-2 text-sm">
+                          <p>This will permanently delete all <strong>message outcomes</strong>, <strong>conversation outcomes</strong>, and <strong>auto-generated learnings</strong> accumulated to date.</p>
+                          <p className="text-amber-600 font-medium">Use this when existing data is biased (e.g., after fixing the framework diversity system) so the AI starts building unbiased performance data from scratch.</p>
+                          <p>The AI will continue sending messages normally — it just won’t have skewed historical data influencing its framework choices.</p>
+                        </div>
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        onClick={() => resetLearning.mutate({ confirm: "RESET_CONFIRMED" })}
+                        disabled={resetLearning.isPending}
+                      >
+                        {resetLearning.isPending ? "Resetting..." : "Yes, Reset Learning Data"}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </>
             )}
           </div>
