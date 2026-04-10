@@ -515,3 +515,10 @@
 - [x] AUDIT: AI Tweaks — tweakInstructions now injected into BOTH Strategist (ADMIN BEHAVIOR ADJUSTMENTS block) and Composer
 - [x] AUDIT: Email Marketing Bible — Full EMB_WELCOME, EMB_WINBACK, EMB_POST_PURCHASE, EMB_COLD sequence rules with subject line formulas, structure, tone, length constraints added to Composer prompt
 - [x] FIX: SOAP_OPERA framework — expanded to full 5-act narrative structure (Status Quo → Conflict → Solution → Result → Curiosity Gap) with examples, length limits, and tone rules
+
+## New Contact Auto-Task + Appointment + Notification
+- [x] NC.1: Auto-create GHL Task for agent to call new contact during next business hours slot (Mon-Fri 9am-5pm ET)
+- [x] NC.2: Auto-create GHL Appointment in first available business hours slot for new contact call
+- [x] NC.3: Send internal notification when new contact enters system (task + appointment created)
+- [x] NC.4: Wire auto-task/appointment/notification into webhook-contact.ts new contact flow
+- [x] NC.5: Tests for auto-task/appointment/notification creation (14 tests passing)

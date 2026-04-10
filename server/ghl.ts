@@ -329,6 +329,128 @@ export async function createTask(contactId: string, opts: {
   return data;
 }
 
+// --- Calendar / Appointments ---
+
+/** Map agent names → their GHL personal calendar IDs */
+export const AGENT_CALENDAR_IDS: Record<string, string> = {
+  "Abby Bouwer": "SUZZdOyEM310yqesJXQa",
+  "Chris McHendry": "j9bpOBiyKL6hxyMnin6l",
+};
+
+/**
+ * Compute the next available business-hours slot (Mon-Fri 9am-5pm ET).
+ * If current time is within business hours, returns the next whole 10-min mark.
+ * Otherwise returns 9:00 AM on the next business day.
+ */
+export function getNextBusinessHoursSlot(fromDate: Date = new Date()): { start: Date; end: Date } {
+  // Work in ET (America/New_York)
+  const etFormatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  });
+  const parts = etFormatter.formatToParts(fromDate);
+  const get = (t: string) => parseInt(parts.find(p => p.type === t)?.value || "0", 10);
+  let hour = get("hour");
+  let minute = get("minute");
+  let dayOfWeek = fromDate.getDay(); // 0=Sun
+
+  // Clone the date in UTC and compute ET offset
+  const d = new Date(fromDate);
+
+  // Helper: advance to 9:00 AM ET on the next business day
+  const advanceToNextBusinessDay = () => {
+    do {
+      d.setDate(d.getDate() + 1);
+      dayOfWeek = d.getDay();
+    } while (dayOfWeek === 0 || dayOfWeek === 6); // skip weekends
+    // Set to 9:00 AM ET
+    const etNow = new Date(d.toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const offset = d.getTime() - etNow.getTime();
+    const target = new Date(d);
+    target.setHours(9, 0, 0, 0);
+    const result = new Date(target.getTime() + offset);
+    return result;
+  };
+
+  // Check if current time is within business hours
+  const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+  const isBusinessHours = isWeekday && hour >= 9 && hour < 17;
+
+  let start: Date;
+  if (isBusinessHours) {
+    // Round up to next 10-min mark, at least 5 min from now
+    const minFromNow = 5;
+    const candidate = new Date(fromDate.getTime() + minFromNow * 60_000);
+    const candidateParts = etFormatter.formatToParts(candidate);
+    const cHour = parseInt(candidateParts.find(p => p.type === "hour")?.value || "0", 10);
+    const cMin = parseInt(candidateParts.find(p => p.type === "minute")?.value || "0", 10);
+    const roundedMin = Math.ceil(cMin / 10) * 10;
+    if (cHour >= 17 || (cHour === 16 && roundedMin > 50)) {
+      // Past end of day after rounding — go to next business day
+      start = advanceToNextBusinessDay();
+    } else {
+      // Build the rounded time in ET
+      const etNow = new Date(candidate.toLocaleString("en-US", { timeZone: "America/New_York" }));
+      const offset = candidate.getTime() - etNow.getTime();
+      const target = new Date(candidate);
+      target.setHours(cHour, roundedMin >= 60 ? 0 : roundedMin, 0, 0);
+      if (roundedMin >= 60) target.setHours(target.getHours() + 1);
+      start = new Date(target.getTime() + offset);
+    }
+  } else {
+    // Outside business hours — find next business day at 9 AM
+    if (isWeekday && hour < 9) {
+      // Same day, just set to 9 AM ET
+      const etNow = new Date(d.toLocaleString("en-US", { timeZone: "America/New_York" }));
+      const offset = d.getTime() - etNow.getTime();
+      const target = new Date(d);
+      target.setHours(9, 0, 0, 0);
+      start = new Date(target.getTime() + offset);
+    } else {
+      start = advanceToNextBusinessDay();
+    }
+  }
+
+  const end = new Date(start.getTime() + 10 * 60_000); // 10-minute slot
+  return { start, end };
+}
+
+/** Create a GHL calendar appointment */
+export async function createAppointment(opts: {
+  calendarId: string;
+  contactId: string;
+  title: string;
+  description?: string;
+  startTime: string; // ISO 8601
+  endTime: string;   // ISO 8601
+  assignedUserId?: string;
+  appointmentStatus?: string;
+}) {
+  try {
+    const { data } = await ghlClient.post(`/calendars/events/appointments`, {
+      calendarId: opts.calendarId,
+      locationId: ENV.ghlLocationId,
+      contactId: opts.contactId,
+      title: opts.title,
+      description: opts.description || "",
+      startTime: opts.startTime,
+      endTime: opts.endTime,
+      assignedUserId: opts.assignedUserId,
+      appointmentStatus: opts.appointmentStatus || "confirmed",
+      meetingLocationType: "phone",
+      toNotify: true,
+      ignoreFreeSlotValidation: true,
+      ignoreDateRange: true,
+    });
+    console.log(`[GHL] Appointment created: ${opts.title} at ${opts.startTime}`);
+    return data;
+  } catch (err: any) {
+    console.error(`[GHL] createAppointment failed:`, err?.response?.data || err?.message);
+    return null;
+  }
+}
+
 // --- Custom Fields ---
 export async function getCustomFields() {
   const { data } = await ghlClient.get(`/locations/${ENV.ghlLocationId}/customFields`);
