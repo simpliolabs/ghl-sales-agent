@@ -144,12 +144,20 @@ You are the LAST LINE OF DEFENSE before a message goes to a real customer. Your 
     - Common unverifiable claims to watch for: made-up prices, invented turnaround times, fake review counts, URLs not in the knowledge base.
     - Note: general statements like "we have great reviews" are fine; specific claims like "$8 per shirt" or "3-day turnaround" must be in the KB.
 
+17. POST-CUSTOMER ESCALATION CHECK (0-10, only when pipeline stage = Delivered or approach = post_delivery/reactivation/value_add/relationship_nurture):
+    - Does the message contain a SPECIFIC product suggestion (e.g., "matching embroidered hats", "UV-printed mugs", "custom hoodies")? Score 0 if no specific product is mentioned.
+    - Does it reference the customer's ORIGINAL order specifically (product type, event, business name)? Score 0 if it uses generic "your order" or "your project".
+    - Is the CTA specific and actionable (e.g., "Want me to mock up a hat design?")? Score 0 if it ends with passive "let me know if you need anything".
+    - Does it give the customer a REASON to act NOW (seasonal hook, new product, repeat customer benefit)? Score 3 if no urgency or reason.
+    - Score 0 if the message is purely passive ("we're here for you", "let me know", "reach out anytime").
+    - BANNED phrases: "let me know if you need anything", "we're always here", "whenever you're ready", "don't hesitate to reach out", "here for your next group event".
+
 === VERDICT ===
 - Score >= 75: APPROVED — send as-is
 - Score 50-74: APPROVED WITH EDITS — fix the issues and send your revised version. For emails, you MUST add the signature block if missing.
 - Score < 50: REJECTED — do not send, explain why
 
-IMPORTANT: The total quality score is now out of 160 for non-email (16 checks × 10) or 180 for email (18 checks × 10). Normalize to 0-100 scale before reporting.
+IMPORTANT: The total quality score is now out of 170 for non-email (17 checks × 10) or 190 for email (19 checks × 10). Normalize to 0-100 scale before reporting.
 
 If you approve with edits, provide the revised message in revisedMessage.
 For emails: if the message is missing the signature block or is formatted as one long paragraph, you MUST fix it in revisedMessage even if the content is otherwise good.`;
@@ -523,7 +531,49 @@ export function detectViolations(
     }
   }
 
-  // 11. UNFULFILLABLE COMMITMENT — AI makes a promise only a human agent can fulfill
+  // 11. PASSIVE REACTIVATION — delivered/past customer messages must have specific product hooks, not passive "let me know"
+  const isDeliveredStage = (context.lead.pipelineStage || "").toLowerCase().includes("delivered");
+  const isReactivationApproach = ["post_delivery", "relationship_nurture", "value_add", "seasonal", "reactivation", "win_back"].includes(strategy.approach);
+  if (isDeliveredStage || isReactivationApproach) {
+    // Check for banned passive phrases
+    const PASSIVE_PHRASES = [
+      "let me know if you need anything",
+      "let me know if you need",
+      "we're always here",
+      "we are always here",
+      "we're here for you",
+      "we are here for you",
+      "whenever you're ready",
+      "whenever you are ready",
+      "don't hesitate to reach out",
+      "do not hesitate to reach out",
+      "feel free to reach out",
+      "reach out anytime",
+      "here if you need us",
+      "here for your next",
+      "here whenever you need",
+      "always here to help",
+      "just let us know",
+      "just let me know",
+    ];
+    const passiveMatch = PASSIVE_PHRASES.find(p => msg.includes(p));
+    if (passiveMatch) {
+      return {
+        category: "passive_reactivation" as ViolationCategory,
+        reason: `Message to delivered/past customer contains passive language: "${passiveMatch}". Post-customer messages MUST include a SPECIFIC product suggestion, seasonal hook, or concrete offer — not passive availability. Example fix: "Since you loved those custom tees, have you thought about matching embroidered hats? I can mock one up with your logo."`
+      };
+    }
+    // Also check if the message ends with a generic "if you need anything" pattern
+    const lastSentence = composed.message.split(/[.!]/).filter(Boolean).pop()?.trim().toLowerCase() || "";
+    if (/if you (need|want) (anything|something|any)/.test(lastSentence) && !/specific|hat|hoodie|polo|mug|tote|jacket|tank|sticker|card|pen|embroidered|printed/.test(lastSentence)) {
+      return {
+        category: "passive_reactivation" as ViolationCategory,
+        reason: `Message to delivered/past customer ends with generic "if you need anything" without a specific product suggestion. The CTA must suggest a CONCRETE product or action.`
+      };
+    }
+  }
+
+  // 12. UNFULFILLABLE COMMITMENT — AI makes a promise only a human agent can fulfill
   // e.g., "I'll send the invoice", "I'll call you", "I'll process your order"
   const UNFULFILLABLE_PATTERNS = [
     /i'?ll send (the |an |your |a )?invoice/i,

@@ -173,6 +173,49 @@ Cold Email (from EMB Chapter 13):
 - Interest-based CTAs: 2-3x more replies than meeting requests.
 - Follow-up: 4 emails over 2-3 weeks. Each MUST add new value.
 
+=== POST-CUSTOMER ESCALATION METHODOLOGY (Hormozi/Martell) ===
+
+When the lead is in the "Delivered" stage or has a completed order, you MUST use this escalation sequence.
+NEVER send passive "let me know if you need anything" or "we're always here" messages. These have a 0% response rate.
+
+EVERY post-customer message MUST contain a SPECIFIC product suggestion, seasonal hook, or concrete offer.
+
+Step 1 — SATISFACTION + REVIEW (first touch after delivery):
+- approach: post_delivery
+- keyPoints: "Ask how [specific product they ordered] turned out for [their event/business]. Request Google review."
+- framework: EMB_POST_PURCHASE or DIRECT_RESPONSE
+
+Step 2 — SPECIFIC UPSELL/CROSS-SELL (7-14 days post-delivery):
+- approach: value_add
+- keyPoints MUST include a CONCRETE new product suggestion related to their original order:
+  * Ordered tees → suggest matching hats, hoodies, or tote bags
+  * Ordered polos → suggest embroidered jackets or name badges
+  * Ordered for an event → suggest different products for their next event
+  * Ordered for a business → suggest staff polos, business cards, promotional items
+- framework: SOCIAL_PROOF or CASE_STUDY ("We just did matching hats for a similar [business type] — they loved them")
+- WRONG: "We're here for your next group event" (passive, no specific product)
+- RIGHT: "Since you loved those custom tees, have you thought about matching embroidered hats? I can mock one up with your logo." (specific product + concrete action)
+
+Step 3 — SEASONAL/EVENT TRIGGER (30+ days):
+- approach: seasonal or reactivation
+- keyPoints MUST include:
+  * The specific upcoming season or holiday (check the seasonal calendar)
+  * How it connects to THEIR business/organization
+  * A specific product suggestion for that season
+- framework: BAB or AIDA (paint the picture of their event with custom gear)
+- WRONG: "Summer's coming up — need anything?" (no specific product)
+- RIGHT: "Summer's 6 weeks out — need custom tanks or tees for [their church's VBS / their company's team outing / their school's field day]? We still have your design on file." (specific season + specific event + specific product + urgency)
+
+Step 4 — REACTIVATION WITH OFFER (60+ days):
+- approach: reactivation or win_back
+- keyPoints MUST include a specific benefit for repeat customers:
+  * "We still have your design on file — reorders are faster"
+  * "Repeat customers get priority production"
+  * "We just added [new product/capability] that would work great for [their business]"
+- framework: EMB_WINBACK or HORMOZI_INDIRECT ("Know anyone planning [similar event]? We just did 200 tees for a [similar org] — turned out amazing.")
+
+CRITICAL: If the prior outbound messages to this delivered customer were passive/generic ("let me know", "we're here"), your NEXT message MUST escalate to a specific product suggestion. Do NOT repeat the same passive approach.
+
 === DORMANCY & RE-ACTIVATION RULES ===
 
 When the incoming message contains a DORMANCY ALERT:

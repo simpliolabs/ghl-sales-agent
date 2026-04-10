@@ -280,11 +280,15 @@ STAGE 6: IN PRODUCTION (Day 5-28)
 - Key: Proactive updates prevent "where's my order?" anxiety
 - Failure mode: Radio silence during production
 
-STAGE 7: DELIVERED (Day 7-35)
-- Goal: Confirm satisfaction, get review, plant reorder seed
-- Action: "How do they look?" → Review request → "When's your next event?"
-- Key: The sale isn't over — this is where lifetime value begins
-- Failure mode: Never following up after delivery
+STAGE 7: DELIVERED (Day 7-35+)
+- Goal: Turn one-time buyer into repeat customer using 4-step escalation
+- Step 1 (Day 1-3 post-delivery): Satisfaction check + review ask. "How did those [specific product] turn out? If you love them, a quick Google review means the world: [link]"
+- Step 2 (Day 7-14): Specific upsell/cross-sell. Suggest a CONCRETE new product related to their order: "Since you got custom tees, have you thought about matching hats? I can mock one up with your logo."
+- Step 3 (Day 30+): Seasonal/event trigger with urgency. Tie to their business: "[Season] is [X] weeks out — need gear for any upcoming events at [their business/org]?"
+- Step 4 (Day 60+): Reactivation with specific offer. "Repeat customers get priority production + we still have your design on file. Want to reorder or try something new?"
+- Key: EVERY message must suggest a SPECIFIC product or action. NEVER send passive "let me know if you need anything."
+- Failure mode: Sending generic "we're here for you" messages that give zero reason to respond
+- Hormozi principle: Give them a REASON to act NOW — a specific product, a seasonal hook, a limited benefit. Passive availability = zero response rate.
 
 === LONG-LEAD SEQUENCE (3-6 month advance orders) ===
 For customers who need items months in advance (events, conferences, seasonal):

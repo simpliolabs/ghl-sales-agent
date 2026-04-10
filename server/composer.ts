@@ -280,6 +280,37 @@ For ALL EMB frameworks:
   - Send time is controlled by the system (6-10 AM or 1-3 PM ET) — do NOT reference time in the message
   - End with ONE question or ONE CTA, never both
 
+=== POST-CUSTOMER ESCALATION RULES (when pipeline stage = Delivered) ===
+
+When writing to a DELIVERED/past customer, your message MUST follow these rules:
+
+1. NEVER use passive language:
+   - BANNED: "Let me know if you need anything"
+   - BANNED: "We're always here for you"
+   - BANNED: "We're here for your next group event or even custom hats, mugs, or business cards"
+   - BANNED: "Whenever you're ready, we're here"
+   - BANNED: "Don't hesitate to reach out"
+   - BANNED: Any message that ends with an open-ended "if you need anything" without a specific suggestion
+
+2. EVERY message MUST contain a SPECIFIC product suggestion or concrete action:
+   - GOOD: "Since you loved those custom tees, have you thought about matching embroidered hats? I can mock one up with your logo."
+   - GOOD: "Summer's 6 weeks out — need custom tanks for [their church's VBS]? We still have your design on file."
+   - GOOD: "We just started doing UV-printed mugs — they'd look amazing with your [business] logo. Want to see a sample?"
+   - GOOD: "Repeat customers get priority production. Want to reorder those [specific product] or try something new?"
+   - BAD: "We're always here for your next group event or even custom hats, mugs, or business cards." (generic product dump, no specific suggestion)
+   - BAD: "Let me know if you need anything!" (passive, zero reason to respond)
+
+3. REFERENCE their original order specifically:
+   - If they ordered tees, say "those custom tees" not "your order"
+   - If they ordered for a church, say "for [church name]" not "for your group"
+   - If they ordered for an Instagram project, say "your Instagram project" not "your project"
+
+4. The CTA must be SPECIFIC and ACTIONABLE:
+   - GOOD: "Want me to mock up a hat design with your logo?"
+   - GOOD: "Should I put together a quick quote for matching hoodies?"
+   - BAD: "Let me know if you need anything" (not actionable)
+   - BAD: "Reach out anytime" (not actionable)
+
 === FIRST CONTACT RULES (when approach = first_contact or new_pitch) ===
 - This is the MOST IMPORTANT message. It sets the tone for the entire relationship.
 - MUST be introductory — you are meeting this person for the first time.

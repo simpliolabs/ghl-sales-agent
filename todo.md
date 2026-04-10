@@ -556,3 +556,16 @@
 - [x] Add 7 new tests: Glory scenario, pricing clarification, design clarification, timeline clarification, color clarification, proactive re-ask still flagged, no-inbound re-ask still flagged
 - [x] All 610 tests passing
 - [x] Push to GitHub
+
+## BUG: No escalation methodology for past/delivered customers (Kim Luvmylife Thomas)
+- [x] Audit Strategist prompt for past-customer/reactivation approach selection
+- [x] Audit Composer prompt for reactivation message structure
+- [x] Add Hormozi/Martell 4-step post-customer escalation to Strategist (satisfaction→upsell→seasonal→reactivation)
+- [x] Add POST-CUSTOMER ESCALATION RULES to Composer (banned passive phrases, must have specific product suggestion)
+- [x] Overhaul Delivered stage playbook with concrete 4-step escalation methodology
+- [x] Update Sales Process Guide Stage 7 with specific escalation steps and examples
+- [x] Add passive_reactivation QC violation (detects 18 banned passive phrases + generic "if you need anything" endings)
+- [x] Add POST-CUSTOMER ESCALATION CHECK to QC LLM prompt (check 17)
+- [x] Write 11 new tests for passive_reactivation violation (6 positive, 4 negative, 1 type check)
+- [x] All 621 tests passing
+- [x] Push to GitHub

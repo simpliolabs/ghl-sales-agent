@@ -590,3 +590,156 @@ describe("context_free_subject violation", () => {
     expect(category).toBe("context_free_subject");
   });
 });
+
+
+// ─── PASSIVE REACTIVATION VIOLATION ──────────────────────────────────────────
+
+describe("detectViolations — passive_reactivation", () => {
+  // Kim scenario: delivered customer gets "let me know if you need anything"
+  it("flags 'let me know if you need anything' for delivered customer", () => {
+    const composed = makeComposed({
+      message: "Hey Kim! So glad you loved those shirts and the packaging. We're always here for your next group event or even custom hats, mugs, or business cards. Let me know if you need anything!",
+    });
+    const strategy = makeStrategy({ approach: "post_delivery", channel: "SMS" });
+    const context = makeContext({
+      lead: { name: "Kim Thomas", businessName: "Luvmylife", pipelineStage: "Delivered", assignedAgent: "Abby" },
+    });
+    const input = makeInput({ incomingMessage: "" });
+
+    const result = detectViolations(composed, makeQC(), strategy, context, input, makeResearch());
+    expect(result.category).toBe("passive_reactivation");
+  });
+
+  it("flags 'we're always here' for delivered customer", () => {
+    const composed = makeComposed({
+      message: "Hey Kim! So glad you loved those shirts. We're always here for you whenever you need more custom gear!",
+    });
+    const strategy = makeStrategy({ approach: "relationship_nurture", channel: "SMS" });
+    const context = makeContext({
+      lead: { name: "Kim Thomas", pipelineStage: "Delivered", assignedAgent: "Abby" },
+    });
+    const input = makeInput({ incomingMessage: "" });
+
+    const result = detectViolations(composed, makeQC(), strategy, context, input, makeResearch());
+    expect(result.category).toBe("passive_reactivation");
+  });
+
+  it("flags 'whenever you're ready' for reactivation approach", () => {
+    const composed = makeComposed({
+      message: "Hey John! Just wanted to check in. Whenever you're ready, we'd love to help with your next order.",
+    });
+    const strategy = makeStrategy({ approach: "reactivation", channel: "SMS" });
+    const context = makeContext({
+      lead: { name: "John", pipelineStage: "Delivered", assignedAgent: "Abby" },
+    });
+    const input = makeInput({ incomingMessage: "" });
+
+    const result = detectViolations(composed, makeQC(), strategy, context, input, makeResearch());
+    expect(result.category).toBe("passive_reactivation");
+  });
+
+  it("flags 'don't hesitate to reach out' for value_add approach", () => {
+    const composed = makeComposed({
+      message: "Hey Kim! Hope you're enjoying those custom tees. Don't hesitate to reach out if you ever need more printing done!",
+    });
+    const strategy = makeStrategy({ approach: "value_add", channel: "SMS" });
+    const context = makeContext({
+      lead: { name: "Kim", pipelineStage: "Delivered", assignedAgent: "Abby" },
+    });
+    const input = makeInput({ incomingMessage: "" });
+
+    const result = detectViolations(composed, makeQC(), strategy, context, input, makeResearch());
+    expect(result.category).toBe("passive_reactivation");
+  });
+
+  it("flags 'feel free to reach out' for delivered stage", () => {
+    const composed = makeComposed({
+      message: "Hey there! Great working with you on those polos. Feel free to reach out when you need more gear for the team!",
+    });
+    const strategy = makeStrategy({ approach: "post_delivery", channel: "SMS" });
+    const context = makeContext({
+      lead: { name: "Mike", pipelineStage: "Delivered", assignedAgent: "Abby" },
+    });
+    const input = makeInput({ incomingMessage: "" });
+
+    const result = detectViolations(composed, makeQC(), strategy, context, input, makeResearch());
+    expect(result.category).toBe("passive_reactivation");
+  });
+
+  it("flags generic 'if you need anything' ending without specific product", () => {
+    const composed = makeComposed({
+      message: "Hey Kim! So glad those shirts turned out great. If you need anything else, just let us know!",
+    });
+    const strategy = makeStrategy({ approach: "post_delivery", channel: "SMS" });
+    const context = makeContext({
+      lead: { name: "Kim", pipelineStage: "Delivered", assignedAgent: "Abby" },
+    });
+    const input = makeInput({ incomingMessage: "" });
+
+    const result = detectViolations(composed, makeQC(), strategy, context, input, makeResearch());
+    expect(result.category).toBe("passive_reactivation");
+  });
+
+  // POSITIVE: specific product suggestion should NOT be flagged
+  it("does NOT flag message with specific product upsell", () => {
+    const composed = makeComposed({
+      message: "Hey Kim! So glad those custom tees turned out great for your Instagram project. Since you loved the quality, have you thought about matching embroidered hats? I can mock one up with your logo — they'd look amazing.",
+    });
+    const strategy = makeStrategy({ approach: "value_add", channel: "SMS" });
+    const context = makeContext({
+      lead: { name: "Kim Thomas", pipelineStage: "Delivered", assignedAgent: "Abby" },
+    });
+    const input = makeInput({ incomingMessage: "" });
+
+    const result = detectViolations(composed, makeQC(), strategy, context, input, makeResearch());
+    expect(result.category).not.toBe("passive_reactivation");
+  });
+
+  it("does NOT flag message with seasonal hook and specific product", () => {
+    const composed = makeComposed({
+      message: "Kim, summer's 6 weeks out — need custom tanks or tees for any upcoming events? We still have your design on file, so reorders are super fast.",
+    });
+    const strategy = makeStrategy({ approach: "seasonal", channel: "SMS" });
+    const context = makeContext({
+      lead: { name: "Kim", pipelineStage: "Delivered", assignedAgent: "Abby" },
+    });
+    const input = makeInput({ incomingMessage: "" });
+
+    const result = detectViolations(composed, makeQC(), strategy, context, input, makeResearch());
+    expect(result.category).not.toBe("passive_reactivation");
+  });
+
+  it("does NOT flag message with concrete reactivation offer", () => {
+    const composed = makeComposed({
+      message: "Hey Kim! Repeat customers get priority production and we still have your design on file. Want to reorder those custom tees or try something new like embroidered polos?",
+    });
+    const strategy = makeStrategy({ approach: "reactivation", channel: "SMS" });
+    const context = makeContext({
+      lead: { name: "Kim", pipelineStage: "Delivered", assignedAgent: "Abby" },
+    });
+    const input = makeInput({ incomingMessage: "" });
+
+    const result = detectViolations(composed, makeQC(), strategy, context, input, makeResearch());
+    expect(result.category).not.toBe("passive_reactivation");
+  });
+
+  // Non-delivered stages should NOT trigger this check
+  it("does NOT flag passive language for non-delivered stages with non-reactivation approach", () => {
+    const composed = makeComposed({
+      message: "Hey John! Let me know if you need anything else about those custom tees.",
+    });
+    const strategy = makeStrategy({ approach: "follow_up", channel: "SMS" });
+    const context = makeContext({
+      lead: { name: "John", pipelineStage: "Contacted", assignedAgent: "Abby" },
+    });
+    const input = makeInput({ incomingMessage: "" });
+
+    const result = detectViolations(composed, makeQC(), strategy, context, input, makeResearch());
+    expect(result.category).not.toBe("passive_reactivation");
+  });
+
+  it("passive_reactivation is a valid ViolationCategory", () => {
+    const category: import("./brain-types").ViolationCategory = "passive_reactivation";
+    expect(category).toBe("passive_reactivation");
+  });
+});
