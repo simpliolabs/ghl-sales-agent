@@ -121,6 +121,8 @@ export async function sendMessage(contactId: string, opts: {
   subject?: string;
   html?: string;
   fromName?: string;
+  threadId?: string;
+  replyMessageId?: string;
 }) {
   // ========== GATE 1: AI Offline check ==========
   // This is the LAST LINE OF DEFENSE. Even if all caller-level checks
@@ -227,6 +229,12 @@ export async function sendMessage(contactId: string, opts: {
     payload.message = opts.message || "";
     payload.emailFrom = BRAND_EMAIL;
     if (opts.fromName) payload.emailFrom = `${opts.fromName} <${BRAND_EMAIL}>`;
+    // Email threading: pass threadId and replyMessageId to keep emails in the same thread
+    if (opts.threadId) {
+      payload.threadId = opts.threadId;
+      payload.replyMessageId = opts.replyMessageId || opts.threadId;
+      payload.emailReplyMode = "reply";
+    }
   } else {
     payload.message = opts.message || "";
   }

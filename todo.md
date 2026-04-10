@@ -505,3 +505,5 @@
 - [x] FIX: Hardened GHL history scan — expanded to 30+ system patterns, raised min length to 10, added max length 500, GHL type 0 exclusion, multi-line form data detection
 - [x] FIX: Business name + product type + timeline extracted from FB form data in webhook-message.ts channel correction
 - [x] FIX: AI State tracking — message count was already incremented via upsertAiState in webhook-message.ts (the 0 was from the contact_handler path which correctly sets messageCount: 1 after first-contact)
+- [x] BUG: Follow-up emails create new threads — Fixed: added emailMessageId column to conversations, getLastEmailThreadId() helper, threadId/replyMessageId passed in follow-up-trigger.ts, webhook-message.ts, and TCPA email fallback. Subject prefixed with "Re:" for threaded replies.
+- [x] BUG: Follow-up email subject line — Fixed: "Re:" prefix added automatically when replying to existing email thread

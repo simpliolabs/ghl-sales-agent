@@ -157,10 +157,10 @@ export async function sendMessageWithRetry(
   contactId: string,
   opts: Parameters<typeof sendMessage>[1],
   lead: { email?: string | null; phone?: string | null; id: number }
-): Promise<{ success: boolean; resolvedContactId: string; error?: string; errorType?: GhlSendErrorType; correctionTaken?: string }> {
+): Promise<{ success: boolean; resolvedContactId: string; error?: string; errorType?: GhlSendErrorType; correctionTaken?: string; emailMessageId?: string }> {
   try {
-    await sendMessage(contactId, opts);
-    return { success: true, resolvedContactId: contactId };
+    const result = await sendMessage(contactId, opts);
+    return { success: true, resolvedContactId: contactId, emailMessageId: (result as any)?.emailMessageId };
   } catch (err: unknown) {
     const classified = classifyGhlSendError(err);
     const channel = opts.type;
@@ -626,7 +626,7 @@ export function buildSendOpts(
   channel: string,
   message: string,
   lead: { email?: string | null; phone?: string | null },
-  extra?: { subject?: string; fromName?: string; html?: string }
+  extra?: { subject?: string; fromName?: string; html?: string; threadId?: string }
 ): Parameters<typeof sendMessage>[1] | undefined {
   if (channel === "Email" && lead.email) {
     // Ensure signature is present before converting to HTML
@@ -634,7 +634,14 @@ export function buildSendOpts(
     const fromName = extra?.fromName || "Adorb Custom Tees";
     // Replace {AGENT} placeholder in signature with actual sender name
     const finalMessage = signedMessage.replace('{AGENT}', fromName.split(' ')[0]);
-    return { type: "Email", subject: extra?.subject || "Adorb Custom Tees", html: extra?.html || formatEmailHtml(finalMessage), fromName };
+    // Email threading: if we have a prior email thread ID, reply in the same thread
+    const subject = extra?.threadId ? `Re: ${extra?.subject || "Adorb Custom Tees"}` : (extra?.subject || "Adorb Custom Tees");
+    const opts: Parameters<typeof sendMessage>[1] = { type: "Email", subject, html: extra?.html || formatEmailHtml(finalMessage), fromName };
+    if (extra?.threadId) {
+      opts.threadId = extra.threadId;
+      opts.replyMessageId = extra.threadId;
+    }
+    return opts;
   } else if (channel === "Live_Chat") {
     return { type: "Live_Chat", message };
   } else if (channel === "FB") {

@@ -104,7 +104,7 @@ export async function updateLeadFields(leadId: number, fields: Partial<InsertLea
 }
 
 // --- Conversations ---
-export async function addConversation(data: { leadId: number; channel?: string; direction: "inbound" | "outbound"; messageBody?: string; senderType: "ai" | "human" | "lead"; senderName?: string; ghlMessageId?: string; }) {
+export async function addConversation(data: { leadId: number; channel?: string; direction: "inbound" | "outbound"; messageBody?: string; senderType: "ai" | "human" | "lead"; senderName?: string; ghlMessageId?: string; emailMessageId?: string; }) {
   const db = await getDb();
   if (!db) return null;
   const result = await db.insert(conversations).values(data);
@@ -119,6 +119,20 @@ export async function getConversationHistory(leadId: number, limit = 50) {
     if (!db) return [];
     return db.select().from(conversations).where(eq(conversations.leadId, leadId)).orderBy(desc(conversations.timestamp)).limit(limit);
   });
+}
+
+// --- Email threading: get the last email thread ID for a lead ---
+export async function getLastEmailThreadId(leadId: number): Promise<string | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select({ ghlMessageId: conversations.ghlMessageId, emailMessageId: conversations.emailMessageId })
+    .from(conversations)
+    .where(and(eq(conversations.leadId, leadId), eq(conversations.channel, "Email"), eq(conversations.direction, "outbound")))
+    .orderBy(desc(conversations.timestamp))
+    .limit(1);
+  if (!rows.length) return null;
+  // Prefer emailMessageId (GHL's email-specific thread ID), fall back to ghlMessageId
+  return rows[0].emailMessageId || rows[0].ghlMessageId || null;
 }
 
 // --- Dedup: count recent AI outbound messages within a time window ---

@@ -14,7 +14,7 @@
  * - Logs every engagement attempt
  */
 
-import { getLeadsDueForFollowUp, getConversationHistory, updateLeadFields, addConversation, upsertAiState, getRecentAiOutboundCount, addBrainCouncilAudit, getBrainCouncilAuditForLead, isAiOffline } from "./db";
+import { getLeadsDueForFollowUp, getConversationHistory, updateLeadFields, addConversation, upsertAiState, getRecentAiOutboundCount, addBrainCouncilAudit, getBrainCouncilAuditForLead, isAiOffline, getLastEmailThreadId } from "./db";
 import { runBrainCouncil } from "./brain-council-orchestrator";
 import { calculateNextFollowUp, checkRateLimits, capDate, checkDnc } from "./scheduling-engine";
 import { sendMessage, addNote, fetchGhlConversationHistory, getContact } from "./ghl";
@@ -366,8 +366,9 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
         if (isSmsQuietHours() && channel === "SMS") {
           if ((lead as any).email) {
             console.log(`[FollowUp] TCPA gate: Brain Council chose SMS during quiet hours — switching to Email for lead ${leadId}`);
-            // Rewrite as email
-            const emailOpts: Parameters<typeof sendMessage>[1] = { type: "Email", subject: aiResponse.subject || `${aiResponse.fromName} from Adorb`, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName };
+            // Rewrite as email — check for prior email thread
+            const tcpaThreadId = await getLastEmailThreadId(leadId);
+            const emailOpts: Parameters<typeof sendMessage>[1] = { type: "Email", subject: aiResponse.subject || `${aiResponse.fromName} from Adorb`, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName, ...(tcpaThreadId ? { threadId: tcpaThreadId, replyMessageId: tcpaThreadId } : {}) };
             const sendResult = await sendMessageWithRetry(ghlContactId, emailOpts, { email: (lead as any).email, phone: (lead as any).phone, id: leadId });
             if (sendResult.success) {
               await addConversation({ leadId, channel: "Email", direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName });
@@ -388,8 +389,14 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
         }
 
         // --- SEND MESSAGE ---
+        // Email threading: look up prior email thread ID for reply threading
+        let emailThreadId: string | null = null;
+        if (channel === "Email") {
+          emailThreadId = await getLastEmailThreadId(leadId);
+          if (emailThreadId) console.log(`[FollowUp] Threading email reply for lead ${leadId} (threadId: ${emailThreadId})`);
+        }
         const msgOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
-          ? { type: "Email", subject: aiResponse.subject || `${aiResponse.fromName} from Adorb`, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName }
+          ? { type: "Email", subject: aiResponse.subject || `${aiResponse.fromName} from Adorb`, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName, ...(emailThreadId ? { threadId: emailThreadId, replyMessageId: emailThreadId } : {}) }
           : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
         const sendResult = await sendMessageWithRetry(ghlContactId, msgOpts, { email: (lead as any).email, phone: (lead as any).phone, id: leadId });
 
@@ -398,7 +405,7 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
           const actualChannel = sendResult.correctionTaken?.includes("email") ? "Email"
             : sendResult.correctionTaken?.includes("sms") ? "SMS"
             : channel;
-          await addConversation({ leadId, channel: actualChannel, direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName });
+          await addConversation({ leadId, channel: actualChannel, direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName, emailMessageId: sendResult.emailMessageId || undefined });
           await upsertAiState(leadId, { lastAngleUsed: aiResponse.angle, lastFrameworkUsed: aiResponse.framework, extractedDates: aiResponse.extractedDates as unknown as undefined, messageCount: undefined });
           await updateLeadFields(leadId, { opportunityScore: aiResponse.score, omnisendSegment: aiResponse.segment, lastMessageAt: new Date(), lastOutboundChannel: actualChannel });
           if (sendResult.correctionTaken) {

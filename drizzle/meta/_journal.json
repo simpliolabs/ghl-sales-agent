@@ -85,6 +85,13 @@
       "when": 1775767151339,
       "tag": "0011_familiar_purifiers",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1775825419501,
+      "tag": "0012_cold_darkhawk",
+      "breakpoints": true
     }
   ]
 }

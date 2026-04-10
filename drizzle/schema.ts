@@ -101,6 +101,7 @@ export const conversations = mysqlTable("conversations", {
   senderType: mysqlEnum("senderType", ["ai", "human", "lead"]).notNull(),
   senderName: varchar("senderName", { length: 128 }),
   ghlMessageId: varchar("ghlMessageId", { length: 128 }),
+  emailMessageId: varchar("emailMessageId", { length: 128 }), // GHL email thread ID for reply threading
   timestamp: timestamp("timestamp").defaultNow().notNull(),
 });
 
