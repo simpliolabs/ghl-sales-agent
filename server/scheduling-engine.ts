@@ -470,6 +470,27 @@ export async function calculateNextFollowUp(input: SchedulingInput): Promise<Sch
     };
   }
 
+  // --- ADMIN OVERRIDE PROTECTION ---
+  // If an admin manually rescheduled this lead recently, respect the override.
+  // The override is "consumed" after the scheduled time passes and the follow-up fires.
+  // A fresh override (within 5 min) that hasn't been executed yet should NOT be overwritten.
+  if (lead.overrideBy && lead.overrideAt && lead.nextFollowUpAt) {
+    const overrideAgeMs = Date.now() - new Date(lead.overrideAt).getTime();
+    const overrideTarget = new Date(lead.nextFollowUpAt).getTime();
+    const overrideStillPending = overrideTarget > Date.now(); // override time hasn't passed yet
+    // If the override was set recently OR the override target is still in the future, respect it
+    if (overrideAgeMs < 5 * 60 * 1000 || overrideStillPending) {
+      return {
+        nextFollowUpAt: new Date(overrideTarget),
+        reason: `[Admin Override] Manually scheduled by ${lead.overrideBy}: "${lead.overrideReason || 'no reason'}" — respecting override`,
+        priority: 10,
+        channel: lead.preferredChannel || "SMS",
+        cadencePosition: lead.cadencePosition || 0,
+        isDnc: false,
+      };
+    }
+  }
+
   // Load conversation history
   const convHistory = await db.select().from(conversations)
     .where(eq(conversations.leadId, input.leadId))

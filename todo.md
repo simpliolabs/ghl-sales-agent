@@ -500,3 +500,4 @@
 - [x] BUG: messageBody.substring crash — safe type coercion for non-string GHL payloads (objects/arrays → JSON.stringify)
 - [x] BUG: noteBody.trim crash — safe type coercion for non-string note payloads
 - [x] BUG: humanTakeover false positive — GHL system messages (Opportunity Created, workflow, etc.) excluded from agent detection + delayed first-contact re-checks and clears false positives
+- [x] BUG: Manual reschedule via dashboard is overridden — Fixed: admin override protection in calculateNextFollowUp, override fields cleared after consumption, FB channel detection from form data, preferredChannel preserved from detected channel

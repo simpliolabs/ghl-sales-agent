@@ -156,9 +156,24 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     }
   }
 
+  // --- FB FORM DATA CHANNEL CORRECTION ---
+  // If the message body looks like FB lead form data but channel resolved to SMS,
+  // correct the channel to FB and update the lead's preferredChannel.
+  let correctedChannel = channel;
+  if (direction === "inbound" && channel === "SMS") {
+    const lower = effectiveMessageBody.toLowerCase();
+    const looksLikeFbForm = (lower.includes("full name:") || lower.includes("company name:")) &&
+      (lower.includes("phone number:") || lower.includes("email:"));
+    if (looksLikeFbForm) {
+      correctedChannel = "FB";
+      await updateLeadFields(lead!.id, { preferredChannel: "FB" });
+      console.log(`[Webhook/Msg] Corrected channel from SMS → FB for lead ${lead!.id} (FB form data detected in message body)`);
+    }
+  }
+
   // Store the message
   await addConversation({
-    leadId: lead!.id, channel,
+    leadId: lead!.id, channel: correctedChannel,
     direction: direction === "outbound" ? "outbound" : "inbound",
     messageBody: effectiveMessageBody, senderType: direction === "outbound" ? "human" : "lead",
     ghlMessageId: payload.messageId as string,
@@ -603,6 +618,11 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     }
   } catch { /* best effort */ }
 
+  // Clear admin override fields after the override has been consumed
+  if (lead!.overrideBy) {
+    await updateLeadFields(lead!.id, { overrideBy: null, overrideAt: null, overrideReason: null } as any);
+    console.log(`[Webhook] Cleared consumed admin override for lead ${lead!.id}`);
+  }
   // Calculate next follow-up
   const scheduleResult = await calculateNextFollowUp({ leadId: lead!.id, aiSuggestedHours: aiResponse.nextEngagementHours, triggerEvent: "ai_response" });
   await updateLeadFields(lead!.id, { nextFollowUpAt: scheduleResult.nextFollowUpAt, cadencePosition: scheduleResult.cadencePosition, preferredChannel: scheduleResult.channel, lastOutboundChannel: sendChannel });

@@ -459,6 +459,12 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
           stats.errors++;
         }
 
+        // Clear admin override fields after the override has been consumed (follow-up fired)
+        if ((lead as any).overrideBy) {
+          await updateLeadFields(leadId, { overrideBy: null, overrideAt: null, overrideReason: null } as any);
+          console.log(`[FollowUp] Cleared consumed admin override for lead ${leadId}`);
+        }
+
         // Schedule next follow-up
         const scheduleResult = await calculateNextFollowUp({ leadId, aiSuggestedHours: aiResponse.nextEngagementHours, triggerEvent: "ai_response" });
         // P1 (customer-stated timeline) is exempt from the 30-day cap

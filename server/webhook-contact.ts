@@ -503,9 +503,12 @@ async function sendDelayedFirstContact(
 
     // --- SCHEDULING & STAGE ADVANCEMENT ---
     const contactSchedule = await calculateNextFollowUp({ leadId, aiSuggestedHours: brainResult.nextEngagementHours || 4, triggerEvent: "ai_response" });
+    // IMPORTANT: Preserve the detected channel as preferredChannel — don't let the scheduling
+    // engine override it to SMS when the lead came from FB/IG/WhatsApp.
+    const preservedChannel = channel; // the original detected channel from the multi-layer detection
     await updateLeadFields(leadId, {
       lastMessageAt: new Date(), nextFollowUpAt: contactSchedule.nextFollowUpAt,
-      cadencePosition: contactSchedule.cadencePosition, preferredChannel: contactSchedule.channel,
+      cadencePosition: contactSchedule.cadencePosition, preferredChannel: preservedChannel,
       lastOutboundChannel: brainChannel,
     });
 
