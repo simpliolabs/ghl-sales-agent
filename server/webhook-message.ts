@@ -293,9 +293,47 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     if (corrected) console.log(`[Webhook] Auto-correction sent for lead ${lead!.id}`);
   }
 
-  // If outbound from a human agent, mark agent activity
+  // If outbound, determine if it's a real human agent message or a system/AI message
   if (direction === "outbound") {
+    const outBody = effectiveMessageBody.toLowerCase().trim();
+    
+    // --- SYSTEM MESSAGE DETECTION ---
+    // GHL fires outbound webhooks for appointment confirmations, task notifications,
+    // and our own AI messages. These should NOT set humanTakeover.
+    const OUTBOUND_SYSTEM_PATTERNS = [
+      // Appointment/booking notifications
+      "appointment", "booking confirmed", "booking cancelled", "new appointment created",
+      // Task notifications
+      "task created", "task completed", "task assigned",
+      // Opportunity lifecycle
+      "opportunity created", "opportunity moved", "created in stage", "moved to stage",
+      // Workflow/automation
+      "workflow", "automation", "triggered by",
+      // Our system-generated notes
+      "\ud83e\udd16", "[auto]", "[system]", "[ai]",
+      // Pipeline
+      "pipeline", "stage changed", "status changed",
+      // Forms
+      "form submitted", "form response",
+    ];
+    const isSystemOutbound = OUTBOUND_SYSTEM_PATTERNS.some(p => outBody.includes(p));
+    
+    // Check if this outbound message matches a recent AI message we sent
+    const recentConvs = await getConversationHistory(lead!.id, 10);
+    const isKnownAiMessage = recentConvs.some((c: any) =>
+      c.senderType === "ai" && c.messageBody &&
+      c.messageBody.toLowerCase().trim() === outBody
+    );
+    
+    if (isSystemOutbound || isKnownAiMessage) {
+      console.log(`[Webhook] Outbound message for lead ${lead!.id} is ${isSystemOutbound ? "system-generated" : "known AI message"} — NOT setting humanTakeover`);
+      res.json({ success: true, action: isSystemOutbound ? "system_message_ignored" : "ai_message_echo" });
+      return;
+    }
+    
+    // Real human agent message — set humanTakeover
     await updateLeadFields(lead!.id, { humanTakeover: 1, lastAgentActivityAt: new Date() });
+    console.log(`[Webhook] Real human outbound for lead ${lead!.id}: "${effectiveMessageBody.substring(0, 80)}" — humanTakeover=1`);
     res.json({ success: true, action: "human_message_logged" });
     return;
   }

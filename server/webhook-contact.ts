@@ -151,55 +151,12 @@ export async function handleContactWebhook(payload: Record<string, unknown>, res
     await updateLeadFields(lead.id, { nextFollowUpAt: initialSchedule.nextFollowUpAt, cadencePosition: initialSchedule.cadencePosition });
 
     // =================================================================
-    // AUTO-CREATE TASK + APPOINTMENT + NOTIFICATION for new contact
+    // NOTE: Auto-task/appointment/notification creation has been moved
+    // INSIDE sendDelayedFirstContact() to run AFTER the first-contact
+    // message is sent. This prevents GHL bounce-back webhooks from
+    // the task/appointment/note from triggering humanTakeover and
+    // blocking the first-contact message.
     // =================================================================
-    try {
-      const agentName = lead.assignedAgent || "Abby Bouwer";
-      const leadLabel = lead.name || lead.businessName || `Lead #${lead.id}`;
-      const agentGhlUserId = AGENT_GHL_USER_IDS[agentName];
-      const agentCalendarId = AGENT_CALENDAR_IDS[agentName] || AGENT_CALENDAR_IDS["Abby Bouwer"];
-
-      // 1. Compute next business hours slot (Mon-Fri 9am-5pm ET)
-      const slot = getNextBusinessHoursSlot();
-      const slotLabel = slot.start.toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
-
-      // 2. Create GHL Task — "Call new contact"
-      await createTask(resolvedContactId, {
-        title: `\u260E Call New Contact: ${leadLabel}`,
-        body: `New contact just entered the system. Call them during business hours.\n\nScheduled: ${slotLabel} ET\nBusiness: ${lead.businessName || "N/A"}\nPhone: ${lead.phone || "N/A"}\nEmail: ${lead.email || "N/A"}\nSource: ${lead.source || "N/A"}`,
-        dueDate: slot.start.toISOString(),
-        assignedTo: agentGhlUserId,
-      });
-      console.log(`[Webhook] Task created for lead ${lead.id}: Call ${leadLabel} at ${slotLabel}`);
-
-      // 3. Create GHL Appointment on agent's personal calendar
-      const apptResult = await createAppointment({
-        calendarId: agentCalendarId,
-        contactId: resolvedContactId,
-        title: `\u260E Call: ${leadLabel}`,
-        description: `New contact call.\nBusiness: ${lead.businessName || "N/A"}\nPhone: ${lead.phone || "N/A"}\nEmail: ${lead.email || "N/A"}\nSource: ${lead.source || "N/A"}`,
-        startTime: slot.start.toISOString(),
-        endTime: slot.end.toISOString(),
-        assignedUserId: agentGhlUserId,
-        appointmentStatus: "confirmed",
-      });
-      if (apptResult) {
-        console.log(`[Webhook] Appointment created for lead ${lead.id} on ${agentName}'s calendar at ${slotLabel}`);
-      }
-
-      // 4. Add note to GHL contact
-      await addNote(resolvedContactId, `\ud83e\udd16 New contact auto-setup: Task + Appointment created for ${agentName} to call at ${slotLabel} ET.`);
-
-      // 5. Internal notification to owner
-      await notifyOwner({
-        title: `\ud83d\udcde New Contact: ${leadLabel}`,
-        content: `A new contact has entered the system.\n\n\u2022 Name: ${leadLabel}\n\u2022 Business: ${lead.businessName || "N/A"}\n\u2022 Phone: ${lead.phone || "N/A"}\n\u2022 Email: ${lead.email || "N/A"}\n\u2022 Source: ${lead.source || "N/A"}\n\u2022 Assigned to: ${agentName}\n\u2022 Call scheduled: ${slotLabel} ET\n\nTask and appointment have been created in GHL.`,
-      });
-      console.log(`[Webhook] Owner notified about new contact ${lead.id}`);
-    } catch (err) {
-      console.error(`[Webhook] Auto-task/appointment/notification failed for lead ${lead?.id}:`, err);
-      // Non-fatal — don't block the rest of the new contact flow
-    }
 
     // =================================================================
     // DELAYED FIRST-CONTACT SEQUENCE (45s wait → Hormozi ACA)
@@ -258,10 +215,14 @@ async function sendDelayedFirstContact(
     // If humanTakeover was set but there's no real agent activity (no lastAgentNote, no real outbound),
     // clear it so the first-contact can proceed.
     if (lead.humanTakeover === 1) {
-      const hasRealAgentActivity = lead.lastAgentNote || 
+      // Filter out system-generated notes — they should NOT count as real agent activity
+      const SYSTEM_NOTE_PREFIXES = ["\u{1F916}", "[AUTO]", "[SYSTEM]", "[AI]"];
+      const noteIsSystem = lead.lastAgentNote && SYSTEM_NOTE_PREFIXES.some(p => (lead.lastAgentNote as string).trimStart().startsWith(p));
+      const hasRealAgentNote = lead.lastAgentNote && !noteIsSystem;
+      const hasRealAgentActivity = hasRealAgentNote || 
         (lead.lastAgentActivityAt && lead.lastOutboundChannel);
       if (!hasRealAgentActivity) {
-        console.log(`[Webhook] Clearing false-positive humanTakeover for lead ${leadId} (no real agent activity detected)`);
+        console.log(`[Webhook] Clearing false-positive humanTakeover for lead ${leadId} (no real agent activity detected${noteIsSystem ? ", system note ignored" : ""})`);
         await updateLeadFields(leadId, { humanTakeover: 0 });
         (lead as any).humanTakeover = 0;
       } else {
@@ -590,6 +551,59 @@ async function sendDelayedFirstContact(
     console.log(`[Webhook] First-contact COMPLETE for lead ${leadId}: sent=${messageSent}, channel=${brainChannel}, framework=${brainResult.framework}`);
     console.log(`[Webhook] Brain Council composed: "${composedMessage.substring(0, 100)}..."`);
     console.log(`[Webhook] Strategy: ${brainResult.strategyReasoning?.substring(0, 200) || "N/A"}`);
+
+    // =================================================================
+    // AUTO-CREATE TASK + APPOINTMENT + NOTIFICATION (AFTER message sent)
+    // Moved here from handleContactWebhook to prevent GHL bounce-back
+    // webhooks from triggering humanTakeover before first-contact sends.
+    // =================================================================
+    try {
+      const agentNameForTask = lead.assignedAgent || "Abby Bouwer";
+      const leadLabel = lead.name || lead.businessName || `Lead #${lead.id}`;
+      const agentGhlUserId = AGENT_GHL_USER_IDS[agentNameForTask];
+      const agentCalendarId = AGENT_CALENDAR_IDS[agentNameForTask] || AGENT_CALENDAR_IDS["Abby Bouwer"];
+
+      // 1. Compute next business hours slot (Mon-Fri 9am-5pm ET)
+      const slot = getNextBusinessHoursSlot();
+      const slotLabel = slot.start.toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
+
+      // 2. Create GHL Task — "Call new contact"
+      await createTask(resolvedContactId, {
+        title: `\u260E Call New Contact: ${leadLabel}`,
+        body: `New contact just entered the system. Call them during business hours.\n\nScheduled: ${slotLabel} ET\nBusiness: ${lead.businessName || "N/A"}\nPhone: ${lead.phone || "N/A"}\nEmail: ${lead.email || "N/A"}\nSource: ${lead.source || "N/A"}`,
+        dueDate: slot.start.toISOString(),
+        assignedTo: agentGhlUserId,
+      });
+      console.log(`[Webhook] Task created for lead ${leadId}: Call ${leadLabel} at ${slotLabel}`);
+
+      // 3. Create GHL Appointment on agent's personal calendar
+      const apptResult = await createAppointment({
+        calendarId: agentCalendarId,
+        contactId: resolvedContactId,
+        title: `\u260E Call: ${leadLabel}`,
+        description: `New contact call.\nBusiness: ${lead.businessName || "N/A"}\nPhone: ${lead.phone || "N/A"}\nEmail: ${lead.email || "N/A"}\nSource: ${lead.source || "N/A"}`,
+        startTime: slot.start.toISOString(),
+        endTime: slot.end.toISOString(),
+        assignedUserId: agentGhlUserId,
+        appointmentStatus: "confirmed",
+      });
+      if (apptResult) {
+        console.log(`[Webhook] Appointment created for lead ${leadId} on ${agentNameForTask}'s calendar at ${slotLabel}`);
+      }
+
+      // 4. Add note to GHL contact (prefixed with robot emoji so bounce-back webhook is filtered)
+      await addNote(resolvedContactId, `\ud83e\udd16 New contact auto-setup: Task + Appointment created for ${agentNameForTask} to call at ${slotLabel} ET.`);
+
+      // 5. Internal notification to owner
+      await notifyOwner({
+        title: `\ud83d\udcde New Contact: ${leadLabel}`,
+        content: `A new contact has entered the system.\n\n\u2022 Name: ${leadLabel}\n\u2022 Business: ${lead.businessName || "N/A"}\n\u2022 Phone: ${lead.phone || "N/A"}\n\u2022 Email: ${lead.email || "N/A"}\n\u2022 Source: ${lead.source || "N/A"}\n\u2022 Assigned to: ${agentNameForTask}\n\u2022 Call scheduled: ${slotLabel} ET\n\nTask and appointment have been created in GHL.\nFirst-contact message was ${messageSent ? "sent successfully" : "NOT sent"}.`,
+      });
+      console.log(`[Webhook] Owner notified about new contact ${leadId}`);
+    } catch (autoErr) {
+      console.error(`[Webhook] Auto-task/appointment/notification failed for lead ${leadId}:`, autoErr);
+      // Non-fatal — first-contact message already sent
+    }
   } catch (err) {
     console.error(`[Webhook] Delayed first-contact error for lead ${leadId}:`, err);
   }

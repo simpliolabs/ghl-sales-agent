@@ -533,3 +533,7 @@
   - [x] FIX 3: ai_state.messageCount — now properly incremented in both follow-up-trigger.ts and webhook-message.ts
   - [x] FIX 4: Strategist prompt — warns when 2+ unanswered, forces VALUE-FIRST approach instead of more questions
   - [x] FIX 5: QC bucket detection — catches rephrased questions via 10 info buckets + fallback word-overlap check
+- [x] BUG: Appointment creation for new contacts fires before first-contact message — Pheresa Singleton got appointment but no AI message:
+  - [x] FIX 1: Outbound webhook handler now filters system messages (appointments, tasks, AI echoes) — no longer sets humanTakeover for system events
+  - [x] FIX 2: Moved task/appointment/note creation to AFTER first-contact message in sendDelayedFirstContact
+  - [x] FIX 3: System notes prefixed with 🤖 are filtered in note webhook handler + humanTakeover re-check
