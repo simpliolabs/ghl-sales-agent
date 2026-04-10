@@ -100,7 +100,7 @@ function makeResearch(overrides: Partial<ResearchResult> = {}): ResearchResult {
 
 describe("detectViolations — Layer 3 Expanded", () => {
   describe("repeated_question", () => {
-    it("detects when composed message asks a question already asked in prior outbound", () => {
+    it("detects when composed message asks a question already asked in prior outbound (proactive follow-up)", () => {
       const context = makeContext({
         priorOutbound: [
           { messageBody: "What kind of event are you planning this for?" },
@@ -110,8 +110,10 @@ describe("detectViolations — Layer 3 Expanded", () => {
       const composed = makeComposed({
         message: "Hey John! What kind of event are you planning this for? We'd love to help!",
       });
+      // No inbound message — this is a proactive follow-up re-asking the same question
+      const input = makeInput({ incomingMessage: "" });
 
-      const result = detectViolations(composed, makeQC(), makeStrategy(), context, makeInput(), makeResearch());
+      const result = detectViolations(composed, makeQC(), makeStrategy(), context, input, makeResearch());
       expect(result.category).toBe("repeated_question");
       expect(result.reason).toContain("overlaps with prior outbound question");
     });
@@ -137,6 +139,130 @@ describe("detectViolations — Layer 3 Expanded", () => {
       });
 
       const result = detectViolations(composed, makeQC(), makeStrategy(), context, makeInput(), makeResearch());
+      expect(result.category).not.toBe("repeated_question");
+    });
+
+    // --- INBOUND CLARIFICATION EXEMPTION TESTS ---
+
+    it("does NOT flag when lead asks a clarification about the same topic (Glory scenario: pricing/quantity)", () => {
+      // Glory scenario: AI mentioned $10-28 and quantity, lead asks "$10 to $28 plus canvas or without canvas?"
+      const context = makeContext({
+        priorOutbound: [
+          { messageBody: "Hey Glory, I know you asked about embroidery for your brand a while back. We've done tons of cool projects since then. Thinking embroidered polos or hats? They typically run roughly $10-28 each, depending on quantity. Still interested in leveling up your gear?", senderType: "ai" },
+        ],
+      });
+      const composed = makeComposed({
+        message: "Great question! The $10-28 range covers both canvas and non-canvas options. Canvas hats run closer to the higher end. How many pieces are you thinking?",
+      });
+      const input = makeInput({
+        incomingMessage: "$10 to $28 plus canvas or without canvas?",
+      });
+
+      const result = detectViolations(composed, makeQC(), makeStrategy(), context, input, makeResearch());
+      expect(result.category).not.toBe("repeated_question");
+    });
+
+    it("does NOT flag when lead asks about pricing and AI responds with pricing details (bucket exemption)", () => {
+      const context = makeContext({
+        priorOutbound: [
+          { messageBody: "We can do custom t-shirts! Pricing depends on quantity and design. What quantity are you thinking?", senderType: "ai" },
+        ],
+      });
+      const composed = makeComposed({
+        message: "For 50 pieces, you're looking at about $12-15 each for a single-color print. Want me to get you an exact quote?",
+      });
+      const input = makeInput({
+        incomingMessage: "How much for 50 pieces?",
+      });
+
+      const result = detectViolations(composed, makeQC(), makeStrategy(), context, input, makeResearch());
+      expect(result.category).not.toBe("repeated_question");
+    });
+
+    it("does NOT flag when lead asks about design and AI responds about design (topic match)", () => {
+      const context = makeContext({
+        priorOutbound: [
+          { messageBody: "Do you have a design ready or would you like our team to create one?", senderType: "ai" },
+        ],
+      });
+      const composed = makeComposed({
+        message: "Our design team can definitely help with that! We usually start with your logo or concept. Do you have a logo file you can share?",
+      });
+      const input = makeInput({
+        incomingMessage: "I don't have a design yet, can you help with that?",
+      });
+
+      const result = detectViolations(composed, makeQC(), makeStrategy(), context, input, makeResearch());
+      expect(result.category).not.toBe("repeated_question");
+    });
+
+    it("does NOT flag when lead asks about timeline and AI responds about timeline", () => {
+      const context = makeContext({
+        priorOutbound: [
+          { messageBody: "When do you need these by? Rush orders are possible!", senderType: "ai" },
+        ],
+      });
+      const composed = makeComposed({
+        message: "Two weeks is totally doable! Standard turnaround is 7-10 business days. When exactly is your event?",
+      });
+      const input = makeInput({
+        incomingMessage: "I need them in about two weeks, is that possible?",
+      });
+
+      const result = detectViolations(composed, makeQC(), makeStrategy(), context, input, makeResearch());
+      expect(result.category).not.toBe("repeated_question");
+    });
+
+    it("STILL flags when AI re-asks a question during proactive follow-up (no inbound)", () => {
+      // AI previously asked about event type, now proactively following up and re-asking
+      const context = makeContext({
+        priorOutbound: [
+          { messageBody: "What kind of event are you planning this for?", senderType: "ai" },
+        ],
+      });
+      const composed = makeComposed({
+        message: "Hey John! Just circling back — what kind of event are you planning this for?",
+      });
+      const input = makeInput({
+        incomingMessage: "", // Proactive follow-up, no inbound
+      });
+
+      const result = detectViolations(composed, makeQC(), makeStrategy(), context, input, makeResearch());
+      expect(result.category).toBe("repeated_question");
+    });
+
+    it("STILL flags when AI re-asks about quantity with no inbound message context", () => {
+      // Proactive follow-up (no inbound) re-asking quantity
+      const context = makeContext({
+        priorOutbound: [
+          { messageBody: "How many shirts do you need?", senderType: "ai" },
+        ],
+      });
+      const composed = makeComposed({
+        message: "Hey John! Just checking in — how many pieces are you thinking for your order?",
+      });
+      const input = makeInput({
+        incomingMessage: "", // No inbound — proactive follow-up
+      });
+
+      const result = detectViolations(composed, makeQC(), makeStrategy(), context, input, makeResearch());
+      expect(result.category).toBe("repeated_question");
+    });
+
+    it("does NOT flag when lead asks about color options and AI responds about colors", () => {
+      const context = makeContext({
+        priorOutbound: [
+          { messageBody: "What color are you thinking for the shirts? We have navy, black, white, and more.", senderType: "ai" },
+        ],
+      });
+      const composed = makeComposed({
+        message: "Navy is a great choice! We can do navy with white print. The color options include standard and premium shades.",
+      });
+      const input = makeInput({
+        incomingMessage: "Do you have navy? What about the color options?",
+      });
+
+      const result = detectViolations(composed, makeQC(), makeStrategy(), context, input, makeResearch());
       expect(result.category).not.toBe("repeated_question");
     });
   });

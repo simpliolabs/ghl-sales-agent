@@ -544,3 +544,15 @@
 - [x] Add QC violation for context-free/generic email subjects when lead data has product/business/event info
 - [x] Update Strategist to pass context-grounding emphasis in key_points to Composer
 - [x] Tests for context-specific subject lines and openers (10 new tests, all 603 passing)
+
+## BUG: Glory's inbound SMS at 3:53 PM not getting AI response
+- [x] Diagnose why Glory's message "$10 to $28 plus canvas or without canvas?" did not trigger AI response
+- [x] Root cause: repeated_question QC false positive — bucket check flagged "quantity" overlap between prior AI outbound and composed response, even though lead was asking a clarification
+
+## BUG: repeated_question QC false positive blocking lead clarification replies
+- [x] Fix repeated_question bucket check: skip entirely when AI is responding to inbound message (not proactive)
+- [x] Fix repeated_question fallback word-overlap check: same inbound exemption
+- [x] Update existing tests to properly test proactive vs responsive scenarios
+- [x] Add 7 new tests: Glory scenario, pricing clarification, design clarification, timeline clarification, color clarification, proactive re-ask still flagged, no-inbound re-ask still flagged
+- [x] All 610 tests passing
+- [x] Push to GitHub

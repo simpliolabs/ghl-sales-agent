@@ -339,7 +339,11 @@ export function detectViolations(
   }
 
   // 7b. REPEATED QUESTION/ASK — detect when composed message asks for the SAME INFORMATION as prior outbound
-  // Uses semantic keyword buckets instead of word-overlap to catch rephrased questions
+  // Uses semantic keyword buckets instead of word-overlap to catch rephrased questions.
+  // IMPORTANT: If the lead's inbound message is about the same topic (e.g., they asked a pricing
+  // clarification), the AI SHOULD talk about that topic — so we exempt buckets that the inbound
+  // message also matches. This prevents false positives where the lead asks "$10-28 canvas or not?"
+  // and the AI's answer about pricing/quantity gets blocked as a "repeated question".
   if (context.priorOutbound && context.priorOutbound.length > 0) {
     // Define information-request buckets: if a message contains keywords from a bucket, it's "asking for" that info
     const INFO_BUCKETS: Array<{ name: string; keywords: string[] }> = [
@@ -363,44 +367,54 @@ export function detectViolations(
       return matched;
     };
     const composedBuckets = matchBuckets(composed.message);
-    if (composedBuckets.size > 0) {
-      // Check each prior outbound AI message for the same info requests
-      // Include messages where senderType is "ai" OR not set (backward compat with tests/older data)
+    // INBOUND EXEMPTION: When the lead has sent an inbound message, the AI is in RESPONSE mode.
+    // The repeated_question bucket check was designed to catch PROACTIVE re-asking of questions
+    // the AI already asked. But when the lead is actively engaged and asking questions, the AI
+    // SHOULD discuss the same topics — that's what a conversation is.
+    //
+    // Example: AI asked about pricing/quantity, lead replies "$10-28 canvas or not?" — the AI's
+    // response about pricing/quantity is correct, not a repeated question.
+    //
+    // The QC LLM prompt (checks 1, 13, 14) still catches actual repetition issues like
+    // re-asking a question the lead already answered.
+    const hasInboundMessage = !!(input.incomingMessage && input.incomingMessage.trim().length > 0);
+    if (composedBuckets.size > 0 && !hasInboundMessage) {
+      // PROACTIVE outreach only: check for repeated info requests
       const priorAiMessages = context.priorOutbound.filter((p: any) => !p.senderType || p.senderType === "ai");
       for (const prior of priorAiMessages) {
         const priorBuckets = matchBuckets(prior.messageBody || "");
         const overlap = Array.from(composedBuckets).filter(b => priorBuckets.has(b));
-        // If 1+ info buckets overlap, this is asking for the same thing
         if (overlap.length >= 1) {
           return { category: "repeated_question" as ViolationCategory, reason: `Message asks for the same information (${overlap.join(", ")}) that overlaps with prior outbound question: "${String(prior.messageBody).substring(0, 80)}..."` };
         }
       }
     }
     // Fallback: extract questions (sentences ending with ?) and check word overlap
-    const extractQuestions = (text: string): string[] => {
-      return text.split(/[.!?]+/).filter(s => {
-        const trimmed = s.trim();
-        // Include sentences that end with ? OR contain question words
-        return /\?$/.test(trimmed) || /^(what|how|when|where|which|can you|do you|are you|would you)/i.test(trimmed);
-      }).map(s => s.trim().toLowerCase());
-    };
-    const composedQuestions = extractQuestions(composed.message);
-    if (composedQuestions.length > 0) {
-      const priorAiMsgs = context.priorOutbound.filter((p: any) => !p.senderType || p.senderType === "ai");
-      for (const prior of priorAiMsgs) {
-        const priorQuestions = extractQuestions(prior.messageBody || "");
-        for (const cq of composedQuestions) {
-          for (const pq of priorQuestions) {
-            // Word overlap check: if 50%+ of significant words match
-            const stopWords = new Set(["the", "a", "an", "is", "are", "do", "you", "your", "we", "our", "for", "to", "in", "of", "and", "or", "this", "that", "it", "i", "me", "my"]);
-            const getWords = (s: string) => s.split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w));
-            const cWords = getWords(cq);
-            const pWords = new Set(getWords(pq));
-            if (cWords.length >= 2 && pWords.size >= 2) {
-              const matchCount = cWords.filter(w => pWords.has(w)).length;
-              const overlapRatio = matchCount / Math.min(cWords.length, pWords.size);
-              if (overlapRatio >= 0.5) {
-                return { category: "repeated_question" as ViolationCategory, reason: `Question "${cq.substring(0, 60)}" overlaps with prior outbound question: "${pq.substring(0, 60)}"` };
+    // Same inbound exemption: only check during proactive outreach.
+    if (!hasInboundMessage) {
+      const extractQuestions = (text: string): string[] => {
+        return text.split(/[.!?]+/).filter(s => {
+          const trimmed = s.trim();
+          return /\?$/.test(trimmed) || /^(what|how|when|where|which|can you|do you|are you|would you)/i.test(trimmed);
+        }).map(s => s.trim().toLowerCase());
+      };
+      const composedQuestions = extractQuestions(composed.message);
+      if (composedQuestions.length > 0) {
+        const priorAiMsgs = context.priorOutbound.filter((p: any) => !p.senderType || p.senderType === "ai");
+        for (const prior of priorAiMsgs) {
+          const priorQuestions = extractQuestions(prior.messageBody || "");
+          for (const cq of composedQuestions) {
+            for (const pq of priorQuestions) {
+              const stopWords = new Set(["the", "a", "an", "is", "are", "do", "you", "your", "we", "our", "for", "to", "in", "of", "and", "or", "this", "that", "it", "i", "me", "my"]);
+              const getWords = (s: string) => s.split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w));
+              const cWords = getWords(cq);
+              const pWords = new Set(getWords(pq));
+              if (cWords.length >= 2 && pWords.size >= 2) {
+                const matchCount = cWords.filter(w => pWords.has(w)).length;
+                const overlapRatio = matchCount / Math.min(cWords.length, pWords.size);
+                if (overlapRatio >= 0.5) {
+                  return { category: "repeated_question" as ViolationCategory, reason: `Question "${cq.substring(0, 60)}" overlaps with prior outbound question: "${pq.substring(0, 60)}"` };
+                }
               }
             }
           }
