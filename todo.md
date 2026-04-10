@@ -501,3 +501,7 @@
 - [x] BUG: noteBody.trim crash — safe type coercion for non-string note payloads
 - [x] BUG: humanTakeover false positive — GHL system messages (Opportunity Created, workflow, etc.) excluded from agent detection + delayed first-contact re-checks and clears false positives
 - [x] BUG: Manual reschedule via dashboard is overridden — Fixed: admin override protection in calculateNextFollowUp, override fields cleared after consumption, FB channel detection from form data, preferredChannel preserved from detected channel
+- [x] FIX: Cleared legacy humanTakeover=1 for lead 840005 + bulk cleared 78 false positives (22 real agent takeovers preserved)
+- [x] FIX: Hardened GHL history scan — expanded to 30+ system patterns, raised min length to 10, added max length 500, GHL type 0 exclusion, multi-line form data detection
+- [x] FIX: Business name + product type + timeline extracted from FB form data in webhook-message.ts channel correction
+- [x] FIX: AI State tracking — message count was already incremented via upsertAiState in webhook-message.ts (the 0 was from the contact_handler path which correctly sets messageCount: 1 after first-contact)

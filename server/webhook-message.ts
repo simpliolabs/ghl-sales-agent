@@ -166,7 +166,29 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
       (lower.includes("phone number:") || lower.includes("email:"));
     if (looksLikeFbForm) {
       correctedChannel = "FB";
-      await updateLeadFields(lead!.id, { preferredChannel: "FB" });
+      const formUpdates: Record<string, unknown> = { preferredChannel: "FB" };
+      // Extract business name from "Company name: ..." field if not already set
+      if (!lead!.businessName) {
+        const companyMatch = effectiveMessageBody.match(/Company\s*name\s*:\s*(.+)/i);
+        if (companyMatch) {
+          formUpdates.businessName = companyMatch[1].trim();
+          lead = { ...lead!, businessName: companyMatch[1].trim() } as typeof lead;
+          console.log(`[Webhook/Msg] Extracted businessName from FB form: "${companyMatch[1].trim()}"`);
+        }
+      }
+      // Extract product type if present
+      const productMatch = effectiveMessageBody.match(/(?:What type of products|product[s]?)\s*(?:are you interested in)?\s*[?:]\s*(.+)/i);
+      if (productMatch) {
+        formUpdates.productType = productMatch[1].trim();
+        console.log(`[Webhook/Msg] Extracted productType from FB form: "${productMatch[1].trim()}"`);
+      }
+      // Extract timeline if present
+      const timelineMatch = effectiveMessageBody.match(/How soon do you need your order\s*[?:]\s*(.+)/i);
+      if (timelineMatch) {
+        formUpdates.eventDate = timelineMatch[1].trim();
+        console.log(`[Webhook/Msg] Extracted timeline from FB form: "${timelineMatch[1].trim()}"`);
+      }
+      await updateLeadFields(lead!.id, formUpdates);
       console.log(`[Webhook/Msg] Corrected channel from SMS → FB for lead ${lead!.id} (FB form data detected in message body)`);
     }
   }
@@ -324,17 +346,42 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
           // Exclude messages that are clearly AI-generated or GHL system messages
           .filter(m => {
             const body = (m.body || "").toLowerCase().trim();
-            // GHL system messages (opportunity created, workflow triggers, etc.)
+            // GHL system messages — comprehensive list to prevent false positives
             const SYSTEM_PATTERNS = [
+              // Opportunity lifecycle
               "opportunity created", "opportunity moved", "opportunity updated",
-              "workflow", "automation", "task created", "task completed",
-              "appointment", "form submitted", "tag added", "tag removed",
-              "note added", "pipeline", "stage changed",
+              "opportunity deleted", "created in stage", "moved to stage",
+              // Workflow & automation
+              "workflow", "automation", "triggered by", "action executed",
+              // Tasks
+              "task created", "task completed", "task assigned", "task updated",
+              // Appointments
+              "appointment", "booking confirmed", "booking cancelled",
+              // Forms & submissions
+              "form submitted", "form response", "survey submitted",
+              // Tags & lists
+              "tag added", "tag removed", "added to list", "removed from list",
+              // Notes & pipeline
+              "note added", "pipeline", "stage changed", "status changed",
+              // Payments & invoices
+              "payment received", "invoice sent", "invoice paid",
+              // Contact lifecycle
+              "contact created", "contact updated", "contact merged",
+              // Facebook lead form data (structured form fields)
+              "company name:", "full name:", "phone number:", "what type of products",
+              "what do you need bulk printing", "how soon do you need",
+              // GHL internal
+              "view opportunity", "bulk printing pipeline",
             ];
             const isSystemMsg = SYSTEM_PATTERNS.some(p => body.includes(p)) ||
-              body.length < 5 || // Too short to be a real agent message
+              body.length < 10 || // Too short to be a real agent message (raised from 5)
+              body.length > 500 || // System dumps / form data are usually long
               (m as any).messageType === "TYPE_ACTIVITY" ||
-              (m as any).contentType === "activity";
+              (m as any).contentType === "activity" ||
+              (m as any).type === 0 || // GHL type 0 = system/activity
+              (m as any).type === "0" ||
+              // FB form data pattern: multiple "label: value" lines
+              (body.split("\n").filter((l: string) => l.includes(":")).length >= 3);
             if (isSystemMsg) return false;
             // If message body matches a recent AI outbound in our DB, it's AI — not a human agent
             const isKnownAiMsg = convHistory.some((c: any) =>
