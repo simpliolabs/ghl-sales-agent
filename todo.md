@@ -522,3 +522,8 @@
 - [x] NC.3: Send internal notification when new contact enters system (task + appointment created)
 - [x] NC.4: Wire auto-task/appointment/notification into webhook-contact.ts new contact flow
 - [x] NC.5: Tests for auto-task/appointment/notification creation (14 tests passing)
+- [x] BUG: Reset Learning Data button not visible on Self-Learning page — was working, user confirmed visible after login
+- [x] BUG: Zero-context SMS sent to Coconuts Bar & Grill (954-525-2421) — FIXED: 3 root causes addressed:
+  - FIX 1: getLeadsDueForFollowUp + lookback engine now filter out not_qualified/lost leads
+  - FIX 2: Graceful exit guard blocks sending and retires lead (humanTakeover=1) instead of sending goodbye message
+  - FIX 3: Not-interested detection in GHL history — agent notes like "not interested" permanently retire leads from outreach

@@ -399,6 +399,35 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
           lastAgentHoursAgo = (Date.now() - agentMsgTime.getTime()) / (1000 * 60 * 60);
         }
 
+        // ============================================================
+        // NOT-INTERESTED DETECTION in GHL history
+        // Agent notes like "Business Name - not interested" should permanently
+        // retire the lead from automated outreach, regardless of age.
+        // ============================================================
+        const NOT_INTERESTED_PATTERNS = [
+          /not\s*interested/i,
+          /do\s*not\s*contact/i,
+          /\bdnc\b/i,
+          /\bdeclined\b/i,
+          /no\s*longer\s*interested/i,
+          /remove\s*(from|me)/i,
+          /opted?\s*out/i,
+          /\bunsubscribe\b/i,
+          /stop\s*contact/i,
+          /not\s*a\s*fit/i,
+        ];
+        const notInterestedMsg = ghlHistory
+          .filter(m => m.direction === "outbound" && m.body?.trim())
+          .find(m => NOT_INTERESTED_PATTERNS.some(p => p.test(m.body || "")));
+        if (notInterestedMsg && !lead!.humanTakeover) {
+          console.log(`[Webhook] \u{1F6D1} NOT-INTERESTED detected in GHL history for lead ${lead!.id}: "${String(notInterestedMsg.body).substring(0, 80)}". Setting humanTakeover=1.`);
+          await updateLeadFields(lead!.id, { humanTakeover: 1 });
+          lead = { ...lead!, humanTakeover: 1 };
+          // Abort processing — do not send any message to this lead
+          res.json({ success: true, action: "not_interested_detected" });
+          return;
+        }
+
         // Surface order/payment status as a CONTEXT ALERT
         const ORDER_STATUS_KEYWORDS = ["paid", "invoice", "deposit", "payment", "proof", "approved", "mockup", "design", "order confirmed", "receipt"];
         const paymentMessages = ghlHistory.filter(m => {

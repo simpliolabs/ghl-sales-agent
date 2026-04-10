@@ -246,6 +246,7 @@ export async function runLookback(options?: {
     allLeads = await db.select().from(leads).where(
       and(
         eq(leads.humanTakeover, 0),
+        sql`COALESCE(${leads.pipelineStage}, 'new_lead') NOT IN ('not_qualified', 'lost')`,
         or(
           isNull(leads.lastResearchSummary),
           sql`${leads.lastResearchSummary} NOT LIKE '%[LOOKBACK]%'`
@@ -256,6 +257,7 @@ export async function runLookback(options?: {
     allLeads = await db.select().from(leads).where(
       and(
         eq(leads.humanTakeover, 0),
+        sql`COALESCE(${leads.pipelineStage}, 'new_lead') NOT IN ('not_qualified', 'lost')`,
         leads.nextFollowUpAt ? lte(leads.nextFollowUpAt, new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)) : undefined,
       )
     ).orderBy(leads.nextFollowUpAt).limit(maxLeads);

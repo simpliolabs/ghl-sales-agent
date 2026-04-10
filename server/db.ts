@@ -88,7 +88,11 @@ export async function getAllLeads(limit = 100) {
 export async function getLeadsDueForFollowUp() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(leads).where(and(sql`${leads.nextFollowUpAt} <= NOW()`, eq(leads.humanTakeover, 0)));
+  return db.select().from(leads).where(and(
+    sql`${leads.nextFollowUpAt} <= NOW()`,
+    eq(leads.humanTakeover, 0),
+    sql`COALESCE(${leads.pipelineStage}, 'new_lead') NOT IN ('not_qualified', 'lost')`,
+  ));
 }
 
 export async function updateLeadScore(leadId: number, score: number) {

@@ -405,6 +405,50 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     }
 
     // ============================================================
+    // GRACEFUL EXIT GUARD — Block sending and retire the lead
+    // If the Strategist determines the lead is declining/not interested,
+    // do NOT send a goodbye message. Just silently retire the lead.
+    // ============================================================
+    if (strategy.approach === 'graceful_exit') {
+      console.log(`[BrainCouncil] \u{1F6D1} GRACEFUL EXIT — blocking send for lead ${input.leadId}. Reason: ${strategy.reasoning}`);
+      // Set humanTakeover to prevent future automated outreach
+      const { updateLeadFields } = await import("./db");
+      await updateLeadFields(input.leadId, { humanTakeover: 1 });
+      // Log the audit with blocked status
+      await addBrainCouncilAudit({
+        leadId: input.leadId,
+        leadName: context.lead?.name || "Unknown",
+        channel: strategy.channel || input.channel,
+        incomingMessage: typeof input.incomingMessage === "string" ? input.incomingMessage.substring(0, 2000) : "",
+        strategyApproach: strategy.approach,
+        strategyFramework: strategy.framework,
+        strategyReasoning: `[${strategy.angle}] ${strategy.reasoning}`,
+        blocked: 1,
+        blockReason: `Graceful exit — lead is declining/not interested. AI outreach retired. Reason: ${strategy.reasoning}`,
+        violationCategory: "graceful_exit_retired",
+        messageSent: 0,
+        ownerNotified: 0,
+      });
+      return {
+        message: "",
+        fromName: "System",
+        framework: strategy.framework,
+        angle: strategy.angle || "none",
+        channel: strategy.channel || input.channel,
+        extractedDates: [],
+        score: 0,
+        segment: "other",
+        nextEngagementHours: 9999,
+        qcScore: 0,
+        strategyReasoning: strategy.reasoning,
+        researchSummary: "",
+        blocked: true,
+        blockReason: `Graceful exit — lead retired from automated outreach`,
+        fallbackUsed: false,
+      };
+    }
+
+    // ============================================================
     // PHASE B: CONVERSATION STATE ROUTING
     // Override Strategist approach based on conversation state machine.
     // This ensures committed leads aren't re-pitched and objecting leads

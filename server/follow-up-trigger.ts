@@ -189,6 +189,31 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
           // Continue — local history is better than nothing
         }
 
+        // --- NOT-INTERESTED DETECTION in GHL history ---
+        const NOT_INTERESTED_PATTERNS = [
+          /not\s*interested/i,
+          /do\s*not\s*contact/i,
+          /\bdnc\b/i,
+          /\bdeclined\b/i,
+          /no\s*longer\s*interested/i,
+          /remove\s*(from|me)/i,
+          /opted?\s*out/i,
+          /\bunsubscribe\b/i,
+          /stop\s*contact/i,
+          /not\s*a\s*fit/i,
+        ];
+        if (ghlHistoryMessages.length > 0) {
+          const notInterestedMsg = ghlHistoryMessages
+            .filter((m: any) => m.direction === "outbound" && m.body?.trim())
+            .find((m: any) => NOT_INTERESTED_PATTERNS.some(p => p.test(m.body || "")));
+          if (notInterestedMsg) {
+            console.log(`[FollowUp] \u{1F6D1} NOT-INTERESTED detected in GHL history for lead ${leadId}: "${String(notInterestedMsg.body).substring(0, 80)}". Setting humanTakeover=1 and skipping.`);
+            await updateLeadFields(leadId, { humanTakeover: 1 });
+            stats.skipped++;
+            continue;
+          }
+        }
+
         // --- DORMANCY DETECTION (context only — Brain Council decides channel) ---
         const lastActivityAt = convHistory.length > 0 ? new Date(convHistory[0].timestamp).getTime() : (createdAt ? new Date(createdAt).getTime() : 0);
         const daysSinceLastActivity = lastActivityAt ? (Date.now() - lastActivityAt) / (1000 * 60 * 60 * 24) : 999;
