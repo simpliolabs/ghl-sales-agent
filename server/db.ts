@@ -419,6 +419,30 @@ export async function getBrainCouncilAuditForLead(leadId: number, limit = 20) {
   return db.select().from(brainCouncilAudit).where(eq(brainCouncilAudit.leadId, leadId)).orderBy(desc(brainCouncilAudit.createdAt)).limit(limit);
 }
 
+/**
+ * Get the last N OUTREACH frameworks used for a lead (excludes DIRECT_RESPONSE and VALUE_FIRST).
+ * Used by the diversity enforcement engine to detect framework overuse.
+ * Only counts messages that were actually sent (messageSent=1).
+ */
+export async function getRecentOutreachFrameworks(leadId: number, limit = 5): Promise<string[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const RESPONSIVE = new Set(['DIRECT_RESPONSE', 'VALUE_FIRST']);
+  // Fetch extra to account for responsive messages interspersed
+  const rows = await db.select({ framework: brainCouncilAudit.strategyFramework })
+    .from(brainCouncilAudit)
+    .where(and(
+      eq(brainCouncilAudit.leadId, leadId),
+      eq(brainCouncilAudit.messageSent, 1)
+    ))
+    .orderBy(desc(brainCouncilAudit.createdAt))
+    .limit(limit * 4); // fetch extra to filter out responsive messages
+  return rows
+    .map(r => r.framework)
+    .filter((f): f is string => !!f && !RESPONSIVE.has(f))
+    .slice(0, limit);
+}
+
 // Update an audit entry with correction data
 export async function updateAuditCorrection(auditId: number, data: {
   correctionSent: number;

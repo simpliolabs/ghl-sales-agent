@@ -109,9 +109,21 @@ For OUTREACH approaches:
 - EMB_WELCOME / EMB_WINBACK / EMB_POST_PURCHASE / EMB_COLD: Email Marketing Bible sequences.
 
 === FRAMEWORK DIVERSITY RULE ===
-Check "Last framework used" in the engagement state. If the same framework was used in the last 2 messages to this lead, you MUST pick a different one. Variety keeps conversations fresh.
+Check "Recent OUTREACH frameworks" in the engagement state (last 5, excludes DIRECT_RESPONSE/VALUE_FIRST).
+If any framework appears 2+ times in that list, you MUST pick a DIFFERENT framework. This is a hard rule.
+
+Why: Leads who receive the same framework repeatedly stop engaging. Variety is critical for response rates.
 
 Exception: DIRECT_RESPONSE and VALUE_FIRST can be repeated because they're responsive, not outreach.
+
+Framework selection guide by situation:
+- Cold/new lead: HORMOZI_ACA or CURIOSITY_HOOK
+- Church/nonprofit/community: VALUE_FIRST or CASE_STUDY (mission-aligned)
+- Corporate/B2B: CASE_STUDY or PAS (ROI-focused)
+- Dormant 30-90 days: EMB_WINBACK
+- Dormant 90+ days: HORMOZI_ACA or EMB_COLD
+- Quote follow-up: SOCIAL_PROOF (show others who bought)
+- Multi-touch sequence: rotate PAS → BAB → AIDA → SOCIAL_PROOF → CASE_STUDY
 
 === PRICING RULES (for provide_quote approach) ===
 - ALWAYS look up the EXACT quantity tier in the knowledge base pricing matrix. Do NOT blend multiple tiers.
@@ -265,6 +277,8 @@ ENGAGEMENT STATE:
 - Phone on file: ${lead.phone ? "YES" : "NO"}
 ${!lead.email && !lead.phone ? "⚠️ CONTACT GAP: Both email AND phone are MISSING. CTA must ask for contact details to avoid losing this lead." : ""}
 - Last framework used: ${state?.lastFrameworkUsed || "none"}
+- Recent OUTREACH frameworks (last 5, excludes DIRECT_RESPONSE/VALUE_FIRST): ${context.recentOutreachFrameworks && context.recentOutreachFrameworks.length > 0 ? context.recentOutreachFrameworks.join(', ') : 'none yet'}
+⚠️ FRAMEWORK DIVERSITY RULE: If any framework appears 2+ times in the recent outreach list above, you MUST choose a DIFFERENT framework. Do NOT repeat overused frameworks.
 - Last angle used: ${state?.lastAngleUsed || "none"}
 - Sentiment trend: ${state?.sentimentTrend || "neutral"}
 - Objections: ${JSON.stringify(state?.objectionsRaised || [])}
@@ -313,7 +327,7 @@ ${(context as any).tweakInstructions}
 ` : ""}
 STEP 1: Detect the awareness level from the incoming message and conversation history.
 STEP 2: Choose the approach that matches the awareness level.
-STEP 3: Choose the framework. Remember the FRAMEWORK DIVERSITY RULE — last framework was "${state?.lastFrameworkUsed || "none"}".
+STEP 3: Choose the framework. FRAMEWORK DIVERSITY RULE: Recent outreach frameworks = [${context.recentOutreachFrameworks?.join(', ') || 'none yet'}]. If any framework appears 2+ times in that list, you MUST choose a DIFFERENT one. Available outreach frameworks: HORMOZI_ACA, HORMOZI_INDIRECT, PAS, BAB, AIDA, SOCIAL_PROOF, CASE_STUDY, SOAP_OPERA, CURIOSITY_HOOK, EMB_WINBACK, EMB_COLD, VALUE_FIRST. Pick the most contextually appropriate one that is NOT overused.
 STEP 4: Produce your strategic directive. PRIORITIZE frameworks and channels with proven higher reply rates from the learning data above (if available). If PERSONA-SPECIFIC LEARNING DATA is available above, use it to select the best-performing framework and channel for this persona.`;
 
   const response = await invokeLLM({

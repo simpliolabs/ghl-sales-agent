@@ -3,7 +3,7 @@
  * Uses TTL caching to avoid redundant DB queries across brain modules.
  */
 
-import { getDb, getConversationHistory } from "./db";
+import { getDb, getConversationHistory, getRecentOutreachFrameworks } from "./db";
 import { aiState, aiTweaks, knowledgeFiles, leads } from "../drizzle/schema";
 import { eq, type InferSelectModel } from "drizzle-orm";
 import type { LeadContext } from "./brain-types";
@@ -107,6 +107,8 @@ export async function buildLeadContext(leadId: number): Promise<LeadContext> {
     // Phase A: Conversation State Machine (observation mode)
     convState: lead.convState || "new_lead",
     intentHistory: (lead.intentHistory as any) || [],
+    // Framework diversity: last 5 outreach frameworks (for Strategist prompt + diversity enforcement)
+    recentOutreachFrameworks: await getRecentOutreachFrameworks(leadId, 5),
   };
 }
 

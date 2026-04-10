@@ -23,7 +23,7 @@
  * and the Brain decides everything.
  */
 
-import { addBrainCouncilAudit, acquireDbBrainCouncilLock, releaseDbBrainCouncilLock, isAiOffline, getDb, isChannelDnd, getBlockedChannels, upsertAiState } from "./db";
+import { addBrainCouncilAudit, acquireDbBrainCouncilLock, releaseDbBrainCouncilLock, isAiOffline, getDb, isChannelDnd, getBlockedChannels, upsertAiState, getRecentOutreachFrameworks } from "./db";
 import { checkDnc } from "./scheduling-engine";
 import { handleChannelDnc, detectDncChannel } from "./channel-fallback";
 import { conversations, leads, brainCouncilAudit, aiState } from "../drizzle/schema";
@@ -455,32 +455,31 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     }
 
     // --- PROGRAMMATIC FRAMEWORK DIVERSITY ENFORCEMENT ---
-    // If the Strategist picked the same outreach framework as the last 2 messages, override it.
-    // Responsive frameworks (DIRECT_RESPONSE, VALUE_FIRST) are exempt — they're context-appropriate.
+    // Checks the last 5 OUTREACH frameworks (ignoring DIRECT_RESPONSE/VALUE_FIRST which are
+    // context-appropriate responsive frameworks). If the current framework was used 2+ times
+    // in the last 5 outreach messages, override to a different framework.
+    // FIX: Previously relied on lastFrameworkUsed from ai_state which gets reset by DIRECT_RESPONSE
+    // responses — now reads directly from audit trail, filtering out responsive frameworks.
     const RESPONSIVE_FRAMEWORKS = new Set(["DIRECT_RESPONSE", "VALUE_FIRST"]);
     if (!RESPONSIVE_FRAMEWORKS.has(strategy.framework)) {
-      const state = context.state;
-      if (state?.lastFrameworkUsed && state.lastFrameworkUsed === strategy.framework) {
-        // Count consecutive uses of this framework in recent audit trail
-        const dbConn = await getDb();
-        let recentAudits: { framework: string | null }[] = [];
-        if (dbConn) {
-          recentAudits = await dbConn.select({ framework: brainCouncilAudit.strategyFramework })
-            .from(brainCouncilAudit)
-            .where(eq(brainCouncilAudit.leadId, input.leadId))
-            .orderBy(desc(brainCouncilAudit.createdAt))
-            .limit(3);
-        }
-        const consecutiveSame = recentAudits.filter((a: { framework: string | null }) => a.framework === strategy.framework).length;
-        if (consecutiveSame >= 2) {
-          // Pick a different framework from the same category
-          const OUTREACH_FRAMEWORKS = ["PAS", "BAB", "AIDA", "HORMOZI_ACA", "HORMOZI_INDIRECT", "SOCIAL_PROOF", "CASE_STUDY", "SOAP_OPERA"] as const;
-          const alternatives = OUTREACH_FRAMEWORKS.filter(f => f !== strategy.framework);
-          const override = alternatives[Math.floor(Math.random() * alternatives.length)];
-          console.log(`[BrainCouncil] ⚠️ Framework diversity override: ${strategy.framework} used ${consecutiveSame}x consecutively → switching to ${override}`);
+      try {
+        const recentOutreachFrameworks = await getRecentOutreachFrameworks(input.leadId, 5);
+        const usageCount = recentOutreachFrameworks.filter(f => f === strategy.framework).length;
+        if (usageCount >= 2) {
+          // Build a weighted pool: prefer frameworks NOT in recent history
+          const ALL_OUTREACH_FRAMEWORKS = ["PAS", "BAB", "AIDA", "HORMOZI_ACA", "HORMOZI_INDIRECT", "SOCIAL_PROOF", "CASE_STUDY", "SOAP_OPERA", "CURIOSITY_HOOK"] as const;
+          const recentSet = new Set(recentOutreachFrameworks);
+          // Prefer frameworks not used recently
+          const freshAlternatives = ALL_OUTREACH_FRAMEWORKS.filter(f => f !== strategy.framework && !recentSet.has(f));
+          const anyAlternatives = ALL_OUTREACH_FRAMEWORKS.filter(f => f !== strategy.framework);
+          const pool = freshAlternatives.length > 0 ? freshAlternatives : anyAlternatives;
+          const override = pool[Math.floor(Math.random() * pool.length)];
+          console.log(`[BrainCouncil] ⚠️ Framework diversity override: ${strategy.framework} used ${usageCount}x in last 5 outreach → switching to ${override} (recent: ${recentOutreachFrameworks.slice(0,5).join(',')})`);
           (strategy as any).framework = override;
-          (strategy as any).reasoning = `[DIVERSITY OVERRIDE: ${strategy.framework}→${override}] ${strategy.reasoning}`;
+          (strategy as any).reasoning = `[DIVERSITY OVERRIDE: ${strategy.framework}→${override} (used ${usageCount}/5)] ${strategy.reasoning}`;
         }
+      } catch (diversityErr) {
+        console.error('[BrainCouncil] Diversity check error (non-fatal):', diversityErr);
       }
     }
 
