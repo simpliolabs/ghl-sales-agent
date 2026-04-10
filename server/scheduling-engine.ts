@@ -112,8 +112,8 @@ function isBusinessHours(date: Date, channel: string): boolean {
   const hour = et.getHours();
 
   if (channel.toLowerCase() === "email") {
-    // Email can be sent anytime, but prefer Tue-Thu 9-11 AM
-    return true;
+    // Email: respect optimal send windows (6-10 AM, 1-3 PM ET)
+    return !isEmailOutsideOptimalWindow(date);
   }
 
   // SMS/Phone: Mon-Fri 9-6, Sat 10-2
@@ -149,6 +149,43 @@ export function nextSmsWindowStart(date: Date = new Date()): Date {
   et.setHours(9, 0, 0, 0);
   // Return as-is — toET already gives us ET-local Date
   return et;
+}
+
+/**
+ * Returns true if the current time is OUTSIDE optimal email send windows.
+ * Optimal windows (ET): 6:00 AM – 10:00 AM and 1:00 PM – 3:00 PM
+ * Based on Email Marketing Bible: highest open rates in morning (6-10 AM) and early afternoon (1-3 PM)
+ */
+export function isEmailOutsideOptimalWindow(date: Date = new Date()): boolean {
+  const et = toET(date);
+  const h = et.getHours();
+  const m = et.getMinutes();
+  const minuteOfDay = h * 60 + m;
+  const inMorning = minuteOfDay >= 360 && minuteOfDay < 600;   // 6:00 AM – 10:00 AM
+  const inAfternoon = minuteOfDay >= 780 && minuteOfDay < 900; // 1:00 PM – 3:00 PM
+  return !inMorning && !inAfternoon;
+}
+
+/**
+ * Returns the next optimal email send window start time.
+ * Before 6 AM → today 6 AM | 10 AM–1 PM → today 1 PM | After 3 PM → tomorrow 6 AM
+ */
+export function nextEmailWindowStart(date: Date = new Date()): Date {
+  const et = toET(date);
+  const h = et.getHours();
+  const m = et.getMinutes();
+  const minuteOfDay = h * 60 + m;
+  const result = new Date(et);
+  result.setSeconds(0, 0);
+  if (minuteOfDay < 360) {
+    result.setHours(6, 0, 0, 0);  // Before 6 AM → today 6 AM
+  } else if (minuteOfDay >= 600 && minuteOfDay < 780) {
+    result.setHours(13, 0, 0, 0); // 10 AM–1 PM → today 1 PM
+  } else {
+    result.setDate(result.getDate() + 1);
+    result.setHours(6, 0, 0, 0);  // After 3 PM → tomorrow 6 AM
+  }
+  return result;
 }
 
 function pushToNextBusinessHour(date: Date, channel: string): Date {

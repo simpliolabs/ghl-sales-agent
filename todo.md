@@ -507,3 +507,10 @@
 - [x] FIX: AI State tracking — message count was already incremented via upsertAiState in webhook-message.ts (the 0 was from the contact_handler path which correctly sets messageCount: 1 after first-contact)
 - [x] BUG: Follow-up emails create new threads — Fixed: added emailMessageId column to conversations, getLastEmailThreadId() helper, threadId/replyMessageId passed in follow-up-trigger.ts, webhook-message.ts, and TCPA email fallback. Subject prefixed with "Re:" for threaded replies.
 - [x] BUG: Follow-up email subject line — Fixed: "Re:" prefix added automatically when replying to existing email thread
+
+## Session 2 — Email Timing & AI Tweaks
+
+- [x] BUG: Email sent at 1:00 AM — Fixed: isEmailOutsideOptimalWindow() + nextEmailWindowStart() added to scheduling-engine.ts. isBusinessHours() now enforces email optimal windows. Pre+post Brain Council gates in follow-up-trigger.ts.
+- [x] FIX: Email optimal window gates — pre-Brain Council (hint=Email) + post-Brain Council (channel=Email) in follow-up-trigger.ts
+- [x] AUDIT: AI Tweaks — tweakInstructions now injected into BOTH Strategist (ADMIN BEHAVIOR ADJUSTMENTS block) and Composer
+- [x] AUDIT: Email Marketing Bible — Full EMB_WELCOME, EMB_WINBACK, EMB_POST_PURCHASE, EMB_COLD sequence rules with subject line formulas, structure, tone, length constraints added to Composer prompt

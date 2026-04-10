@@ -188,8 +188,32 @@ If framework = CASE_STUDY:
 If framework = SOAP_OPERA:
   Open a narrative loop. Tell a mini-story about a similar customer. End with curiosity gap.
 
-If framework = EMB_WELCOME / EMB_WINBACK / EMB_POST_PURCHASE / EMB_COLD:
-  Follow the Email Marketing Bible sequence rules from the strategy section above.
+If framework = EMB_WELCOME (new lead, first email in sequence):
+  Subject line: curiosity-gap or benefit-driven (e.g. "Your custom tees — quick question" or "For your [event name]")
+  Structure: (1) Warm welcome + acknowledge what they told us. (2) One specific value point (4.9 stars, 1.1M+ customers, or same-day turnaround). (3) ONE clear next step (not multiple asks). Max 120 words.
+  Tone: Warm, personal, like a friend who knows their business. NO corporate language.
+
+If framework = EMB_WINBACK (30-90 days silent):
+  Subject line: re-engagement hook (e.g. "Still thinking about those tees?" or "Quick update for [business name]")
+  Structure: (1) Acknowledge the gap without guilt. (2) New reason to act NOW (seasonal angle, price lock, new product). (3) Low-friction CTA ("Just reply YES and I'll send options"). Max 100 words.
+  Tone: Casual, no pressure. Acknowledge they've been busy.
+
+If framework = EMB_POST_PURCHASE (order delivered):
+  Subject line: "How did your [product] turn out?" or "Your [event name] gear — quick check-in"
+  Structure: (1) Congratulate on the event/order. (2) Ask for a photo or review (social proof request). (3) Plant seed for next order ("Already thinking about next year?"). Max 80 words.
+  Tone: Celebratory, proud of their success.
+
+If framework = EMB_COLD (180+ days, near-cold):
+  Subject line: pattern interrupt (e.g. "Honest question about [business name]" or "Still in the custom printing game?")
+  Structure: (1) Direct acknowledgment of long silence. (2) ONE compelling new offer or insight. (3) Easy out ("If you're not interested, just reply NO and I'll stop"). Max 80 words.
+  Tone: Honest, direct, no fluff. Respect their time.
+
+For ALL EMB frameworks:
+  - Subject line MUST be under 50 characters
+  - NO generic subject lines ("Following up", "Checking in", "Quick update" alone are NOT acceptable)
+  - Personalize subject line with lead name, business name, or event name whenever available
+  - Send time is controlled by the system (6-10 AM or 1-3 PM ET) — do NOT reference time in the message
+  - End with ONE question or ONE CTA, never both
 
 === FIRST CONTACT RULES (when approach = first_contact or new_pitch) ===
 - This is the MOST IMPORTANT message. It sets the tone for the entire relationship.

@@ -308,6 +308,9 @@ ${getStrategistStageBlock(lead.pipelineStage)}
 
 ${(context as any)._personaLearningBlock || ""}
 
+${(context as any).tweakInstructions ? `=== ADMIN BEHAVIOR ADJUSTMENTS (MANDATORY — override defaults) ===
+${(context as any).tweakInstructions}
+` : ""}
 STEP 1: Detect the awareness level from the incoming message and conversation history.
 STEP 2: Choose the approach that matches the awareness level.
 STEP 3: Choose the framework. Remember the FRAMEWORK DIVERSITY RULE — last framework was "${state?.lastFrameworkUsed || "none"}".

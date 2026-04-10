@@ -253,7 +253,7 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
         }
 
         // --- TCPA QUIET HOURS GATE (SMS only) ---
-        const { isSmsQuietHours, nextSmsWindowStart } = await import("./scheduling-engine");
+        const { isSmsQuietHours, nextSmsWindowStart, isEmailOutsideOptimalWindow, nextEmailWindowStart } = await import("./scheduling-engine");
         if (isSmsQuietHours() && hintChannel === "SMS") {
           // Check if lead has email — if so, Brain Council can switch to email
           if (!(lead as any).email) {
@@ -266,6 +266,16 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
           }
           // Has email — let Brain Council proceed but hint Email
           console.log(`[FollowUp] TCPA quiet hours — switching hint to Email for lead ${leadId}`);
+        }
+
+        // --- EMAIL OPTIMAL WINDOW GATE (Email Marketing Bible) ---
+        // Only send emails during 6-10 AM or 1-3 PM ET to maximize open rates
+        if (hintChannel === "Email" && isEmailOutsideOptimalWindow()) {
+          const nextWindow = nextEmailWindowStart();
+          console.log(`[FollowUp] ⏰ Email outside optimal window — deferring email for lead ${leadId} to ${nextWindow.toISOString()}`);
+          await updateLeadFields(leadId, { nextFollowUpAt: nextWindow });
+          stats.skipped++;
+          continue;
         }
 
         // --- RUN BRAIN COUNCIL (with LLM exhaustion detection) ---
@@ -359,6 +369,16 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
           }
           const reschedule = await calculateNextFollowUp({ leadId, triggerEvent: "ai_response" });
           await updateLeadFields(leadId, { nextFollowUpAt: reschedule.nextFollowUpAt });
+          continue;
+        }
+
+        // --- EMAIL POST-DECISION OPTIMAL WINDOW GATE ---
+        // Brain Council may have chosen Email despite the hint being SMS — enforce optimal window
+        if (channel === "Email" && isEmailOutsideOptimalWindow()) {
+          const nextEmailWindow = nextEmailWindowStart();
+          console.log(`[FollowUp] ⏰ Email post-decision gate: Brain Council chose Email outside optimal window for lead ${leadId} — deferring to ${nextEmailWindow.toISOString()}`);
+          await updateLeadFields(leadId, { nextFollowUpAt: nextEmailWindow });
+          stats.skipped++;
           continue;
         }
 
