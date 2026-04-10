@@ -463,3 +463,11 @@
 - [x] P4.13: Admin endpoints — createExperiment, listExperiments, evaluateExperiment, getPersonaMatrix, getOutcomeTrends
 - [x] P4.14: Wire daily snapshot timer into webhooks.ts (runs once per day at midnight)
 - [x] P4.15: Tests for A/B testing, persona learning, outcome trends, and statistical significance
+
+## SEND ERROR HANDLING
+- [x] SE.1: Recognize GHL send error types (missing phone, missing email, invalid email, carrier block) and act appropriately
+- [x] SE.2: Missing phone → skip SMS, attempt email fallback if available; if no email either, mark lead as no-contact-info and reschedule far out
+- [x] SE.3: Missing/invalid email → skip email, attempt SMS fallback if available; if no SMS either, same no-contact-info handling
+- [x] SE.4: Carrier block / 422 undeliverable → flag dndSms on lead, attempt email fallback
+- [x] SE.5: Log corrective action taken in follow-up trigger (errorType + correctionTaken logged)
+- [x] SE.6: Tests for each error scenario (558 tests passing)

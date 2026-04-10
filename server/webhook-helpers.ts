@@ -5,6 +5,79 @@
 import { getContact, searchContacts, sendMessage, updateContactCustomField } from "./ghl";
 import { updateLeadFields } from "./db";
 
+// --- GHL SEND ERROR CLASSIFICATION ---
+// Classifies GHL API error responses into actionable categories so callers
+// can take the right corrective action instead of just logging and moving on.
+export type GhlSendErrorType =
+  | "missing_phone"       // Contact has no phone number — cannot send SMS/WhatsApp
+  | "missing_email"       // Contact has no email — cannot send Email
+  | "invalid_email"       // Email address exists but is malformed/rejected
+  | "carrier_block"       // Carrier or GHL filtered/blocked the SMS delivery
+  | "contact_not_found"   // Contact ID not found in GHL
+  | "dnd"                 // Contact is DND / opted out
+  | "transient"           // Temporary error (rate limit, timeout) — safe to retry
+  | "unknown";            // Unclassified error
+
+export interface GhlSendError {
+  type: GhlSendErrorType;
+  message: string;
+  status?: number;
+  raw?: unknown;
+}
+
+export function classifyGhlSendError(err: unknown): GhlSendError {
+  const status = (err as any)?.response?.status as number | undefined;
+  const errData = (err as any)?.response?.data;
+  const errMsg = (JSON.stringify(errData || {}) + " " + String((err as any)?.message || "")).toLowerCase();
+
+  // DND / opt-out
+  if ((err as any)?.isDndRejection ||
+      errMsg.includes("dnd") || errMsg.includes("do not disturb") ||
+      errMsg.includes("unsubscribed") || errMsg.includes("opted out") ||
+      errMsg.includes("stop") || status === 403) {
+    return { type: "dnd", message: "Contact is DND/opted-out", status, raw: errData };
+  }
+
+  // Missing phone
+  if (errMsg.includes("missing phone") || errMsg.includes("no phone") ||
+      errMsg.includes("phone number is required") || errMsg.includes("contact has no phone")) {
+    return { type: "missing_phone", message: "Contact has no phone number", status, raw: errData };
+  }
+
+  // Missing email
+  if (errMsg.includes("no email") || errMsg.includes("contact has no email") ||
+      errMsg.includes("email is required") || errMsg.includes("missing email")) {
+    return { type: "missing_email", message: "Contact has no email address", status, raw: errData };
+  }
+
+  // Invalid email
+  if (errMsg.includes("invalid email") || errMsg.includes("invalid e-mail") ||
+      errMsg.includes("unable to send e-mail") || errMsg.includes("email.*invalid") ||
+      errMsg.includes("invalid_email")) {
+    return { type: "invalid_email", message: "Contact email address is invalid", status, raw: errData };
+  }
+
+  // Contact not found
+  if (status === 400 || status === 404) {
+    return { type: "contact_not_found", message: "Contact not found in GHL", status, raw: errData };
+  }
+
+  // Carrier block / undeliverable (422 often means GHL validation failure)
+  if (status === 422 || errMsg.includes("carrier") || errMsg.includes("undeliverable") ||
+      errMsg.includes("landline") || errMsg.includes("not a mobile") ||
+      errMsg.includes("invalid number") || errMsg.includes("number is not valid")) {
+    return { type: "carrier_block", message: "SMS carrier block or invalid number", status, raw: errData };
+  }
+
+  // Transient errors
+  if (status === 429 || status === 503 || status === 502 || status === 504 ||
+      errMsg.includes("rate limit") || errMsg.includes("timeout") || errMsg.includes("econnreset")) {
+    return { type: "transient", message: "Transient GHL error — safe to retry", status, raw: errData };
+  }
+
+  return { type: "unknown", message: String((err as any)?.message || err), status, raw: errData };
+}
+
 // --- TEAM ROSTER ---
 export const SALES_AGENTS = ["Abby Bouwer", "Chris McHendry"];
 export const DESIGNER = "César Vásquez";
@@ -84,13 +157,18 @@ export async function sendMessageWithRetry(
   contactId: string,
   opts: Parameters<typeof sendMessage>[1],
   lead: { email?: string | null; phone?: string | null; id: number }
-): Promise<{ success: boolean; resolvedContactId: string; error?: string }> {
+): Promise<{ success: boolean; resolvedContactId: string; error?: string; errorType?: GhlSendErrorType; correctionTaken?: string }> {
   try {
     await sendMessage(contactId, opts);
     return { success: true, resolvedContactId: contactId };
   } catch (err: unknown) {
-    const status = (err as { response?: { status?: number } })?.response?.status;
-    if (status === 400 || status === 404) {
+    const classified = classifyGhlSendError(err);
+    const channel = opts.type;
+
+    console.warn(`[SendRetry] GHL send failed — type=${classified.type} channel=${channel} lead=${lead.id}: ${classified.message}`);
+
+    // ── CONTACT NOT FOUND: resolve real GHL ID and retry ──────────────────────
+    if (classified.type === "contact_not_found") {
       console.log(`[SendRetry] Contact ${contactId} not found, resolving real ID...`);
       const resolved = await resolveGhlContactId(contactId, lead.email, lead.phone);
       if (resolved && resolved.resolvedId !== contactId) {
@@ -98,16 +176,82 @@ export async function sendMessageWithRetry(
         console.log(`[SendRetry] Resolved to ${resolved.resolvedId}, retrying send...`);
         try {
           await sendMessage(resolved.resolvedId, opts);
-          return { success: true, resolvedContactId: resolved.resolvedId };
+          return { success: true, resolvedContactId: resolved.resolvedId, correctionTaken: "resolved_contact_id" };
         } catch (retryErr: unknown) {
-          const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-          console.error(`[SendRetry] Retry also failed:`, retryMsg);
-          return { success: false, resolvedContactId: resolved.resolvedId, error: retryMsg };
+          const retryClassified = classifyGhlSendError(retryErr);
+          console.error(`[SendRetry] Retry also failed (${retryClassified.type}):`, retryClassified.message);
+          return { success: false, resolvedContactId: resolved.resolvedId, error: retryClassified.message, errorType: retryClassified.type };
         }
       }
+      return { success: false, resolvedContactId: contactId, error: classified.message, errorType: classified.type };
     }
-    const errMsg = err instanceof Error ? err.message : String(err);
-    return { success: false, resolvedContactId: contactId, error: errMsg };
+
+    // ── MISSING PHONE: attempt email fallback if available ────────────────────
+    if (classified.type === "missing_phone") {
+      if (lead.email) {
+        console.log(`[SendRetry] Missing phone for lead ${lead.id} — attempting Email fallback`);
+        try {
+          await sendMessage(contactId, { type: "Email", subject: "Adorb Custom Tees", html: opts.message || "", message: opts.message });
+          return { success: true, resolvedContactId: contactId, correctionTaken: "fallback_to_email" };
+        } catch (fbErr: unknown) {
+          const fbClassified = classifyGhlSendError(fbErr);
+          console.error(`[SendRetry] Email fallback also failed (${fbClassified.type}):`, fbClassified.message);
+          // Mark lead as no-contact-info if email also fails
+          try { await updateLeadFields(lead.id, { lastAgentNote: `[AUTO] No valid phone or email — cannot reach via any channel` }); } catch { /* best effort */ }
+          return { success: false, resolvedContactId: contactId, error: fbClassified.message, errorType: fbClassified.type, correctionTaken: "fallback_to_email_failed" };
+        }
+      }
+      // No email either — mark as unreachable, reschedule far out
+      console.warn(`[SendRetry] Lead ${lead.id} has no phone AND no email — marking unreachable`);
+      try { await updateLeadFields(lead.id, { lastAgentNote: `[AUTO] No phone or email on file — cannot reach via any channel. Rescheduled 30 days.` }); } catch { /* best effort */ }
+      return { success: false, resolvedContactId: contactId, error: "No phone or email available", errorType: "missing_phone", correctionTaken: "marked_unreachable" };
+    }
+
+    // ── MISSING / INVALID EMAIL: attempt SMS fallback if available ─────────────
+    if (classified.type === "missing_email" || classified.type === "invalid_email") {
+      const label = classified.type === "invalid_email" ? "invalid email" : "missing email";
+      if (lead.phone) {
+        console.log(`[SendRetry] ${label} for lead ${lead.id} — attempting SMS fallback`);
+        try {
+          await sendMessage(contactId, { type: "SMS", message: opts.message || "" });
+          return { success: true, resolvedContactId: contactId, correctionTaken: "fallback_to_sms" };
+        } catch (fbErr: unknown) {
+          const fbClassified = classifyGhlSendError(fbErr);
+          console.error(`[SendRetry] SMS fallback also failed (${fbClassified.type}):`, fbClassified.message);
+          return { success: false, resolvedContactId: contactId, error: fbClassified.message, errorType: fbClassified.type, correctionTaken: "fallback_to_sms_failed" };
+        }
+      }
+      // No phone either
+      console.warn(`[SendRetry] Lead ${lead.id} has ${label} AND no phone — marking unreachable`);
+      try { await updateLeadFields(lead.id, { lastAgentNote: `[AUTO] ${label} and no phone on file — cannot reach. Rescheduled 30 days.` }); } catch { /* best effort */ }
+      return { success: false, resolvedContactId: contactId, error: `${label} and no phone fallback`, errorType: classified.type, correctionTaken: "marked_unreachable" };
+    }
+
+    // ── CARRIER BLOCK / 422: flag dndSms, attempt email fallback ──────────────
+    if (classified.type === "carrier_block") {
+      console.warn(`[SendRetry] Carrier block for lead ${lead.id} — flagging dndSms, attempting Email fallback`);
+      try { await updateLeadFields(lead.id, { dndSms: 1 as any }); } catch { /* best effort */ }
+      if (lead.email) {
+        try {
+          await sendMessage(contactId, { type: "Email", subject: "Adorb Custom Tees", html: opts.message || "", message: opts.message });
+          return { success: true, resolvedContactId: contactId, correctionTaken: "carrier_block_fallback_to_email" };
+        } catch (fbErr: unknown) {
+          const fbClassified = classifyGhlSendError(fbErr);
+          console.error(`[SendRetry] Email fallback after carrier block also failed:`, fbClassified.message);
+          return { success: false, resolvedContactId: contactId, error: fbClassified.message, errorType: fbClassified.type, correctionTaken: "carrier_block_all_channels_failed" };
+        }
+      }
+      return { success: false, resolvedContactId: contactId, error: "Carrier block — SMS flagged DND, no email fallback", errorType: "carrier_block", correctionTaken: "carrier_block_dnd_flagged" };
+    }
+
+    // ── DND: already handled in ghl.ts (throws isDndRejection) — surface cleanly
+    if (classified.type === "dnd") {
+      console.warn(`[SendRetry] DND rejection for lead ${lead.id} on ${channel}`);
+      return { success: false, resolvedContactId: contactId, error: "DND rejection", errorType: "dnd" };
+    }
+
+    // ── TRANSIENT / UNKNOWN: surface error for caller to decide ───────────────
+    return { success: false, resolvedContactId: contactId, error: classified.message, errorType: classified.type };
   }
 }
 

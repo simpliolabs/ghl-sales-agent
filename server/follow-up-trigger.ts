@@ -353,13 +353,22 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
         const sendResult = await sendMessageWithRetry(ghlContactId, msgOpts, { email: (lead as any).email, phone: (lead as any).phone, id: leadId });
 
         if (sendResult.success) {
-          await addConversation({ leadId, channel, direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName });
+          // Determine the actual channel used (may differ if fallback was triggered)
+          const actualChannel = sendResult.correctionTaken?.includes("email") ? "Email"
+            : sendResult.correctionTaken?.includes("sms") ? "SMS"
+            : channel;
+          await addConversation({ leadId, channel: actualChannel, direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName });
           await upsertAiState(leadId, { lastAngleUsed: aiResponse.angle, lastFrameworkUsed: aiResponse.framework, extractedDates: aiResponse.extractedDates as unknown as undefined, messageCount: undefined });
-          await updateLeadFields(leadId, { opportunityScore: aiResponse.score, omnisendSegment: aiResponse.segment, lastMessageAt: new Date() });
+          await updateLeadFields(leadId, { opportunityScore: aiResponse.score, omnisendSegment: aiResponse.segment, lastMessageAt: new Date(), lastOutboundChannel: actualChannel });
+          if (sendResult.correctionTaken) {
+            console.log(`[FollowUp] ✅ Sent follow-up to lead ${leadId} (${leadName}) via ${actualChannel} [correction: ${sendResult.correctionTaken}]`);
+          } else {
+            console.log(`[FollowUp] ✅ Sent follow-up to lead ${leadId} (${leadName}) via ${actualChannel}`);
+          }
 
           // Estimate order value
           try {
-            const fullConv = historyStr + `\n[ai/${channel}] ${aiResponse.message}`;
+            const fullConv = historyStr + `\n[ai/${actualChannel}] ${aiResponse.message}`;
             const leadInfo = `${leadName} - ${(lead as any).businessName || "Unknown"} - Stage: ${(lead as any).pipelineStage}`;
             const valueEstimate = await estimateOrderValue(fullConv, leadInfo);
             if (valueEstimate.estimatedValue > 0) {
@@ -368,9 +377,44 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
           } catch { /* best effort */ }
 
           stats.sent++;
-          console.log(`[FollowUp] ✅ Sent follow-up to lead ${leadId} (${leadName}) via ${channel}`);
         } else {
-          console.error(`[FollowUp] ❌ Failed to send to lead ${leadId}: ${sendResult.error}`);
+          const errType = sendResult.errorType || "unknown";
+          const correction = sendResult.correctionTaken || "none";
+          console.error(`[FollowUp] ❌ Failed to send to lead ${leadId} (${leadName}): type=${errType} correction=${correction} error=${sendResult.error}`);
+
+          // Corrective actions based on error type
+          if (errType === "missing_phone" && correction === "marked_unreachable") {
+            // No phone AND no email — reschedule 30 days out, don't waste cycles
+            await updateLeadFields(leadId, { nextFollowUpAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) });
+            console.warn(`[FollowUp] Lead ${leadId} marked unreachable (no phone/email) — rescheduled 30 days`);
+            stats.skipped++;
+            continue;
+          }
+
+          if ((errType === "missing_email" || errType === "invalid_email") && correction === "marked_unreachable") {
+            // No email AND no phone — same treatment
+            await updateLeadFields(leadId, { nextFollowUpAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) });
+            console.warn(`[FollowUp] Lead ${leadId} marked unreachable (no email/phone) — rescheduled 30 days`);
+            stats.skipped++;
+            continue;
+          }
+
+          if (errType === "carrier_block" && correction === "carrier_block_dnd_flagged") {
+            // SMS blocked, no email — reschedule 7 days and let disposition engine handle
+            await updateLeadFields(leadId, { nextFollowUpAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) });
+            console.warn(`[FollowUp] Lead ${leadId} carrier-blocked (SMS DND flagged, no email) — rescheduled 7 days`);
+            stats.skipped++;
+            continue;
+          }
+
+          if (errType === "dnd") {
+            // DND already handled by channel-fallback — just reschedule normally
+            console.warn(`[FollowUp] Lead ${leadId} DND rejection — channel-fallback will handle`);
+            stats.skipped++;
+            continue;
+          }
+
+          // Transient or unknown — reschedule 1 hour and count as error
           stats.errors++;
         }
 
