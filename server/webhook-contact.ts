@@ -200,6 +200,24 @@ async function sendDelayedFirstContact(
       return;
     }
 
+    // --- HUMAN TAKEOVER RE-CHECK ---
+    // The message_handler may have set humanTakeover=1 during the 45s delay
+    // due to GHL system messages ("Opportunity Created") being misclassified as agent messages.
+    // If humanTakeover was set but there's no real agent activity (no lastAgentNote, no real outbound),
+    // clear it so the first-contact can proceed.
+    if (lead.humanTakeover === 1) {
+      const hasRealAgentActivity = lead.lastAgentNote || 
+        (lead.lastAgentActivityAt && lead.lastOutboundChannel);
+      if (!hasRealAgentActivity) {
+        console.log(`[Webhook] Clearing false-positive humanTakeover for lead ${leadId} (no real agent activity detected)`);
+        await updateLeadFields(leadId, { humanTakeover: 0 });
+        (lead as any).humanTakeover = 0;
+      } else {
+        console.log(`[Webhook] humanTakeover=1 for lead ${leadId} — real agent activity detected, skipping first-contact`);
+        return;
+      }
+    }
+
     // Rate limit checks
     const rateCheck = await checkRateLimits();
     if (!rateCheck.allowed) {

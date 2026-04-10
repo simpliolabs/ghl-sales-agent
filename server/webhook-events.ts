@@ -117,7 +117,9 @@ export async function handleNoteWebhook(payload: Record<string, unknown>, res: R
   }
 
   // Extract note content
-  const noteBody = (payload.noteBody || payload.body || payload.note || "") as string;
+  // Safely coerce to string — GHL sometimes sends objects for note payloads
+  const rawNote = payload.noteBody ?? payload.body ?? payload.note ?? "";
+  const noteBody = typeof rawNote === "string" ? rawNote : (typeof rawNote === "object" ? JSON.stringify(rawNote) : String(rawNote));
   if (!noteBody || noteBody.trim().length === 0) {
     res.json({ success: true, action: "note_empty" });
     return;

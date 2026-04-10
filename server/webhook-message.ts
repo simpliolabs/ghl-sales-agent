@@ -42,7 +42,9 @@ import { dispatchStateActions, buildDispatchContext } from "./action-dispatcher"
 
 export async function handleMessageWebhook(payload: Record<string, unknown>, res: Response) {
   const contactId = payload.contactId as string;
-  const messageBody = (payload.body || payload.message) as string;
+  // Safely coerce body to string — GHL sometimes sends objects/arrays for FB form data
+  const rawBody = payload.body ?? payload.message ?? "";
+  const messageBody = typeof rawBody === "string" ? rawBody : (typeof rawBody === "object" ? JSON.stringify(rawBody) : String(rawBody));
   const rawChannel = (payload.messageType || payload.type || "SMS") as string;
   const channel = normalizeChannel(rawChannel);
   const direction = (payload.direction || "inbound") as string;
@@ -304,12 +306,24 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
             const msgAge = Date.now() - new Date(m.dateAdded).getTime();
             return msgAge < AGENT_TAKEOVER_WINDOW_MS;
           })
-          // Exclude messages that are clearly AI-generated (contain our known AI sender patterns)
+          // Exclude messages that are clearly AI-generated or GHL system messages
           .filter(m => {
-            const body = m.body.toLowerCase();
+            const body = (m.body || "").toLowerCase().trim();
+            // GHL system messages (opportunity created, workflow triggers, etc.)
+            const SYSTEM_PATTERNS = [
+              "opportunity created", "opportunity moved", "opportunity updated",
+              "workflow", "automation", "task created", "task completed",
+              "appointment", "form submitted", "tag added", "tag removed",
+              "note added", "pipeline", "stage changed",
+            ];
+            const isSystemMsg = SYSTEM_PATTERNS.some(p => body.includes(p)) ||
+              body.length < 5 || // Too short to be a real agent message
+              (m as any).messageType === "TYPE_ACTIVITY" ||
+              (m as any).contentType === "activity";
+            if (isSystemMsg) return false;
             // If message body matches a recent AI outbound in our DB, it's AI — not a human agent
             const isKnownAiMsg = convHistory.some((c: any) =>
-              c.senderType === "ai" && c.messageBody?.toLowerCase().trim() === body.trim()
+              c.senderType === "ai" && c.messageBody?.toLowerCase().trim() === body
             );
             return !isKnownAiMsg;
           })

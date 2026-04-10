@@ -493,3 +493,10 @@
 - [x] FIX: Soft-decline detection — soft_decline intent in classifier + stale state transition + graceful_exit approach in Strategist (720h/30d backoff)
 - [x] FIX: Context-aware fallback — suppresses cold-intro fallback when lead has 2+ prior outbound messages
 - [x] FIX: Test mock — webhooks.test.ts processInboundState mock + isSmsQuietHours/nextSmsWindowStart mocks added
+
+## Session 2 — Additional Bugs
+
+- [x] BUG: FB lead form submissions (Bowman Melissa) — GHL "Opportunity Created" system message misclassified as human agent → humanTakeover=1. Fixed: system message exclusion + humanTakeover re-check in delayed first-contact
+- [x] BUG: messageBody.substring crash — safe type coercion for non-string GHL payloads (objects/arrays → JSON.stringify)
+- [x] BUG: noteBody.trim crash — safe type coercion for non-string note payloads
+- [x] BUG: humanTakeover false positive — GHL system messages (Opportunity Created, workflow, etc.) excluded from agent detection + delayed first-contact re-checks and clears false positives
