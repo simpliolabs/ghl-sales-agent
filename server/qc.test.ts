@@ -307,3 +307,160 @@ describe("ViolationCategory type coverage", () => {
     expect(r3.category).toBe("channel_mismatch");
   });
 });
+
+describe("context_free_subject violation", () => {
+  it("detects generic email subject when lead has product context from form data", () => {
+    const input = makeInput({
+      channel: "Email",
+      formData: [
+        { label: "Product Interested In", value: "T-Shirts" },
+        { label: "Purpose of Bulk Printing", value: "Church event" },
+      ],
+    });
+    const strategy = makeStrategy({ channel: "Email" });
+    // Message body references form data (to avoid form_data_ignored firing first)
+    // but subject line is generic
+    const composed = makeComposed({
+      message: "Hi John, about those T-Shirts for your Church event — we can help!",
+      subject: "Quick update",
+    });
+
+    const result = detectViolations(composed, makeQC(), strategy, makeContext(), input, makeResearch());
+    expect(result.category).toBe("context_free_subject");
+    expect(result.reason).toContain("does not reference any lead-specific context");
+  });
+
+  it("detects generic email subject when lead has business name", () => {
+    const context = makeContext({
+      lead: { name: "John Smith", businessName: "Grace Church", assignedAgent: "Abby", omnisendSegment: "church" },
+    });
+    const strategy = makeStrategy({ channel: "Email" });
+    const composed = makeComposed({
+      message: "Hi John, following up on our conversation...",
+      subject: "Checking in",
+    });
+
+    const result = detectViolations(composed, makeQC(), strategy, context, makeInput({ channel: "Email" }), makeResearch());
+    expect(result.category).toBe("context_free_subject");
+    expect(result.reason).toContain("does not reference any lead-specific context");
+  });
+
+  it("does NOT flag when subject references the product type", () => {
+    const input = makeInput({
+      channel: "Email",
+      formData: [
+        { label: "Product Interested In", value: "T-Shirts" },
+      ],
+    });
+    const strategy = makeStrategy({ channel: "Email" });
+    const composed = makeComposed({
+      message: "Hi John, about those custom tees for your team...",
+      subject: "Your custom tees",
+    });
+
+    const result = detectViolations(composed, makeQC(), strategy, makeContext(), input, makeResearch());
+    expect(result.category).not.toBe("context_free_subject");
+  });
+
+  it("does NOT flag when subject references the business name", () => {
+    const context = makeContext({
+      lead: { name: "John Smith", businessName: "Grace Church", assignedAgent: "Abby", omnisendSegment: "church" },
+    });
+    const strategy = makeStrategy({ channel: "Email" });
+    const composed = makeComposed({
+      message: "Hi John, about those shirts for Grace Church...",
+      subject: "Grace Church tees",
+    });
+
+    const result = detectViolations(composed, makeQC(), strategy, context, makeInput({ channel: "Email" }), makeResearch());
+    expect(result.category).not.toBe("context_free_subject");
+  });
+
+  it("does NOT flag when subject references product from conversation history", () => {
+    const context = makeContext({
+      convHistory: [
+        { direction: "inbound", messageBody: "I need custom hoodies for my team" },
+      ],
+    });
+    const strategy = makeStrategy({ channel: "Email" });
+    const composed = makeComposed({
+      message: "Hi John, about those custom hoodies...",
+      subject: "Your hoodies order",
+    });
+
+    const result = detectViolations(composed, makeQC(), strategy, context, makeInput({ channel: "Email" }), makeResearch());
+    expect(result.category).not.toBe("context_free_subject");
+  });
+
+  it("does NOT flag for SMS channel (only applies to Email)", () => {
+    const input = makeInput({
+      channel: "SMS",
+      formData: [
+        { label: "Product Interested In", value: "T-Shirts" },
+      ],
+    });
+    const strategy = makeStrategy({ channel: "SMS" });
+    const composed = makeComposed({
+      message: "Hi John, just checking in...",
+      subject: "Quick update",
+    });
+
+    const result = detectViolations(composed, makeQC(), strategy, makeContext(), input, makeResearch());
+    expect(result.category).not.toBe("context_free_subject");
+  });
+
+  it("does NOT flag when no lead context is available (no form data, no business name, no conversation)", () => {
+    const context = makeContext({
+      lead: { name: "John Smith", businessName: "", assignedAgent: "Abby", omnisendSegment: "" },
+      convHistory: [],
+    });
+    const strategy = makeStrategy({ channel: "Email" });
+    const composed = makeComposed({
+      message: "Hi John, just checking in...",
+      subject: "Quick update",
+    });
+
+    const result = detectViolations(composed, makeQC(), strategy, context, makeInput({ channel: "Email" }), makeResearch());
+    expect(result.category).not.toBe("context_free_subject");
+  });
+
+  it("detects generic 'Following up' subject when product context exists", () => {
+    const input = makeInput({
+      channel: "Email",
+      formData: [
+        { label: "Product Interested In", value: "Hoodies" },
+      ],
+    });
+    const strategy = makeStrategy({ channel: "Email" });
+    const composed = makeComposed({
+      message: "Hi John, following up on our conversation...",
+      subject: "Following up",
+    });
+
+    const result = detectViolations(composed, makeQC(), strategy, makeContext(), input, makeResearch());
+    expect(result.category).toBe("context_free_subject");
+  });
+
+  it("detects generic 'Hey John' subject when product context exists", () => {
+    const input = makeInput({
+      channel: "Email",
+      formData: [
+        { label: "Product Interested In", value: "Tote Bags" },
+      ],
+    });
+    const strategy = makeStrategy({ channel: "Email" });
+    const composed = makeComposed({
+      message: "Hi John, just a thought about your project...",
+      subject: "Hey John",
+    });
+
+    const result = detectViolations(composed, makeQC(), strategy, makeContext(), input, makeResearch());
+    expect(result.category).toBe("context_free_subject");
+  });
+
+  it("context_free_subject is a valid ViolationCategory", () => {
+    // Type-level test: ensure the new category compiles
+    const category: import("./brain-types").ViolationCategory = "context_free_subject";
+    expect(category).toBe("context_free_subject");
+  });
+});

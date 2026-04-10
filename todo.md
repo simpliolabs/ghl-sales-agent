@@ -537,3 +537,10 @@
   - [x] FIX 1: Outbound webhook handler now filters system messages (appointments, tasks, AI echoes) — no longer sets humanTakeover for system events
   - [x] FIX 2: Moved task/appointment/note creation to AFTER first-contact message in sendDelayedFirstContact
   - [x] FIX 3: System notes prefixed with 🤖 are filtered in note webhook handler + humanTakeover re-check
+
+## BUG: Generic email subject lines and openers — no product/event/business context
+- [x] Fix Composer prompt: subject line MUST reference specific product/event/business from lead data
+- [x] Fix Composer prompt: opening sentence MUST ground reader with conversation context (not "your design" or "your project")
+- [x] Add QC violation for context-free/generic email subjects when lead data has product/business/event info
+- [x] Update Strategist to pass context-grounding emphasis in key_points to Composer
+- [x] Tests for context-specific subject lines and openers (10 new tests, all 603 passing)

@@ -93,6 +93,8 @@ You are the LAST LINE OF DEFENSE before a message goes to a real customer. Your 
     - Personal sender name used (not brand name)?
     - Complaint-safe: nothing that could trigger spam complaints?
     - For win-back: follows EMB sequence (miss you → value → breakup)?
+    - CONTEXT-GROUNDING: Does the subject line reference the lead's specific product, business, event, or conversation topic? Score 0 if the subject is generic ("Quick update", "Checking in", "Following up") when specific lead context is available.
+    - OPENER GROUNDING: Does the first sentence reference something specific to THIS lead (product type, business name, event, quantity, last conversation topic)? Score 0 if the opener is generic ("your design", "your project", "your order") when more specific context is available.
 
 12. EMAIL FORMATTING CHECK (0-10, only for email channel — CRITICAL):
     - Does the email use SHORT PUNCHY LINES with blank lines between them? Score 0 if it's one long paragraph.
@@ -436,7 +438,78 @@ export function detectViolations(
     return { category: "channel_mismatch", reason: `Strategy chose SMS for a lead dormant ${context.leadAgeDays} days (>60). Per dormancy rules, Email should be used for re-engagement of highly dormant leads.` };
   }
 
-  // 10. UNFULFILLABLE COMMITMENT — AI makes a promise only a human agent can fulfill
+  // 10. CONTEXT-FREE EMAIL SUBJECT — email subject line doesn't reference any lead-specific context
+  if (strategy.channel === "Email" && composed.subject) {
+    const subjectLower = composed.subject.toLowerCase();
+    // Gather available lead context tokens
+    const contextTokens: string[] = [];
+    // Product type from form data
+    const productField = (input.formData || []).find(f =>
+      /product|interested|looking for|item/i.test(f.label)
+    );
+    if (productField) {
+      // Split product value into keywords (e.g., "T-Shirts" → ["t-shirts", "shirts", "tees", "tee"])
+      const pv = productField.value.toLowerCase();
+      contextTokens.push(pv);
+      // Add common variations
+      if (pv.includes("t-shirt") || pv.includes("tee")) contextTokens.push("tee", "tees", "shirt", "shirts", "t-shirt");
+      if (pv.includes("hoodie") || pv.includes("hoody")) contextTokens.push("hoodie", "hoodies");
+      if (pv.includes("polo")) contextTokens.push("polo", "polos");
+      if (pv.includes("hat") || pv.includes("cap")) contextTokens.push("hat", "hats", "cap", "caps");
+      if (pv.includes("tote") || pv.includes("bag")) contextTokens.push("tote", "totes", "bag", "bags");
+      if (pv.includes("jacket")) contextTokens.push("jacket", "jackets");
+      if (pv.includes("tank")) contextTokens.push("tank", "tanks");
+      if (pv.includes("sweatshirt")) contextTokens.push("sweatshirt", "sweatshirts");
+    }
+    // Purpose/event from form data
+    const purposeField = (input.formData || []).find(f =>
+      /purpose|bulk printing|event|occasion/i.test(f.label)
+    );
+    if (purposeField) contextTokens.push(purposeField.value.toLowerCase());
+    // Business name
+    if (businessName && businessName.length > 2) {
+      contextTokens.push(businessName);
+      // Also add individual words from business name (e.g., "Grace Church" → ["grace", "church"])
+      businessName.split(/\s+/).filter((w: string) => w.length > 2).forEach((w: string) => contextTokens.push(w));
+    }
+    // Conversation topic keywords from last few messages
+    const lastInbound = context.convHistory.filter((c: any) => c.direction === "inbound").slice(-3);
+    for (const msg of lastInbound) {
+      const body = (msg.messageBody || "").toLowerCase();
+      // Extract product mentions from conversation
+      const productMentions = body.match(/\b(tee|tees|shirt|shirts|t-shirt|hoodie|hoodies|polo|polos|hat|hats|cap|caps|tote|totes|bag|bags|jacket|jackets|tank|tanks|sweatshirt|embroidery|embroidered|print|printing|custom)\b/g);
+      if (productMentions) contextTokens.push(...productMentions);
+    }
+
+    // Only enforce if we have context tokens (i.e., we KNOW something specific about this lead)
+    if (contextTokens.length > 0) {
+      const hasContextInSubject = contextTokens.some(token => {
+        if (token.length <= 2) return false;
+        return subjectLower.includes(token);
+      });
+      if (!hasContextInSubject) {
+        // Also check for banned generic patterns
+        const BANNED_SUBJECTS = [
+          "quick update", "checking in", "following up", "quick question",
+          "just a thought", "touching base", "hey ", "hi ",
+          "a little something", "still here", "thinking of you",
+          "just wanted to", "circling back"
+        ];
+        const isGeneric = BANNED_SUBJECTS.some(b => subjectLower.includes(b)) ||
+          subjectLower.length < 5 ||
+          !subjectLower.match(/[a-z]{3,}/);
+        // Flag if subject is generic AND we have specific context available
+        if (isGeneric || !hasContextInSubject) {
+          return {
+            category: "context_free_subject" as ViolationCategory,
+            reason: `Email subject "${composed.subject}" does not reference any lead-specific context. Available context: ${contextTokens.slice(0, 5).join(", ")}. Subject must mention the lead's product, business, event, or conversation topic.`
+          };
+        }
+      }
+    }
+  }
+
+  // 11. UNFULFILLABLE COMMITMENT — AI makes a promise only a human agent can fulfill
   // e.g., "I'll send the invoice", "I'll call you", "I'll process your order"
   const UNFULFILLABLE_PATTERNS = [
     /i'?ll send (the |an |your |a )?invoice/i,

@@ -50,6 +50,49 @@ You receive a STRATEGY DIRECTIVE and RESEARCH BRIEF, and you write the actual me
 - Reference their prior conversation if it exists
 - Sound like a continuation, not a cold pitch
 
+=== CONTEXT-GROUNDING RULES (CRITICAL — violations cause IMMEDIATE rejection) ===
+
+The #1 failure mode of this system is sending GENERIC messages that could apply to anyone.
+Every message MUST be grounded in the lead's SPECIFIC context. Generic = rejected.
+
+**EMAIL SUBJECT LINE — MANDATORY CONTEXT:**
+- The subject line MUST reference the lead's specific product, event, business name, or conversation topic.
+- BANNED generic subjects: "Quick update", "Checking in", "Following up", "Quick question",
+  "Quick update for [Name]", "Just a thought", "Hey [Name]", "Touching base"
+- GOOD subjects (use these patterns):
+  * "Your [product] for [event/business]" → "Your custom tees for Grace Church"
+  * "[Quantity] [product] — quick pricing" → "200 hoodies — quick pricing"
+  * "Re: [their specific request]" → "Re: embroidered polos for your team"
+  * "[Business name] + Adorb" → "Miami Heat Foundation + Adorb"
+  * "[Specific detail from conversation]" → "Navy tees — proof ready"
+- If you know the product type (tees, hoodies, polos, hats, tote bags, etc.), it MUST appear in the subject.
+- If you know the business name, it SHOULD appear in the subject.
+- If you know the event type (church, school, corporate, reunion, etc.), use it.
+- If the conversation discussed a specific topic, reference THAT topic.
+
+**EMAIL/SMS OPENING SENTENCE — MANDATORY CONTEXT:**
+- The FIRST sentence of every message MUST reference something SPECIFIC to this lead:
+  * Their product request: "Those 50 custom hoodies you asked about..."
+  * Their business/event: "For your church's annual picnic..."
+  * Their last message: "You mentioned needing them by June 15th..."
+  * A specific detail from conversation: "Since you're looking at embroidered polos..."
+- BANNED generic openers:
+  * "It's been a little while since we chatted about your design" (what design?)
+  * "We're still here for custom tees, hoodies, and more" (generic product dump)
+  * "Just wanted to check in about your project" (what project?)
+  * "Hope you're doing well" / "Life gets busy, right?" (filler)
+- If form data says "T-Shirts" and business is "Grace Church", your opener MUST say
+  "those custom T-shirts for Grace Church" — NOT "your design" or "your project".
+
+**CONTEXT PRIORITY (use the most specific available):**
+1. Product type + quantity from conversation/form data ("200 custom hoodies")
+2. Business name + product ("Grace Church tees")
+3. Event type + product ("your school fundraiser shirts")
+4. Last conversation topic ("the embroidery options we discussed")
+5. Pipeline stage context ("your proof is ready" / "your order")
+- NEVER fall back to generic phrases like "your design", "your project", "your order"
+  when MORE SPECIFIC context is available in the lead data, form data, or conversation history.
+
 === EMAIL FORMAT (MANDATORY for all emails) ===
 Emails MUST follow this exact structure:
 
@@ -355,6 +398,28 @@ ${getCompactTrainingCorpus()}
 ${getPersonaGuidance(lead.omnisendSegment)}
 
 ${tweakInstructions ? `=== ADMIN BEHAVIOR ADJUSTMENTS ===\n${tweakInstructions}` : ""}
+
+=== LEAD-SPECIFIC CONTEXT (use these in subject line and opening sentence) ===
+${(() => {
+  const ctx: string[] = [];
+  // Extract product type from form data
+  const productField = input.formData?.find(f => /product|interested|looking for|item/i.test(f.label));
+  if (productField) ctx.push(`Product: ${productField.value}`);
+  // Extract purpose/event from form data
+  const purposeField = input.formData?.find(f => /purpose|bulk printing|event|occasion/i.test(f.label));
+  if (purposeField) ctx.push(`Purpose/Event: ${purposeField.value}`);
+  // Extract quantity from form data
+  const qtyField = input.formData?.find(f => /quantity|how many|number|count|pieces/i.test(f.label));
+  if (qtyField) ctx.push(`Quantity: ${qtyField.value}`);
+  // Extract timeline from form data
+  const timeField = input.formData?.find(f => /when|deadline|date|timeline|turnaround/i.test(f.label));
+  if (timeField) ctx.push(`Timeline: ${timeField.value}`);
+  // Business name
+  if (lead.businessName) ctx.push(`Business: ${lead.businessName}`);
+  // Segment/persona
+  if (lead.omnisendSegment) ctx.push(`Segment: ${lead.omnisendSegment}`);
+  return ctx.length > 0 ? ctx.join('\n') + '\n\n⚠️ MANDATORY: Your email subject line and opening sentence MUST reference at least one of the above fields. Generic subjects/openers will be REJECTED.' : '(No specific lead context available — use conversation history for context)';
+})()}
 
 === INCOMING MESSAGE ===
 ${input.incomingMessage}

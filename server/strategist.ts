@@ -221,6 +221,18 @@ Only choose a DIFFERENT channel for proactive outreach (awareness = OUTREACH) wh
 - priority = 100 * (0.40*urgency + 0.30*intent + 0.20*recency + 0.10*sentiment_risk)
 - P1 (>=75): immediate action | P2 (50-74): scheduled follow-up | P3 (<50): nurture
 
+=== CONTEXT-GROUNDING DIRECTIVE (MANDATORY for keyPoints) ===
+Your keyPoints MUST include at least ONE of these specific context items (if available in lead data or form data):
+- The specific PRODUCT TYPE the lead asked about (e.g., "custom t-shirts", "embroidered polos", "tote bags")
+- The BUSINESS NAME of the lead
+- The EVENT TYPE or PURPOSE (e.g., "church picnic", "school fundraiser", "corporate retreat")
+- The QUANTITY requested
+- A SPECIFIC DETAIL from their last message or conversation
+
+The Composer will use your keyPoints to build the subject line and opening sentence.
+If your keyPoints are generic (e.g., "mention their business", "reference their needs"), the Composer will produce generic messages that get rejected by QC.
+Be SPECIFIC in keyPoints: "Reference their 200 custom hoodies for Grace Church picnic" NOT "mention their product interest".
+
 === YOUR OUTPUT ===
 Analyze the lead context, detect awareness level, and produce a strategic directive. Be specific and actionable.`;
 
@@ -361,7 +373,7 @@ STEP 4: Produce your strategic directive. PRIORITIZE frameworks and channels wit
             personalizationTier: { type: "number", description: "1=full custom, 2=template+personal opener, 3=minimal" },
             toneDirective: { type: "string", description: "Specific tone instructions for the composer" },
             maxLength: { type: "number", description: "Max characters for the message" },
-            keyPoints: { type: "array", items: { type: "string" }, description: "What MUST be included. For answer_question: include the question. For provide_quote: include product/qty. For acknowledge_info: include what they shared." },
+            keyPoints: { type: "array", items: { type: "string" }, description: "What MUST be included. MUST contain at least one SPECIFIC lead detail (product type, business name, event, quantity). For answer_question: include the question + lead context. For provide_quote: include product/qty. For acknowledge_info: include what they shared. For outreach: include the specific product/event/business to reference in subject line and opener." },
             avoidPoints: { type: "array", items: { type: "string" }, description: "What MUST NOT be said" },
             nextEngagementHours: { type: "number", description: "Hours until next follow-up" },
             reasoning: { type: "string", description: "Why this strategy was chosen. MUST start with 'Awareness: [ASKING|QUOTING|INFORMING|CLARIFYING|OUTREACH] because...' to prove you detected the awareness level." },
