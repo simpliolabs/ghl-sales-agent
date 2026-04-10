@@ -252,6 +252,22 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
           }
         }
 
+        // --- TCPA QUIET HOURS GATE (SMS only) ---
+        const { isSmsQuietHours, nextSmsWindowStart } = await import("./scheduling-engine");
+        if (isSmsQuietHours() && hintChannel === "SMS") {
+          // Check if lead has email — if so, Brain Council can switch to email
+          if (!(lead as any).email) {
+            // No email fallback — defer to next SMS window
+            const nextWindow = nextSmsWindowStart();
+            console.log(`[FollowUp] ⚠️ TCPA quiet hours — deferring SMS for lead ${leadId} to ${nextWindow.toISOString()}`);
+            await updateLeadFields(leadId, { nextFollowUpAt: nextWindow });
+            stats.skipped++;
+            continue;
+          }
+          // Has email — let Brain Council proceed but hint Email
+          console.log(`[FollowUp] TCPA quiet hours — switching hint to Email for lead ${leadId}`);
+        }
+
         // --- RUN BRAIN COUNCIL (with LLM exhaustion detection) ---
         let aiResponse;
         // DB-level lock + offline check
@@ -344,6 +360,31 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
           const reschedule = await calculateNextFollowUp({ leadId, triggerEvent: "ai_response" });
           await updateLeadFields(leadId, { nextFollowUpAt: reschedule.nextFollowUpAt });
           continue;
+        }
+
+        // --- TCPA POST-DECISION GATE: Block SMS if quiet hours (Brain Council may have chosen SMS despite hint) ---
+        if (isSmsQuietHours() && channel === "SMS") {
+          if ((lead as any).email) {
+            console.log(`[FollowUp] TCPA gate: Brain Council chose SMS during quiet hours — switching to Email for lead ${leadId}`);
+            // Rewrite as email
+            const emailOpts: Parameters<typeof sendMessage>[1] = { type: "Email", subject: aiResponse.subject || `${aiResponse.fromName} from Adorb`, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName };
+            const sendResult = await sendMessageWithRetry(ghlContactId, emailOpts, { email: (lead as any).email, phone: (lead as any).phone, id: leadId });
+            if (sendResult.success) {
+              await addConversation({ leadId, channel: "Email", direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName });
+              stats.sent++;
+            } else { stats.errors++; }
+            const scheduleResult2 = await calculateNextFollowUp({ leadId, aiSuggestedHours: aiResponse.nextEngagementHours, triggerEvent: "ai_response" });
+            const isLongLead2 = scheduleResult2.priority === 1;
+            await updateLeadFields(leadId, { nextFollowUpAt: capDate(scheduleResult2.nextFollowUpAt, isLongLead2), cadencePosition: scheduleResult2.cadencePosition, preferredChannel: scheduleResult2.channel, lastOutboundChannel: "Email" });
+            continue;
+          } else {
+            // No email — defer
+            const nextWindow = nextSmsWindowStart();
+            console.log(`[FollowUp] TCPA gate: deferring SMS for lead ${leadId} to ${nextWindow.toISOString()}`);
+            await updateLeadFields(leadId, { nextFollowUpAt: nextWindow });
+            stats.skipped++;
+            continue;
+          }
         }
 
         // --- SEND MESSAGE ---

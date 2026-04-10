@@ -408,6 +408,16 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     }
   }
 
+  // --- TCPA QUIET HOURS GATE (inbound SMS response) ---
+  const { isSmsQuietHours, nextSmsWindowStart } = await import("./scheduling-engine");
+  if (isSmsQuietHours() && channel === "SMS" && !lead!.email) {
+    // SMS-only lead during quiet hours — defer, don't respond
+    console.log(`[Webhook] ⚠️ TCPA quiet hours — deferring SMS response for lead ${lead!.id}`);
+    await updateLeadFields(lead!.id, { nextFollowUpAt: nextSmsWindowStart() });
+    res.json({ success: true, action: "tcpa_deferred", leadId: lead!.id });
+    return;
+  }
+
   // --- AI RESPONSE via BRAIN COUNCIL ---
   // ALL send/no-send decisions (offline, lock, humanTakeover, dedup) are made INSIDE runBrainCouncil.
   let aiResponse;
@@ -518,6 +528,21 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     await addConversation({ leadId: lead!.id, channel: handoffChannel, direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName });
     res.json({ success: true, action: "ai_responded_and_handed_off" });
     return;
+  }
+
+  // --- TCPA POST-DECISION GATE: Block SMS if quiet hours (Brain Council may have chosen SMS) ---
+  if (isSmsQuietHours() && normalizeChannel(aiResponse.channel || channel) === "SMS") {
+    if (lead!.email) {
+      // Switch to email
+      console.log(`[Webhook] TCPA gate: switching Brain Council SMS to Email for lead ${lead!.id}`);
+      aiResponse = { ...aiResponse, channel: "Email" };
+    } else {
+      // Defer
+      console.log(`[Webhook] TCPA gate: deferring SMS for lead ${lead!.id}`);
+      await updateLeadFields(lead!.id, { nextFollowUpAt: nextSmsWindowStart() });
+      res.json({ success: true, action: "tcpa_deferred", leadId: lead!.id });
+      return;
+    }
   }
 
   // --- NORMAL AI RESPONSE ---

@@ -121,6 +121,11 @@ export function computeNextState(
       }
       return { state: currentState, reason: "Design details received, maintaining current state" };
 
+    case "soft_decline":
+      // Soft decline = polite no. Back off but don't close the door.
+      // Move to stale so the scheduling engine uses longer cadence.
+      return { state: "stale", reason: "Customer politely declined — backing off to longer cadence" };
+
     case "price_inquiry":
       if (["new_lead", "exploring"].includes(currentState)) {
         return { state: "interested", reason: "Customer asking about pricing — showing buying intent" };

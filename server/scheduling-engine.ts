@@ -127,6 +127,30 @@ function isHoliday(date: Date): boolean {
   return US_HOLIDAYS_2026.includes(dateStr);
 }
 
+/**
+ * TCPA Quiet Hours — SMS MUST NOT be sent before 9 AM or after 9 PM Eastern.
+ * Returns true if it's currently inside the quiet window (i.e., SMS is NOT allowed).
+ */
+export function isSmsQuietHours(date: Date = new Date()): boolean {
+  const et = toET(date);
+  const hour = et.getHours();
+  return hour < 9 || hour >= 21;
+}
+
+/**
+ * Returns the next 9 AM ET as a Date if currently in quiet hours.
+ */
+export function nextSmsWindowStart(date: Date = new Date()): Date {
+  const et = toET(date);
+  const hour = et.getHours();
+  if (hour >= 21) {
+    et.setDate(et.getDate() + 1);
+  }
+  et.setHours(9, 0, 0, 0);
+  // Return as-is — toET already gives us ET-local Date
+  return et;
+}
+
 function pushToNextBusinessHour(date: Date, channel: string): Date {
   const result = new Date(date);
   let attempts = 0;

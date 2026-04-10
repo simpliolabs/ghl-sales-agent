@@ -50,7 +50,8 @@ export type Approach =
   | "follow_up" | "quote_follow_up" | "order_follow_up"
   | "reactivation" | "win_back"
   | "post_delivery" | "relationship_nurture" | "seasonal" | "value_add"
-  | "recovery";
+  | "recovery"
+  | "graceful_exit";
 
 export interface StrategyDecision {
   approach: Approach;
@@ -123,7 +124,7 @@ export interface BrainCouncilOutput {
   persona?: string;       // Normalized persona (church, corporate, etc.)
 }
 
-export type ViolationCategory = "irrelevant_research" | "form_data_ignored" | "wrong_business" | "generic_opener" | "missing_framework" | "safety_violation" | "unanswered_question" | "info_not_acknowledged" | "repeated_question" | "ignored_request" | "channel_mismatch" | "unverified_claim";
+export type ViolationCategory = "irrelevant_research" | "form_data_ignored" | "wrong_business" | "generic_opener" | "missing_framework" | "safety_violation" | "unanswered_question" | "info_not_acknowledged" | "repeated_question" | "repeated_opener" | "ignored_request" | "channel_mismatch" | "unverified_claim";
 
 export type LeadContext = {
   lead: any;

@@ -115,12 +115,14 @@ Cold Email Rules (from EMB Chapter 13):
 - NEVER: "I hope this email finds you well", "I'd love to pick your brain", "Just following up"
 
 === PRICING RULES ===
-- Under 80 pieces: provide ballpark estimate with 25% variance
-- 80+ pieces: provide range + offer custom quote
-- Products not on price list: offer to get agent quote
-- Never present estimates as binding quotes
-- Never offer discounts unless admin tweak says to
-- ALWAYS look at the KNOWLEDGE BASE section below for actual pricing data
+- ALWAYS look up the EXACT quantity tier in the KNOWLEDGE BASE pricing matrix. Do NOT blend multiple tiers.
+  Example: If lead says "50-100 tote bags" and the matrix shows $7-$11 for 24+, quote "roughly $7-$11 each" — NOT "$7-$14" which blends the 12-23 and 24+ tiers.
+- Under 100 pieces: You have authority to offer UP TO 20% off the listed price depending on client stage.
+  State the discount as "I can do roughly $X-$Y each for your order" — do NOT say "20% off" explicitly.
+- 100+ pieces: provide range from the correct tier + ALWAYS offer to get an exact custom quote.
+- Products NOT on the price list: DO NOT invent pricing. Say "I'll have our team put together a custom quote for that."
+- NEVER present estimates as binding quotes — always frame as "roughly" or "ballpark"
+- After giving a ballpark, ALWAYS offer to get an exact quote: "Want me to have our team lock in an exact price for you?"
 
 === FRAMEWORK-SPECIFIC STRUCTURE (MANDATORY — follow the assigned framework exactly) ===
 
@@ -199,11 +201,14 @@ If framework = EMB_WELCOME / EMB_WINBACK / EMB_POST_PURCHASE / EMB_COLD:
 - If form data says what they want, ACKNOWLEDGE IT IMMEDIATELY.
 - Include ONE Adorb social proof point naturally (4.9 stars OR 1.1M customers — not both).
 
-=== ANTI-REPETITION RULES ===
-- Check the conversation history. Your message MUST NOT start with the same words as any prior outbound.
-- If prior messages started with "Hey [name]!", you MUST use a different opener.
+=== ANTI-REPETITION RULES (CRITICAL — violations cause message rejection) ===
+- Check the RECENT OPENERS section below. Your message MUST NOT start with the same words as ANY listed opener.
+- If ANY prior message started with "Hey [name]!", you MUST use a COMPLETELY different opener.
+  Alternatives: "[Name]," / "Quick update —" / "Good news:" / "So" / "Just wanted to" / "Checking in —" / No greeting at all (just start with the content)
+- NEVER start two consecutive messages the same way. Vary the first 5 words.
 - Vary your structure: if prior messages were question-heavy, make this one statement-heavy.
 - Never repeat a question that was already asked in a prior message.
+- If you cannot think of a different opener, just start with the content (no greeting).
 
 === STRICT NO-HALLUCINATION RULES (CRITICAL — violations cause message rejection) ===
 - NEVER invent or assume specific details NOT explicitly stated in conversation history, form data, or knowledge base.
@@ -227,6 +232,17 @@ export async function runComposer(
   research: ResearchResult
 ): Promise<ComposedMessage> {
   const { lead, historyStr, kbContent, tweakInstructions } = context;
+
+  // Extract recent openers from prior outbound messages for anti-repetition
+  const fullHistory = input.externalHistory ? input.externalHistory + "\n" + historyStr : historyStr || "";
+  const recentOpeners = fullHistory.split("\n")
+    .filter(line => line.match(/^\[(ai|agent)\//i))
+    .map(line => {
+      const body = line.replace(/^\[[^\]]+\]\s*/, "").trim();
+      return body.split(/\s+/).slice(0, 8).join(" ");
+    })
+    .filter(Boolean)
+    .slice(-5); // last 5 outbound openers
 
   const composerInput = `
 === STRATEGY DIRECTIVE ===
@@ -264,8 +280,11 @@ ${context.lastInteractionSummary ? `=== LAST INTERACTION SUMMARY (cross-session 
 ${context.lastInteractionSummary}
 IMPORTANT: Continue from where this left off. Do NOT repeat what was already discussed.
 ` : ""}
+=== RECENT OPENERS (your last outbound messages started with these words — DO NOT repeat any) ===
+${recentOpeners.length > 0 ? recentOpeners.map((o, i) => `${i + 1}. "${o}..."`).join("\n") : "(no prior outbound messages)"}
+
 === CONVERSATION HISTORY ===
-${input.externalHistory ? input.externalHistory + "\n" + historyStr : historyStr || "No previous messages"}
+${fullHistory || "No previous messages"}
 
 === FORM DATA ===
 ${input.formData?.map(f => `- ${f.label}: ${f.value}`).join("\n") || "None"}

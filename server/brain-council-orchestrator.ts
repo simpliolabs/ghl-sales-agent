@@ -555,6 +555,42 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     const fallbackMsg = shouldBlock ? buildSafeFallback(context, input) : undefined;
 
     if (shouldBlock) {
+      // CONTEXT-AWARE FALLBACK: If lead already has prior outbound messages,
+      // don't send a cold-intro fallback — it would confuse them.
+      // Instead, just block silently and notify owner.
+      if (context.priorOutbound && context.priorOutbound.length >= 2) {
+        console.log(`[BrainCouncil] BLOCKED + SUPPRESSED fallback for lead ${input.leadId} — ${context.priorOutbound.length} prior outbound messages exist, cold-intro fallback would be confusing`);
+        // Skip fallback, just notify and abort
+        await updateCircuitBreaker(input.leadId, true);
+        const updatedBreaker2 = await checkCircuitBreaker(input.leadId);
+        await notifyOwnerOfViolation(
+          input.leadId,
+          context.lead.name || `Lead #${input.leadId}`,
+          violation.category || "missing_framework",
+          `${violation.reason || `QC score ${qc.score}`} [Fallback suppressed — lead has ${context.priorOutbound.length} prior messages]`,
+          composed.message,
+          qc.score,
+          updatedBreaker2.consecutiveFailures
+        );
+        await addBrainCouncilAudit({
+          leadId: input.leadId, leadName: context.lead.name || undefined, channel: input.channel,
+          incomingMessage: input.incomingMessage?.substring(0, 2000),
+          blocked: 1, blockReason: `${violation.reason} [Fallback suppressed]`,
+          violationCategory: violation.category || "missing_framework",
+          messageSent: 0, ownerNotified: 1, fallbackUsed: 0,
+        });
+        return {
+          message: "", fromName: context.lead.assignedAgent || composed.fromName,
+          framework: "BLOCKED_NO_FALLBACK", angle: strategy.angle, channel: strategy.channel,
+          extractedDates: [], score: 0, segment: context.lead.omnisendSegment || "other",
+          nextEngagementHours: strategy.nextEngagementHours, qcScore: qc.score,
+          strategyReasoning: strategy.reasoning, researchSummary: research.summary,
+          blocked: true, blockReason: `${violation.reason} [Fallback suppressed — ${context.priorOutbound.length} prior messages]`,
+          violationCategory: violation.category || "missing_framework",
+          fallbackUsed: false,
+        };
+      }
+
       console.log(`[BrainCouncil] BLOCKED — ${violation.category || "low_qc_score"}: ${violation.reason || `QC score ${qc.score} after recompose`}`);
 
       await updateCircuitBreaker(input.leadId, true);

@@ -24,6 +24,7 @@ export type MessageIntent =
   | "reorder"              // Lead wants to place another order
   | "general_chat"         // Casual conversation, greetings, small talk
   | "attachment_only"      // Lead sent a file/image with no text
+  | "soft_decline"        // Lead politely declines ("not right now", "maybe later", "not interested")
   | "unclear";             // Cannot determine intent from message
 
 export interface IntentResult {
@@ -53,6 +54,7 @@ Classify the customer's latest message into ONE intent. Use the conversation his
 - reorder: Customer wants to place another order ("need more", "reorder", "same as last time")
 - general_chat: Casual greetings, small talk, or messages that don't fit other categories
 - attachment_only: Message is about a file/image attachment with no other clear intent
+- soft_decline: Customer politely declines without opting out ("not right now", "maybe later", "not interested at this time", "we went with someone else", "not looking for this"). This is NOT a DNC — they may be open to future contact but are saying no to the current offer.
 - unclear: Cannot determine intent — message is too short, ambiguous, or garbled
 
 === CLOSING SIGNAL RULES ===
@@ -107,7 +109,7 @@ Classify this message now.`;
                 enum: [
                   "design_request", "price_inquiry", "confirmation", "thank_you_close",
                   "objection", "dnc", "question", "complaint", "referral", "reorder",
-                  "general_chat", "attachment_only", "unclear",
+                  "general_chat", "attachment_only", "soft_decline", "unclear",
                 ],
                 description: "The classified intent of the customer message",
               },
@@ -154,6 +156,7 @@ const DNC_KEYWORDS = ["stop", "unsubscribe", "remove", "opt out", "do not contac
 const CONFIRMATION_KEYWORDS = ["yes", "yeah", "yep", "correct", "that's right", "sounds good", "perfect", "let's do it", "go ahead"];
 const PRICE_KEYWORDS = ["how much", "price", "cost", "quote", "pricing", "rate", "budget"];
 const COMPLAINT_KEYWORDS = ["unhappy", "wrong", "terrible", "awful", "never received", "disappointed", "frustrated"];
+const SOFT_DECLINE_KEYWORDS = ["not right now", "maybe later", "not interested", "no thanks", "no thank you", "not looking", "went with someone else", "found someone", "not at this time", "pass for now", "we're good", "all set", "already taken care of"];
 
 export function fallbackIntent(message: string): IntentResult {
   const lower = message.toLowerCase().trim();
@@ -163,6 +166,9 @@ export function fallbackIntent(message: string): IntentResult {
   }
   if (COMPLAINT_KEYWORDS.some(kw => lower.includes(kw))) {
     return { intent: "complaint", confidence: 70, reasoning: "Keyword match: complaint phrase detected", closingSignal: false, timestamp: Date.now() };
+  }
+  if (SOFT_DECLINE_KEYWORDS.some(kw => lower.includes(kw))) {
+    return { intent: "soft_decline", confidence: 75, reasoning: "Keyword match: soft decline phrase detected", closingSignal: false, timestamp: Date.now() };
   }
   if (PRICE_KEYWORDS.some(kw => lower.includes(kw))) {
     return { intent: "price_inquiry", confidence: 75, reasoning: "Keyword match: pricing phrase detected", closingSignal: false, timestamp: Date.now() };

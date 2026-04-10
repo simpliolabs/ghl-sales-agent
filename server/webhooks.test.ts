@@ -57,6 +57,8 @@ vi.mock("./scheduling-engine", () => ({
   checkLeadRateLimit: vi.fn().mockResolvedValue(true),
   checkDnc: vi.fn().mockReturnValue(false),
   DNC_KEYWORDS: ["stop", "unsubscribe", "remove", "opt out", "do not contact", "cancel"],
+  isSmsQuietHours: vi.fn().mockReturnValue(false),
+  nextSmsWindowStart: vi.fn().mockReturnValue(new Date(Date.now() + 12 * 60 * 60 * 1000)),
 }));
 
 vi.mock("./brain-council-orchestrator", () => ({
@@ -68,7 +70,7 @@ vi.mock("./lead-researcher", () => ({
 }));
 
 vi.mock("./conversation-state", () => ({
-  processInboundState: vi.fn().mockResolvedValue({ previousState: "new_lead", newState: "exploring", changed: true, reason: "test" }),
+  processInboundState: vi.fn().mockResolvedValue({ previousState: "new_lead", newState: "exploring", changed: true, transitionReason: "test", intent: { intent: "general_chat", confidence: 80, reasoning: "test", closingSignal: false, timestamp: Date.now() } }),
 }));
 
 vi.mock("./action-dispatcher", () => ({

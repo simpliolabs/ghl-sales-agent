@@ -310,7 +310,18 @@ export function detectViolations(
     return { category: "safety_violation", reason: `Message contains potentially unsafe promise: ${safetyPatterns.find(p => msg.includes(p))}` };
   }
 
-  // 7. REPEATED QUESTION — composed message asks something already asked in prior outbound
+  // 7a. REPEATED OPENER — composed message starts with the same words as a prior outbound
+  if (context.priorOutbound && context.priorOutbound.length > 0) {
+    const composedOpener = composed.message.trim().split(/\s+/).slice(0, 5).join(" ").toLowerCase();
+    for (const prior of context.priorOutbound) {
+      const priorOpener = (prior.messageBody || "").trim().split(/\s+/).slice(0, 5).join(" ").toLowerCase();
+      if (priorOpener.length > 5 && composedOpener === priorOpener) {
+        return { category: "repeated_opener" as ViolationCategory, reason: `Message starts with "${composedOpener}" which is identical to a prior outbound opener. Anti-repetition rule violated.` };
+      }
+    }
+  }
+
+  // 7b. REPEATED QUESTION — composed message asks something already asked in prior outbound
   if (context.priorOutbound && context.priorOutbound.length > 0) {
     // Extract questions from composed message
     const composedQs = composed.message.match(/[^.!?]*\?/g) || [];

@@ -479,3 +479,17 @@
 - [ ] OB.4: Handle OutboundMessage events — detect source="app" (agent) vs source="api" (our AI) and act accordingly
 - [ ] OB.5: Add Settings UI panel showing subscription status with register/refresh button
 - [ ] OB.6: Tests for subscription management and OutboundMessage handling
+
+## CRITICAL FIXES — Session 2 (Apr 9, 2026)
+
+### User-Reported Bugs
+- [x] BUG: Every AI message starts with "Hey Paulette!" — Added explicit recentOpeners extraction in Composer + hard QC repeated_opener violation detection
+- [x] BUG: AI offers tote bag pricing ($7-$14) blending tiers — Updated pricing rules in Strategist + Composer: tier-accurate ranges, 20% discount authority for <100 units, always push for exact quote
+
+### Re-implement Fixes Lost in Sandbox Reset
+- [x] FIX: QC hallucination — detectViolations() grounded to actual lead messages only
+- [x] FIX: Email signature enforcement — ensureEmailSignature() at buildSendOpts() layer
+- [x] FIX: TCPA quiet hours (CRITICAL LEGAL) — isSmsQuietHours() + nextSmsWindowStart() in scheduling-engine.ts, gated in follow-up-trigger.ts (pre+post Brain Council) and webhook-message.ts (pre+post Brain Council)
+- [x] FIX: Soft-decline detection — soft_decline intent in classifier + stale state transition + graceful_exit approach in Strategist (720h/30d backoff)
+- [x] FIX: Context-aware fallback — suppresses cold-intro fallback when lead has 2+ prior outbound messages
+- [x] FIX: Test mock — webhooks.test.ts processInboundState mock + isSmsQuietHours/nextSmsWindowStart mocks added

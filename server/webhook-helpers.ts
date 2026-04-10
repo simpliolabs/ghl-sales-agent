@@ -571,6 +571,21 @@ export const MAX_LLM_RETRIES = 10;
  * - Double newlines → paragraph breaks
  * - Preserves existing HTML if the message already contains tags
  */
+/**
+ * Ensures the plain-text message contains the Adorb email signature block.
+ * If the signature separator (---) is missing, appends the full signature.
+ */
+export function ensureEmailSignature(message: string): string {
+  if (!message) return message;
+  // Check if signature already present (look for the --- separator + brand name)
+  if (message.includes('---') && (message.includes('Adorb Custom Printing') || message.includes('adorbcustomtees.com'))) {
+    return message;
+  }
+  // Append standard signature
+  const sig = `\n\n---\nBest,\n{AGENT} | Adorb Custom Printing\n(954) 932-8543\nprint@adorbcustomtees.com\nadorbcustomtees.com\n\u2b50 4.9 Stars \u00b7 867+ Verified Reviews\nSee our reviews: https://adorbcustomtees.com/pages/reviews`;
+  return message.trimEnd() + sig;
+}
+
 export function formatEmailHtml(message: string): string {
   if (!message) return '';
 
@@ -614,7 +629,12 @@ export function buildSendOpts(
   extra?: { subject?: string; fromName?: string; html?: string }
 ): Parameters<typeof sendMessage>[1] | undefined {
   if (channel === "Email" && lead.email) {
-    return { type: "Email", subject: extra?.subject || "Adorb Custom Tees", html: extra?.html || formatEmailHtml(message), fromName: extra?.fromName };
+    // Ensure signature is present before converting to HTML
+    const signedMessage = ensureEmailSignature(message);
+    const fromName = extra?.fromName || "Adorb Custom Tees";
+    // Replace {AGENT} placeholder in signature with actual sender name
+    const finalMessage = signedMessage.replace('{AGENT}', fromName.split(' ')[0]);
+    return { type: "Email", subject: extra?.subject || "Adorb Custom Tees", html: extra?.html || formatEmailHtml(finalMessage), fromName };
   } else if (channel === "Live_Chat") {
     return { type: "Live_Chat", message };
   } else if (channel === "FB") {

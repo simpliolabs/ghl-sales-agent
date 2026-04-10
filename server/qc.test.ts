@@ -286,13 +286,13 @@ describe("ViolationCategory type coverage", () => {
     // This test verifies the type system accepts all new categories
     // by checking that detectViolations can return them
 
-    // repeated_question
+    // repeated_opener (fires before repeated_question for identical messages)
     const ctx1 = makeContext({
       priorOutbound: [{ messageBody: "What kind of event are you planning this for?" }],
     });
     const comp1 = makeComposed({ message: "What kind of event are you planning this for?" });
     const r1 = detectViolations(comp1, makeQC(), makeStrategy(), ctx1, makeInput(), makeResearch());
-    expect(["repeated_question", null]).toContain(r1.category);
+    expect(["repeated_opener", "repeated_question", null]).toContain(r1.category);
 
     // ignored_request
     const inp2 = makeInput({ incomingMessage: "How much for 50 shirts?" });
