@@ -185,8 +185,30 @@ If framework = CASE_STUDY:
   Include: what they needed, what we did, the result.
   Then: "Want us to do something similar for you?"
 
-If framework = SOAP_OPERA:
-  Open a narrative loop. Tell a mini-story about a similar customer. End with curiosity gap.
+If framework = SOAP_OPERA (multi-message narrative sequence — best for warm leads who've gone quiet):
+  This is a 5-act story structure delivered across ONE message. Each act must flow naturally into the next.
+
+  ACT 1 — STATUS QUO (1 sentence): Describe a relatable situation a similar customer was in.
+    Example: "A church coordinator in Miami was in the exact same spot you are — needed 150 custom shirts for their annual picnic, no design, tight budget."
+
+  ACT 2 — CONFLICT (1 sentence): Introduce the problem or obstacle they faced.
+    Example: "Every printer she called wanted a 2-week turnaround and a $500 setup fee."
+
+  ACT 3 — SOLUTION (1 sentence): How Adorb solved it — specific, credible, no hype.
+    Example: "She sent us her logo on a Tuesday. We had proofs back same day, shirts ready in 5 days, no setup fee."
+
+  ACT 4 — RESULT (1 sentence): The outcome — emotional + concrete.
+    Example: "Her whole congregation wore them. She sent us a photo. Now she orders every year."
+
+  ACT 5 — CURIOSITY GAP / BRIDGE TO THEM (1 question): Connect the story to the lead's situation and open a loop.
+    Example: "I think we could do the same for [their event/business] — want me to show you what that could look like?"
+
+  SOAP_OPERA rules:
+  - The customer in the story MUST be similar to this lead (same industry, event type, or product need)
+  - NEVER name a real customer — use "a church coordinator", "a school principal", "a small business owner"
+  - Keep the whole message under 150 words for SMS, 200 for email
+  - End on a question, never a statement
+  - Tone: warm storyteller, NOT salesperson
 
 If framework = EMB_WELCOME (new lead, first email in sequence):
   Subject line: curiosity-gap or benefit-driven (e.g. "Your custom tees — quick question" or "For your [event name]")

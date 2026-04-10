@@ -514,3 +514,4 @@
 - [x] FIX: Email optimal window gates — pre-Brain Council (hint=Email) + post-Brain Council (channel=Email) in follow-up-trigger.ts
 - [x] AUDIT: AI Tweaks — tweakInstructions now injected into BOTH Strategist (ADMIN BEHAVIOR ADJUSTMENTS block) and Composer
 - [x] AUDIT: Email Marketing Bible — Full EMB_WELCOME, EMB_WINBACK, EMB_POST_PURCHASE, EMB_COLD sequence rules with subject line formulas, structure, tone, length constraints added to Composer prompt
+- [x] FIX: SOAP_OPERA framework — expanded to full 5-act narrative structure (Status Quo → Conflict → Solution → Result → Curiosity Gap) with examples, length limits, and tone rules
