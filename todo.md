@@ -660,3 +660,15 @@
 - [x] Feed violation-derived learnings into Strategist prompt via getViolationAvoidanceBlock()
 - [x] All 659 tests passing
 - [x] Push to GitHub
+
+## CRITICAL: Deep architectural QC fix — repeated_opener false positives, reformulation failures, conflicting brain instructions
+- [ ] AUDIT: Read entire QC repeated_opener detection logic — understand why "Hey Eva" is flagged as "Hey [Name]" pattern
+- [ ] AUDIT: Read entire reformulation loop — understand why reformulation didn't fix the opener issue
+- [ ] AUDIT: Read all brain instructions (Strategist, Composer, QC) for conflicting rules
+- [ ] FIX: Rewrite repeated_opener detection from the core — stop treating personalized "Hey [Name]" as template pattern
+- [ ] FIX: Ensure reformulation loop actually retries with specific fix instructions that work
+- [ ] FIX: Remove any conflicting brain instructions between Strategist/Composer/QC
+- [ ] FIX: Larry D's inbound "I need to know more about your services" at 2:52 PM got no response
+- [ ] FIX: Re-trigger all contacts affected by false blocks
+- [ ] All tests passing
+- [ ] Push to GitHub

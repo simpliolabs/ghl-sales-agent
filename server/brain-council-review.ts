@@ -250,6 +250,7 @@ export async function runBrainCouncilSelfReview(): Promise<{
           channel: issue.channel,
           externalHistory,
           overrideReason: recoveryContext,
+          isInboundReply: true, // Recovery is responding to a missed inbound
         });
 
         if (result.blocked) {
@@ -376,6 +377,7 @@ export async function runFastMissedReplyScanner(): Promise<number> {
         SELECT 1 FROM brain_council_audit bca
         WHERE bca.leadId = c.leadId
           AND bca.createdAt > c.timestamp
+          AND bca.blocked = 0
       )
     ORDER BY c.timestamp ASC
     LIMIT 5
@@ -417,6 +419,7 @@ export async function runFastMissedReplyScanner(): Promise<number> {
         channel: row.channel || "SMS",
         externalHistory,
         overrideReason: "FAST_SCAN: Lead sent a message and received no reply within 3 minutes. Respond immediately.",
+        isInboundReply: true,
       });
 
       if (!result.blocked && result.message) {

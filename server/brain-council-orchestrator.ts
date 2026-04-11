@@ -114,7 +114,13 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
   // Check if an AI message was sent/attempted for this lead recently.
   // This is the STRONGEST duplicate prevention — it's in the DB, survives
   // restarts, and is checked before the lock is even acquired.
+  //
+  // CRITICAL EXCEPTION: When isInboundReply=true or overrideReason is set,
+  // we MUST respond to the lead even if we recently sent a message.
+  // The cooldown is for preventing duplicate PROACTIVE outbound, not for
+  // blocking responses to leads who are actively messaging us.
   // ================================================================
+  const isRecoveryOrInbound = input.isInboundReply || !!input.overrideReason;
   try {
     const db = await getDb();
     if (db) {
@@ -125,10 +131,21 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
       if (lead?.lastAiSendAttemptAt) {
         const secondsSinceLastSend = (Date.now() - new Date(lead.lastAiSendAttemptAt).getTime()) / 1000;
         if (secondsSinceLastSend < SEND_COOLDOWN_SECONDS) {
-          return abortResult(
-            `DB send cooldown: last AI send attempt was ${Math.round(secondsSinceLastSend)}s ago (cooldown: ${SEND_COOLDOWN_SECONDS}s)`,
-            input.leadId
-          );
+          if (isRecoveryOrInbound) {
+            // For inbound replies: use a much shorter 15-second window to catch true duplicates
+            if (secondsSinceLastSend < 15) {
+              return abortResult(
+                `DB send cooldown (inbound): last AI send was ${Math.round(secondsSinceLastSend)}s ago — true duplicate, skipping`,
+                input.leadId
+              );
+            }
+            console.log(`[BrainCouncil] Bypassing ${SEND_COOLDOWN_SECONDS}s cooldown for lead ${input.leadId} — isInboundReply=${input.isInboundReply}, overrideReason=${!!input.overrideReason}`);
+          } else {
+            return abortResult(
+              `DB send cooldown: last AI send attempt was ${Math.round(secondsSinceLastSend)}s ago (cooldown: ${SEND_COOLDOWN_SECONDS}s)`,
+              input.leadId
+            );
+          }
         }
       }
     }
@@ -257,30 +274,37 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     // Check if there's an AI outbound message in the last 90 seconds for this lead.
     // This catches the case where the webhook handler already sent a response
     // and the fast scanner fires for the same inbound message.
+    //
+    // EXCEPTION: For inbound replies and recovery scans, we bypass this check
+    // because the lead is actively engaged and deserves a response.
     // ================================================================
-    try {
-      const db = await getDb();
-      if (db) {
-        const recentAiOutbound = await db.select({ id: conversations.id, timestamp: conversations.timestamp })
-          .from(conversations)
-          .where(
-            and(
-              eq(conversations.leadId, input.leadId),
-              eq(conversations.senderType, "ai"),
-              eq(conversations.direction, "outbound"),
-              sql`${conversations.timestamp} > DATE_SUB(NOW(), INTERVAL ${SEND_COOLDOWN_SECONDS} SECOND)`
+    if (!isRecoveryOrInbound) {
+      try {
+        const db = await getDb();
+        if (db) {
+          const recentAiOutbound = await db.select({ id: conversations.id, timestamp: conversations.timestamp })
+            .from(conversations)
+            .where(
+              and(
+                eq(conversations.leadId, input.leadId),
+                eq(conversations.senderType, "ai"),
+                eq(conversations.direction, "outbound"),
+                sql`${conversations.timestamp} > DATE_SUB(NOW(), INTERVAL ${SEND_COOLDOWN_SECONDS} SECOND)`
+              )
             )
-          )
-          .orderBy(desc(conversations.timestamp))
-          .limit(1);
+            .orderBy(desc(conversations.timestamp))
+            .limit(1);
 
-        if (recentAiOutbound.length > 0) {
-          return abortResult(`Already responded to this lead within ${SEND_COOLDOWN_SECONDS} seconds (msg id: ${recentAiOutbound[0].id})`, input.leadId);
+          if (recentAiOutbound.length > 0) {
+            return abortResult(`Already responded to this lead within ${SEND_COOLDOWN_SECONDS} seconds (msg id: ${recentAiOutbound[0].id})`, input.leadId);
+          }
         }
+      } catch (err) {
+        console.error(`[BrainCouncil] recent-outbound check failed:`, err);
+        // Don't abort on check failure — proceed with caution
       }
-    } catch (err) {
-      console.error(`[BrainCouncil] recent-outbound check failed:`, err);
-      // Don't abort on check failure — proceed with caution
+    } else {
+      console.log(`[BrainCouncil] Bypassing already-responded check for lead ${input.leadId} — inbound reply or recovery scan`);
     }
 
     // ================================================================

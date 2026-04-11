@@ -371,29 +371,33 @@ export function detectViolations(
     return { category: "safety_violation", reason: `Message contains potentially unsafe promise: ${safetyPatterns.find(p => msg.includes(p))}` };
   }
 
-  // 7a. REPEATED OPENER — composed message starts with a similar pattern as prior outbound
+  // 7a. REPEATED OPENER — composed message starts with EXACTLY the same words as a prior outbound
+  // IMPORTANT: "Hey [Name]" is a VALID personalized greeting, NOT a repeated opener.
+  // Only flag when the EXACT first 3+ words match a prior message (e.g., "Hey Larry! It's" === "Hey Larry! It's").
+  // Greeting someone by name is personalization, not repetition.
   if (context.priorOutbound && context.priorOutbound.length > 0) {
     const composedWords = composed.message.trim().split(/\s+/).map(w => w.toLowerCase());
-    // Check first 3 words (catches "Hey B.J.!" pattern regardless of what follows)
+    // Check first 4 words for exact match (more specific = fewer false positives)
+    const composedOpener4 = composedWords.slice(0, 4).join(" ");
+    // Also check first 3 words as fallback for short openers
     const composedOpener3 = composedWords.slice(0, 3).join(" ");
-    // Also check "Hey [Name]!" pattern specifically
-    const isHeyNamePattern = /^hey\s+\S+[!.,]?$/i.test(composedWords.slice(0, 2).join(" "));
-    let heyNameCount = isHeyNamePattern ? 1 : 0; // count composed as 1 if it matches
+    
     for (const prior of context.priorOutbound) {
       const priorWords = (prior.messageBody || "").trim().split(/\s+/).map((w: string) => w.toLowerCase());
+      const priorOpener4 = priorWords.slice(0, 4).join(" ");
       const priorOpener3 = priorWords.slice(0, 3).join(" ");
-      // Exact 3-word opener match
-      if (priorOpener3.length > 3 && composedOpener3 === priorOpener3) {
-        return { category: "repeated_opener" as ViolationCategory, reason: `Message starts with "${composedOpener3}" which matches a prior outbound opener. Anti-repetition rule violated.` };
+      
+      // Exact 4-word opener match — high confidence duplicate
+      if (priorOpener4.length > 8 && composedOpener4 === priorOpener4) {
+        return { category: "repeated_opener" as ViolationCategory, reason: `Message starts with "${composedOpener4}" which exactly matches a prior outbound opener. Use a different opening.` };
       }
-      // "Hey [Name]!" pattern used too many times
-      if (/^hey\s+\S+[!.,]?$/i.test(priorWords.slice(0, 2).join(" "))) {
-        heyNameCount++;
+      // Exact 3-word opener match — but ONLY if it's more than just a greeting + name
+      // "Hey Larry!" (greeting+name) is NOT a repeat. "Hey Larry! It's" (greeting+name+content) IS.
+      // So we require the 3-word opener to NOT be just a greeting pattern
+      const isJustGreeting = /^(hey|hi|hello|yo)\s+\S+[!.,]?$/i.test(composedOpener3);
+      if (!isJustGreeting && priorOpener3.length > 5 && composedOpener3 === priorOpener3) {
+        return { category: "repeated_opener" as ViolationCategory, reason: `Message starts with "${composedOpener3}" which matches a prior outbound opener. Use a different opening.` };
       }
-    }
-    // Block if "Hey [Name]" pattern used 2+ times already
-    if (isHeyNamePattern && heyNameCount > 2) {
-      return { category: "repeated_opener" as ViolationCategory, reason: `"Hey [Name]" opener already used ${heyNameCount - 1} times in prior messages. Must use a completely different opener.` };
     }
   }
 

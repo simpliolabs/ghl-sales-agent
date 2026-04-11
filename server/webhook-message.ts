@@ -533,34 +533,58 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   }
 
   // --- DEDUP GUARD ---
+  // IMPORTANT: This guard prevents duplicate AI responses, but MUST NOT block responses
+  // to genuine inbound messages. When a lead actively messages us, we MUST respond.
+  // The dedup guard only applies when the SAME inbound message triggers multiple webhooks
+  // (GHL sometimes fires duplicate webhooks for the same message).
+  const isGenuineInbound = direction === "inbound" && effectiveMessageBody && effectiveMessageBody.trim().length > 0;
   const recentAiMsgCount = await getRecentAiOutboundCount(lead!.id, 5);
-  if (recentAiMsgCount > 0) {
-    console.log(`[Webhook] Skipping AI response for lead ${lead!.id} — ${recentAiMsgCount} AI message(s) sent in last 5 min`);
+  if (recentAiMsgCount > 0 && !isGenuineInbound) {
+    // Only skip for non-inbound triggers (e.g., system events, duplicate webhooks)
+    console.log(`[Webhook] Skipping AI response for lead ${lead!.id} — ${recentAiMsgCount} AI message(s) sent in last 5 min (non-inbound trigger)`);
     res.json({ success: true, action: "dedup_cooldown" });
     return;
   }
+  if (recentAiMsgCount > 0 && isGenuineInbound) {
+    // For genuine inbound: use a shorter 60-second window to catch true duplicate webhooks
+    // but allow responses to new messages from the lead
+    const recentAiMsgCountShort = await getRecentAiOutboundCount(lead!.id, 1);
+    if (recentAiMsgCountShort > 0) {
+      console.log(`[Webhook] Dedup: AI responded to lead ${lead!.id} within last 60s — likely duplicate webhook, skipping`);
+      res.json({ success: true, action: "dedup_cooldown" });
+      return;
+    }
+    console.log(`[Webhook] Lead ${lead!.id} sent a new inbound message — bypassing 5-min dedup guard to respond`);
+  }
 
   // --- CADENCE BACKOFF ---
-  const recentConvs = convHistory.slice().reverse();
-  let consecutiveUnanswered = 0;
-  for (let i = recentConvs.length - 1; i >= 0; i--) {
-    if (recentConvs[i].direction === "outbound" && recentConvs[i].senderType === "ai") consecutiveUnanswered++;
-    else if (recentConvs[i].direction === "inbound") break;
-  }
-  if (consecutiveUnanswered >= 2) {
-    const minGapMinutes = consecutiveUnanswered >= 4 ? 1440 : consecutiveUnanswered >= 3 ? 240 : 60;
-    const lastAiOutbound = recentConvs.filter((c: any) => c.direction === "outbound" && c.senderType === "ai").pop();
-    if (lastAiOutbound) {
-      const lastSentAt = new Date(lastAiOutbound.timestamp).getTime();
-      const minutesSinceLastSend = (Date.now() - lastSentAt) / (1000 * 60);
-      if (minutesSinceLastSend < minGapMinutes) {
-        console.log(`[Webhook] Cadence backoff for lead ${lead!.id} — ${consecutiveUnanswered} unanswered msgs, need ${minGapMinutes}min gap, only ${Math.round(minutesSinceLastSend)}min elapsed`);
-        const backoffFollowUp = new Date(Date.now() + (minGapMinutes - minutesSinceLastSend) * 60 * 1000);
-        await updateLeadFields(lead!.id, { nextFollowUpAt: backoffFollowUp });
-        res.json({ success: true, action: "cadence_backoff" });
-        return;
+  // CRITICAL FIX: Cadence backoff is for PROACTIVE follow-ups only.
+  // When a lead REPLIES to us, we MUST respond regardless of how many unanswered
+  // messages we've sent. The lead is actively engaged — backoff makes no sense.
+  if (!isGenuineInbound) {
+    const recentConvs = convHistory.slice().reverse();
+    let consecutiveUnanswered = 0;
+    for (let i = recentConvs.length - 1; i >= 0; i--) {
+      if (recentConvs[i].direction === "outbound" && recentConvs[i].senderType === "ai") consecutiveUnanswered++;
+      else if (recentConvs[i].direction === "inbound") break;
+    }
+    if (consecutiveUnanswered >= 2) {
+      const minGapMinutes = consecutiveUnanswered >= 4 ? 1440 : consecutiveUnanswered >= 3 ? 240 : 60;
+      const lastAiOutbound = recentConvs.filter((c: any) => c.direction === "outbound" && c.senderType === "ai").pop();
+      if (lastAiOutbound) {
+        const lastSentAt = new Date(lastAiOutbound.timestamp).getTime();
+        const minutesSinceLastSend = (Date.now() - lastSentAt) / (1000 * 60);
+        if (minutesSinceLastSend < minGapMinutes) {
+          console.log(`[Webhook] Cadence backoff for lead ${lead!.id} — ${consecutiveUnanswered} unanswered msgs, need ${minGapMinutes}min gap, only ${Math.round(minutesSinceLastSend)}min elapsed`);
+          const backoffFollowUp = new Date(Date.now() + (minGapMinutes - minutesSinceLastSend) * 60 * 1000);
+          await updateLeadFields(lead!.id, { nextFollowUpAt: backoffFollowUp });
+          res.json({ success: true, action: "cadence_backoff" });
+          return;
+        }
       }
     }
+  } else {
+    console.log(`[Webhook] Lead ${lead!.id} sent inbound message — bypassing cadence backoff to respond`);
   }
 
   // --- TCPA QUIET HOURS GATE (inbound SMS response) ---
@@ -577,7 +601,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   // ALL send/no-send decisions (offline, lock, humanTakeover, dedup) are made INSIDE runBrainCouncil.
   let aiResponse;
   try {
-    aiResponse = await runBrainCouncil({ leadId: lead!.id, incomingMessage: effectiveMessageBody, channel, externalHistory: historyStr });
+    aiResponse = await runBrainCouncil({ leadId: lead!.id, incomingMessage: effectiveMessageBody, channel, externalHistory: historyStr, isInboundReply: !!isGenuineInbound });
   } catch (brainErr) {
     if (isLlmExhausted(brainErr)) {
       // LLM credits exhausted — schedule retry instead of dropping the lead

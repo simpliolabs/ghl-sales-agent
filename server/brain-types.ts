@@ -9,6 +9,9 @@ export interface BrainCouncilInput {
   externalHistory?: string;
   formData?: Array<{ label: string; value: string }>;
   overrideReason?: string;
+  /** When true, this is a response to an inbound message from the lead.
+   *  Bypasses cadence backoff and relaxes dedup cooldown in the orchestrator. */
+  isInboundReply?: boolean;
 }
 
 /**
