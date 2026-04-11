@@ -650,3 +650,13 @@
 - [x] 43 fallback-suppressed entries identified — leads got NO message, now queued for retry
 - [x] All 659 tests passing
 - [x] Push to GitHub
+
+## ARCHITECTURE: Wire QC violations into self-learning feedback loop
+- [ ] Wire orchestrator blocked path → recordError() with violation details
+- [ ] Wire orchestrator reformulation success → addKnownFix() to teach the fix
+- [ ] Create recordViolationPattern() in learning-loop.ts for QC-specific pattern detection
+- [ ] Add periodic violation pattern scan (alongside existing promotion scan)
+- [ ] Feed violation-derived learnings into Composer prompt (AVOID rules from recent violations)
+- [ ] Ensure Strategist receives violation pattern avoidance alongside outcome-based learnings
+- [ ] All tests passing
+- [ ] Push to GitHub

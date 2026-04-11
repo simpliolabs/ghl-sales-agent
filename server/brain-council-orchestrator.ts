@@ -48,6 +48,8 @@ import type {
 } from "./brain-types";
 import { assignVariant } from "./ab-testing";
 import { normalizePersona, getPersonaLearningContext } from "./persona-learning";
+import { recordViolationLearning, recordReformulationSuccess } from "./learning-loop";
+import { recordError, addKnownFix } from "./error-memory";
 
 // Re-export types so callers only need one import
 export type { BrainCouncilInput, BrainCouncilOutput } from "./brain-types";
@@ -629,6 +631,28 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
       // If clean, break out of the loop
       if (!violation.category && (qc.approved || qc.score >= 50)) {
         console.log(`[BrainCouncil] ✅ Reformulation ${reformulateAttempts} succeeded — violation resolved, QC score ${qc.score}`);
+
+        // --- SELF-LEARNING: Record successful reformulation ---
+        try {
+          await recordReformulationSuccess({
+            violationCategory: violation.category || "low_qc_score",
+            framework: strategy.framework,
+            reformulationAttempt: reformulateAttempts,
+            originalQcScore: recomposeQcScore,
+            finalQcScore: qc.score,
+          });
+          await addKnownFix({
+            errorType: "llm_hallucination",
+            errorMessage: `QC violation: ${violation.category || "low_qc_score"}`,
+            context: `lead:${input.leadId} framework:${strategy.framework}`,
+            rootCause: violation.reason || `QC score too low`,
+            knownFix: `Reformulation with specific fix instructions resolved the issue in ${reformulateAttempts} attempt(s)`,
+            prevention: `Composer should proactively avoid ${violation.category || "low_qc_score"} patterns`,
+          });
+        } catch (learnErr) {
+          console.error(`[BrainCouncil] Self-learning record error (non-fatal):`, learnErr);
+        }
+
         break;
       }
     }
@@ -642,6 +666,30 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     const fallbackMsg = shouldBlock ? buildSafeFallback(context, input) : undefined;
 
     if (shouldBlock) {
+      // --- SELF-LEARNING: Record the violation that caused the block ---
+      try {
+        await recordViolationLearning({
+          violationCategory: violation.category || "low_qc_score",
+          violationReason: violation.reason || `QC score ${qc.score} after ${reformulateAttempts} reformulations`,
+          leadId: input.leadId,
+          channel: input.channel,
+          framework: strategy.framework,
+          approach: strategy.approach,
+          persona,
+          qcScore: qc.score,
+          reformulationAttempts: reformulateAttempts,
+        });
+        await recordError({
+          errorType: "llm_hallucination",
+          errorMessage: `QC block: ${violation.category || "low_qc_score"} — ${(violation.reason || "").substring(0, 200)}`,
+          context: `lead:${input.leadId} channel:${input.channel} framework:${strategy.framework} persona:${persona}`,
+          rootCause: violation.reason || `QC score ${qc.score}`,
+          prevention: `Avoid ${violation.category || "low_qc_score"} patterns for ${persona} leads using ${strategy.framework}`,
+        });
+      } catch (learnErr) {
+        console.error(`[BrainCouncil] Self-learning record error (non-fatal):`, learnErr);
+      }
+
       // CONTEXT-AWARE FALLBACK: If lead already has prior outbound messages,
       // don't send a cold-intro fallback — it would confuse them.
       // Instead, just block silently and notify owner.

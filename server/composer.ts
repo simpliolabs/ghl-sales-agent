@@ -11,6 +11,8 @@ import type { BrainCouncilInput, StrategyDecision, ResearchResult, ComposedMessa
 import { BRAND, getBrandContext, getSignatureBlock } from "../shared/brand-assets";
 import { getComposerStageBlock } from "./stage-playbook";
 import { getCompactTrainingCorpus, getPersonaGuidance } from "../shared/sales-training";
+import { getViolationAvoidanceRules } from "./learning-loop";
+import { cached, patternCache } from "./cache";
 
 const COMPOSER_PROMPT = `You are the COMPOSER brain for Adorb Custom Tees' AI outreach system.
 
@@ -372,6 +374,19 @@ Each escalation tier demands a distinctly different voice and energy.
 
 You write the message. The QC brain will review it before it goes out.`;
 
+/**
+ * Get violation avoidance rules as a prompt block, cached for 10 minutes.
+ */
+async function getViolationAvoidanceBlock(): Promise<string> {
+  try {
+    const rules = await cached(patternCache, "violation:avoidance:block", () => getViolationAvoidanceRules());
+    if (!rules) return "";
+    return `=== ${rules}`;
+  } catch {
+    return "";
+  }
+}
+
 export async function runComposer(
   input: BrainCouncilInput,
   context: LeadContext,
@@ -459,6 +474,8 @@ ${getCompactTrainingCorpus()}
 ${getPersonaGuidance(lead.omnisendSegment)}
 
 ${tweakInstructions ? `=== ADMIN BEHAVIOR ADJUSTMENTS ===\n${tweakInstructions}` : ""}
+
+${await getViolationAvoidanceBlock()}
 
 === LEAD-SPECIFIC CONTEXT (use these in subject line and opening sentence) ===
 ${(() => {

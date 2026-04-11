@@ -16,7 +16,7 @@
 import { invokeLLM } from "./_core/llm";
 import type { BrainCouncilInput, StrategyDecision, LeadContext } from "./brain-types";
 import { buildLearningContext } from "./outcome-engine";
-import { getPromotedLearnings } from "./learning-loop";
+import { getPromotedLearnings, getViolationAvoidanceRules } from "./learning-loop";
 import { getStrategistStageBlock } from "./stage-playbook";
 import { getTrainingCorpus, getPersonaGuidance } from "../shared/sales-training";
 
@@ -337,6 +337,16 @@ async function getLearningBlock(segment?: string | null): Promise<string> {
 // Cache promoted learnings for 10 minutes
 let _promotedCache: { text: string; expires: number } | null = null;
 
+async function getViolationAvoidanceBlock(): Promise<string> {
+  try {
+    const text = await getViolationAvoidanceRules();
+    return text || '';
+  } catch (err) {
+    console.error('[Strategist] Failed to get violation avoidance rules:', err);
+    return '';
+  }
+}
+
 async function getPromotedLearningsBlock(): Promise<string> {
   if (_promotedCache && Date.now() < _promotedCache.expires) return _promotedCache.text;
   try {
@@ -420,6 +430,8 @@ ${input.incomingMessage}
 ${await getLearningBlock(lead.omnisendSegment)}
 
 ${await getPromotedLearningsBlock()}
+
+${await getViolationAvoidanceBlock()}
 
 ${getStrategistStageBlock(lead.pipelineStage)}
 

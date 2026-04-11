@@ -646,6 +646,236 @@ export async function getLearningStats(): Promise<LearningStats> {
 }
 
 // =================================================================
+// 6. VIOLATION-BASED LEARNING — Ingest QC violations into the learning loop
+// =================================================================
+
+/**
+ * Record a QC violation as a learning pattern.
+ * Called when the Brain Council blocks a message (after reformulation exhausted).
+ * Generates avoidance patterns that can be promoted into the Strategist/Composer prompts.
+ */
+export async function recordViolationLearning(opts: {
+  violationCategory: string;
+  violationReason: string;
+  leadId: number;
+  channel: string;
+  framework?: string;
+  approach?: string;
+  persona?: string;
+  qcScore: number;
+  reformulationAttempts: number;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  const now = Date.now();
+
+  // Generate multiple pattern keys from the violation
+  const patterns: Array<{
+    key: string;
+    category: "avoid" | "correction";
+    description: string;
+    details: string;
+    suggestedAction: string;
+  }> = [];
+
+  // Pattern 1: Violation type (general)
+  patterns.push({
+    key: `violation.${opts.violationCategory}`,
+    category: "avoid",
+    description: `QC violation: ${opts.violationCategory} — ${opts.violationReason.substring(0, 200)}`,
+    details: `Channel: ${opts.channel}, Framework: ${opts.framework || "unknown"}, QC Score: ${opts.qcScore}, Reformulations: ${opts.reformulationAttempts}`,
+    suggestedAction: getViolationFixAdvice(opts.violationCategory),
+  });
+
+  // Pattern 2: Violation × Framework (if framework contributed to the issue)
+  if (opts.framework) {
+    patterns.push({
+      key: `violation.${opts.violationCategory}.framework.${opts.framework.toLowerCase().replace(/\s+/g, "_")}`,
+      category: "correction",
+      description: `${opts.violationCategory} tends to occur with ${opts.framework} framework`,
+      details: `Reason: ${opts.violationReason.substring(0, 200)}. Channel: ${opts.channel}`,
+      suggestedAction: `When using ${opts.framework}, pay extra attention to avoid ${opts.violationCategory}`,
+    });
+  }
+
+  // Pattern 3: Violation × Persona (if persona-specific)
+  if (opts.persona) {
+    patterns.push({
+      key: `violation.${opts.violationCategory}.persona.${opts.persona}`,
+      category: "correction",
+      description: `${opts.violationCategory} occurs for ${opts.persona} persona`,
+      details: `Reason: ${opts.violationReason.substring(0, 200)}. Framework: ${opts.framework || "unknown"}`,
+      suggestedAction: `For ${opts.persona} leads, avoid patterns that trigger ${opts.violationCategory}`,
+    });
+  }
+
+  for (const pattern of patterns) {
+    try {
+      const [existing] = await db.select()
+        .from(learnings)
+        .where(eq(learnings.patternKey, pattern.key))
+        .limit(1);
+
+      if (existing) {
+        await db.update(learnings)
+          .set({
+            recurrenceCount: sql`${learnings.recurrenceCount} + 1`,
+            negativeOutcomes: sql`${learnings.negativeOutcomes} + 1`,
+            updatedAt: now,
+            priority: (existing.recurrenceCount || 0) >= 9 ? "critical" :
+              (existing.recurrenceCount || 0) >= 4 ? "high" :
+              (existing.recurrenceCount || 0) >= 2 ? "medium" : "low",
+          })
+          .where(eq(learnings.id, existing.id));
+      } else {
+        await db.insert(learnings).values({
+          patternKey: pattern.key,
+          category: pattern.category,
+          description: pattern.description,
+          details: pattern.details,
+          suggestedAction: pattern.suggestedAction,
+          recurrenceCount: 1,
+          positiveOutcomes: 0,
+          negativeOutcomes: 1,
+          priority: "low",
+          source: "qc_violation",
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    } catch (err) {
+      if (!(err as any)?.message?.includes("Duplicate")) {
+        console.error(`[LearningLoop] Violation pattern error for ${pattern.key}:`, err);
+      }
+    }
+  }
+
+  console.log(`[LearningLoop] Recorded ${patterns.length} violation patterns for ${opts.violationCategory} (lead ${opts.leadId})`);
+}
+
+/**
+ * Record a successful reformulation as a positive learning.
+ * Called when the Brain Council successfully reformulates a message after a QC violation.
+ * This teaches the system what fixes work.
+ */
+export async function recordReformulationSuccess(opts: {
+  violationCategory: string;
+  framework?: string;
+  reformulationAttempt: number;
+  originalQcScore: number;
+  finalQcScore: number;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  const now = Date.now();
+  const key = `reformulation.${opts.violationCategory}.success`;
+
+  try {
+    const [existing] = await db.select()
+      .from(learnings)
+      .where(eq(learnings.patternKey, key))
+      .limit(1);
+
+    if (existing) {
+      await db.update(learnings)
+        .set({
+          recurrenceCount: sql`${learnings.recurrenceCount} + 1`,
+          positiveOutcomes: sql`${learnings.positiveOutcomes} + 1`,
+          updatedAt: now,
+          details: `Last fix: attempt ${opts.reformulationAttempt}, score ${opts.originalQcScore} → ${opts.finalQcScore}. Framework: ${opts.framework || "unknown"}`,
+        })
+        .where(eq(learnings.id, existing.id));
+    } else {
+      await db.insert(learnings).values({
+        patternKey: key,
+        category: "best_practice",
+        description: `Reformulation fixes ${opts.violationCategory} violations effectively`,
+        details: `First fix: attempt ${opts.reformulationAttempt}, score ${opts.originalQcScore} → ${opts.finalQcScore}. Framework: ${opts.framework || "unknown"}`,
+        suggestedAction: getViolationFixAdvice(opts.violationCategory),
+        recurrenceCount: 1,
+        positiveOutcomes: 1,
+        negativeOutcomes: 0,
+        priority: "low",
+        source: "qc_reformulation",
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    console.log(`[LearningLoop] Recorded reformulation success for ${opts.violationCategory}`);
+  } catch (err) {
+    if (!(err as any)?.message?.includes("Duplicate")) {
+      console.error(`[LearningLoop] Reformulation success error:`, err);
+    }
+  }
+}
+
+/**
+ * Get violation-derived avoidance rules formatted for Composer/Strategist prompt injection.
+ * Returns recent, high-recurrence violation patterns as AVOID rules.
+ * Cached for 10 minutes to avoid DB hammering.
+ */
+export async function getViolationAvoidanceRules(): Promise<string> {
+  const db = await getDb();
+  if (!db) return "";
+
+  try {
+    // Get high-recurrence violation patterns from the last 30 days
+    const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+    const violations = await db.select()
+      .from(learnings)
+      .where(and(
+        sql`${learnings.patternKey} LIKE 'violation.%'`,
+        gte(learnings.recurrenceCount, 2),
+        gte(learnings.updatedAt, thirtyDaysAgo),
+      ))
+      .orderBy(desc(learnings.recurrenceCount))
+      .limit(10);
+
+    if (violations.length === 0) return "";
+
+    const lines: string[] = [
+      `QC VIOLATION AVOIDANCE (${violations.length} recurring patterns from recent messages):`,
+    ];
+
+    for (const v of violations) {
+      const severity = (v.recurrenceCount || 0) >= 5 ? "⛔" : "⚠";
+      lines.push(`  ${severity} ${v.description} (${v.recurrenceCount}x)`);
+      if (v.suggestedAction) lines.push(`    → ${v.suggestedAction}`);
+    }
+
+    return lines.join("\n");
+  } catch (err) {
+    console.error("[LearningLoop] Error getting violation avoidance rules:", err);
+    return "";
+  }
+}
+
+/**
+ * Get specific fix advice for a violation category.
+ * Used by both the learning loop (for recording) and the Composer (for prompt injection).
+ */
+function getViolationFixAdvice(category: string): string {
+  const advice: Record<string, string> = {
+    repeated_opener: "Never start with 'Hey [Name]' or 'Hi [Name]' if used before. Start with content, a question, or a bold statement instead.",
+    repeated_question: "Don't re-ask questions from prior messages. Provide value — pricing, examples, social proof — instead of asking again.",
+    generic_opener: "Reference the lead's SPECIFIC request (product, event, business name) in the opening sentence.",
+    context_free_subject: "Email subjects must reference specific context — product type, business name, event, or their request.",
+    passive_reactivation: "Lead with specific value — pricing, case study, or social proof. Don't be vague or passive.",
+    missing_framework: "Follow ACA structure: Acknowledge their situation, Compliment something specific, Ask a targeted question.",
+    form_data_ignored: "Always reference the lead's form data — their product request is the most important context.",
+    ignored_request: "When leads ask about pricing/quotes, address it with actual pricing ranges or a commitment to provide a quote.",
+    irrelevant_research: "Drop research data that doesn't match the lead's actual request. Focus on form data and conversation history.",
+    channel_mismatch: "Always reply on the same channel the lead messaged on.",
+    wrong_business: "NEVER reference businesses other than Adorb Custom Tees / the lead's own business.",
+    safety_violation: "Never make unfulfillable promises, reference explicit content, or claim capabilities we don't have.",
+  };
+  return advice[category] || `Avoid triggering ${category} violations in future messages.`;
+}
+
+// =================================================================
 // EXPORTS for testing
 // =================================================================
-export { generatePatternKeys, PROMOTION_THRESHOLD, DEMOTION_THRESHOLD, MIN_SAMPLE_SIZE, MAX_PROMOTED_RULES };
+export { generatePatternKeys, PROMOTION_THRESHOLD, DEMOTION_THRESHOLD, MIN_SAMPLE_SIZE, MAX_PROMOTED_RULES, getViolationFixAdvice };
