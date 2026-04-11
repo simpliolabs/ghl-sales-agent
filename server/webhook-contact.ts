@@ -29,6 +29,7 @@ import {
   parseFormDataFromMessageBody,
   formatEmailHtml,
   buildSendOpts,
+  buildContextSubject,
 } from "./webhook-helpers";
 import { handleStageAutomation } from "./webhook-pipeline";
 import { runBrainCouncil } from "./brain-council-orchestrator";
@@ -482,8 +483,9 @@ async function sendDelayedFirstContact(
       // If Brain Council blocked but there's a fallback, send it
       if (brainResult.fallbackUsed && brainResult.fallbackMessage) {
         console.log(`[Webhook] Using fallback message for lead ${leadId}`);
+        const fallbackSubject = brainResult.subject || buildContextSubject({ name: lead.name, businessName: lead.businessName, formData: formFields }, agentName);
         const fallbackOpts = buildSendOpts(channel, brainResult.fallbackMessage, lead, {
-          subject: `${agentName.split(" ")[0]} from Adorb Custom Tees`,
+          subject: fallbackSubject,
           fromName: agentName,
         });
         if (fallbackOpts) {
@@ -501,10 +503,19 @@ async function sendDelayedFirstContact(
     // Brain Council approved — send the composed message
     const composedMessage = brainResult.message;
     const fromName = brainResult.fromName || agentName;
-    const brainChannel = brainResult.channel || channel;
+    // CHANNEL PRIORITY FOR FIRST CONTACT: The detected webhook channel (FB/IG/WhatsApp)
+    // takes priority over Brain Council's channel recommendation. The knowledge base rule
+    // says "Always respond to contacts right away in the same manner they reached out."
+    // Only allow Brain Council to override if the detected channel is generic SMS/Email.
+    const isDetectedSocial = ["FB", "IG", "WhatsApp", "Live_Chat"].includes(channel);
+    const brainChannel = isDetectedSocial ? channel : (brainResult.channel || channel);
+    if (brainResult.channel && brainResult.channel !== brainChannel) {
+      console.log(`[Webhook] First-contact channel: detected=${channel}, brain=${brainResult.channel}, using=${brainChannel} (${isDetectedSocial ? 'detected social channel enforced' : 'brain override allowed'})`);
+    }
 
+    const contextSubject = brainResult.subject || buildContextSubject({ name: lead.name, businessName: lead.businessName, formData: formFields }, fromName);
     const sendOpts = buildSendOpts(brainChannel, composedMessage, lead, {
-      subject: `${fromName.split(" ")[0]} from Adorb Custom Tees`,
+      subject: contextSubject,
       fromName,
     });
 

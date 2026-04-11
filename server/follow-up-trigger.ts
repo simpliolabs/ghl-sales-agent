@@ -18,7 +18,7 @@ import { getLeadsDueForFollowUp, getConversationHistory, updateLeadFields, addCo
 import { runBrainCouncil } from "./brain-council-orchestrator";
 import { calculateNextFollowUp, checkRateLimits, capDate, checkDnc } from "./scheduling-engine";
 import { sendMessage, addNote, fetchGhlConversationHistory, getContact } from "./ghl";
-import { sendMessageWithRetry, normalizeChannel, extractFormData, isLlmExhausted, LLM_RETRY_DELAY_MS, formatEmailHtml } from "./webhook-helpers";
+import { sendMessageWithRetry, normalizeChannel, extractFormData, isLlmExhausted, LLM_RETRY_DELAY_MS, formatEmailHtml, buildContextSubject } from "./webhook-helpers";
 import { shouldHandoffToAgent, estimateOrderValue, generateContactNotes } from "./ai-brain";
 import { notifyOwner } from "./_core/notification";
 import { handleChannelDnc, detectDncChannel } from "./channel-fallback";
@@ -379,8 +379,9 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
         if (aiResponse.blocked) {
           console.log(`[FollowUp] ⚠️ BLOCKED follow-up for lead ${leadId}: ${aiResponse.blockReason}`);
           if (aiResponse.fallbackUsed && aiResponse.fallbackMessage) {
-            const fallbackOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
-              ? { type: "Email", subject: "Adorb Custom Tees", html: formatEmailHtml(aiResponse.fallbackMessage), fromName: aiResponse.fromName }
+            const fbSubject = aiResponse.subject || buildContextSubject({ name: (lead as any).name, businessName: (lead as any).businessName }, aiResponse.fromName);
+          const fallbackOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
+              ? { type: "Email", subject: fbSubject, html: formatEmailHtml(aiResponse.fallbackMessage), fromName: aiResponse.fromName }
               : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.fallbackMessage };
             const sendResult = await sendMessageWithRetry(ghlContactId, fallbackOpts, { email: (lead as any).email, phone: (lead as any).phone, id: leadId });
             if (sendResult.success) {
@@ -413,7 +414,8 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
             console.log(`[FollowUp] TCPA gate: Brain Council chose SMS during quiet hours — switching to Email for lead ${leadId}`);
             // Rewrite as email — check for prior email thread
             const tcpaThreadId = await getLastEmailThreadId(leadId);
-            const emailOpts: Parameters<typeof sendMessage>[1] = { type: "Email", subject: aiResponse.subject || `${aiResponse.fromName} from Adorb`, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName, ...(tcpaThreadId ? { threadId: tcpaThreadId, replyMessageId: tcpaThreadId } : {}) };
+            const tcpaSubject = aiResponse.subject || buildContextSubject({ name: (lead as any).name, businessName: (lead as any).businessName }, aiResponse.fromName);
+            const emailOpts: Parameters<typeof sendMessage>[1] = { type: "Email", subject: tcpaSubject, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName, ...(tcpaThreadId ? { threadId: tcpaThreadId, replyMessageId: tcpaThreadId } : {}) };
             const sendResult = await sendMessageWithRetry(ghlContactId, emailOpts, { email: (lead as any).email, phone: (lead as any).phone, id: leadId });
             if (sendResult.success) {
               await addConversation({ leadId, channel: "Email", direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName });
@@ -440,8 +442,9 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
           emailThreadId = await getLastEmailThreadId(leadId);
           if (emailThreadId) console.log(`[FollowUp] Threading email reply for lead ${leadId} (threadId: ${emailThreadId})`);
         }
+        const normalSubject = aiResponse.subject || buildContextSubject({ name: (lead as any).name, businessName: (lead as any).businessName }, aiResponse.fromName);
         const msgOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
-          ? { type: "Email", subject: aiResponse.subject || `${aiResponse.fromName} from Adorb`, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName, ...(emailThreadId ? { threadId: emailThreadId, replyMessageId: emailThreadId } : {}) }
+          ? { type: "Email", subject: normalSubject, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName, ...(emailThreadId ? { threadId: emailThreadId, replyMessageId: emailThreadId } : {}) }
           : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
         const sendResult = await sendMessageWithRetry(ghlContactId, msgOpts, { email: (lead as any).email, phone: (lead as any).phone, id: leadId });
 

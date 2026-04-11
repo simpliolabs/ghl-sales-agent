@@ -580,3 +580,19 @@
 - [x] 8 new tests for blocked-send detection (AI_OFFLINE, COOLDOWN, HUMAN_AGENT_ACTIVE, HUMAN_AGENT_ACTIVE_GHL, OFFLINE_CHECK_FAILED, UNKNOWN_GATE, normal success, no-blocked-field success)
 - [x] All 629 tests passing
 - [x] Push to GitHub
+
+## Re-trigger Iory Yagami engagement
+- [x] Reset humanTakeover: 1 → 0, cleared lastAgentActivityAt
+- [x] Reset consecutiveRejects to 0
+- [x] Deleted ghost outbound conversation (Email msg that was stored but never sent)
+- [x] Set nextFollowUpAt to NOW — production follow-up timer will pick up on next 5-min cycle
+- [x] Verify message was actually delivered — Email sent at 11:41 PM to mendoza146@gmail.com with subject "Abby from Adorb" (pre-fix; next message will use context-aware subject)
+
+## BUG: Generic fallback subject "Abby from Adorb" + wrong channel for Facebook leads (Iory Yagami)
+- [x] Created buildContextSubject() helper in webhook-helpers.ts — builds subject from lead's businessName, productType (from formData), and firstName
+- [x] Fixed 7 fallback subject locations: webhook-contact.ts, webhook-helpers.ts (3 paths), webhook-message.ts (2 paths), follow-up-trigger.ts (3 paths)
+- [x] Fixed auto-correction.ts and brain-council-review.ts to also use context-aware subjects
+- [x] Fixed channel priority: first-contact now enforces detected webhook channel (FB/IG) over Brain Council override
+- [x] 7 new tests for buildContextSubject (businessName+product, product only, businessName only, firstName only, no data fallback, empty formData, interested-in extraction)
+- [x] All 636 tests passing
+- [ ] Push to GitHub

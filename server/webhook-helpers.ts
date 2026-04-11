@@ -200,7 +200,8 @@ export async function sendMessageWithRetry(
       if (lead.email) {
         console.log(`[SendRetry] Missing phone for lead ${lead.id} — attempting Email fallback`);
         try {
-          await sendMessage(contactId, { type: "Email", subject: "Adorb Custom Tees", html: opts.message || "", message: opts.message });
+          const fbSubject = (opts as any)._contextSubject || "Adorb Custom Tees";
+          await sendMessage(contactId, { type: "Email", subject: fbSubject, html: opts.message || "", message: opts.message });
           return { success: true, resolvedContactId: contactId, correctionTaken: "fallback_to_email" };
         } catch (fbErr: unknown) {
           const fbClassified = classifyGhlSendError(fbErr);
@@ -242,7 +243,8 @@ export async function sendMessageWithRetry(
       try { await updateLeadFields(lead.id, { dndSms: 1 as any }); } catch { /* best effort */ }
       if (lead.email) {
         try {
-          await sendMessage(contactId, { type: "Email", subject: "Adorb Custom Tees", html: opts.message || "", message: opts.message });
+          const cbSubject = (opts as any)._contextSubject || "Adorb Custom Tees";
+          await sendMessage(contactId, { type: "Email", subject: cbSubject, html: opts.message || "", message: opts.message });
           return { success: true, resolvedContactId: contactId, correctionTaken: "carrier_block_fallback_to_email" };
         } catch (fbErr: unknown) {
           const fbClassified = classifyGhlSendError(fbErr);
@@ -628,6 +630,47 @@ export function formatEmailHtml(message: string): string {
 
   // 5. Wrap in styled container
   return `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a">${body}</div>`;
+}
+
+// --- CONTEXT-AWARE EMAIL SUBJECT BUILDER ---
+// Builds a subject line from lead data instead of generic "Adorb Custom Tees".
+// Priority: explicit subject > lead context > agent name fallback.
+export function buildContextSubject(
+  lead: { name?: string | null; businessName?: string | null; formData?: Array<{ label: string; value: string }> | null },
+  fromName?: string
+): string {
+  const firstName = lead.name?.split(" ")[0] || "";
+  const agentFirst = (fromName || "Abby").split(" ")[0];
+
+  // Extract product type from form data if available
+  let productType = "";
+  if (lead.formData && Array.isArray(lead.formData)) {
+    for (const f of lead.formData) {
+      const label = f.label.toLowerCase();
+      if (label.includes("product") || label.includes("interested in") || label.includes("type")) {
+        productType = f.value;
+        break;
+      }
+    }
+  }
+
+  // Build subject with available context
+  if (lead.businessName && productType) {
+    return `${lead.businessName} ${productType} — ${agentFirst} from Adorb`;
+  }
+  if (productType && firstName) {
+    return `${firstName}, your ${productType} quote — ${agentFirst} from Adorb`;
+  }
+  if (lead.businessName) {
+    return `${lead.businessName} order — ${agentFirst} from Adorb`;
+  }
+  if (productType) {
+    return `Your ${productType} inquiry — ${agentFirst} from Adorb`;
+  }
+  if (firstName) {
+    return `${firstName} — ${agentFirst} from Adorb`;
+  }
+  return `${agentFirst} from Adorb Custom Tees`;
 }
 
 // --- SEND OPTIONS BUILDER ---

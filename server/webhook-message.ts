@@ -36,6 +36,7 @@ import {
   LLM_RETRY_DELAY_MS,
   MAX_LLM_RETRIES,
   formatEmailHtml,
+  buildContextSubject,
 } from "./webhook-helpers";
 import { processInboundState, type ConversationState } from "./conversation-state";
 import { dispatchStateActions, buildDispatchContext } from "./action-dispatcher";
@@ -614,8 +615,9 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   if (aiResponse.blocked && aiResponse.fallbackUsed && aiResponse.fallbackMessage) {
     console.log(`[Webhook] ⚠️ BLOCKED message for lead ${lead!.id}: ${aiResponse.blockReason}. Sending fallback.`);
     const fallbackChannel = normalizeChannel(aiResponse.channel || channel);
+    const fallbackSubject = aiResponse.subject || buildContextSubject({ name: lead!.name, businessName: lead!.businessName }, aiResponse.fromName);
     const fallbackOpts: Parameters<typeof sendMessage>[1] = fallbackChannel === "Email"
-      ? { type: "Email", subject: "Adorb Custom Tees", html: formatEmailHtml(aiResponse.fallbackMessage), fromName: aiResponse.fromName }
+      ? { type: "Email", subject: fallbackSubject, html: formatEmailHtml(aiResponse.fallbackMessage), fromName: aiResponse.fromName }
       : { type: fallbackChannel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.fallbackMessage };
     const sendResult = await sendMessageWithRetry(resolvedContactId, fallbackOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
     if (sendResult.success) {
@@ -664,8 +666,9 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     // Use Brain Council's channel for handoff too
     const handoffChannel = normalizeChannel(aiResponse.channel || channel);
     {
+      const handoffSubject = aiResponse.subject || buildContextSubject({ name: lead!.name, businessName: lead!.businessName }, aiResponse.fromName);
       const handoffOpts: Parameters<typeof sendMessage>[1] = handoffChannel === "Email"
-        ? { type: "Email", subject: aiResponse.subject || `${aiResponse.fromName} from Adorb`, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName }
+        ? { type: "Email", subject: handoffSubject, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName }
         : { type: handoffChannel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
       const sendResult = await sendMessageWithRetry(resolvedContactId, handoffOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
       if (sendResult.resolvedContactId !== resolvedContactId) resolvedContactId = sendResult.resolvedContactId;
@@ -709,8 +712,9 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
       emailThreadId = await getLastEmailThreadId(lead!.id);
       if (emailThreadId) console.log(`[Webhook/Msg] Threading email reply for lead ${lead!.id} (threadId: ${emailThreadId})`);
     }
+    const normalSubject = aiResponse.subject || buildContextSubject({ name: lead!.name, businessName: lead!.businessName }, aiResponse.fromName);
     const normalOpts: Parameters<typeof sendMessage>[1] = sendChannel === "Email"
-      ? { type: "Email", subject: aiResponse.subject || `${aiResponse.fromName} from Adorb`, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName, ...(emailThreadId ? { threadId: emailThreadId, replyMessageId: emailThreadId } : {}) }
+      ? { type: "Email", subject: normalSubject, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName, ...(emailThreadId ? { threadId: emailThreadId, replyMessageId: emailThreadId } : {}) }
       : { type: sendChannel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
     normalSendResult = await sendMessageWithRetry(resolvedContactId, normalOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
     if (normalSendResult.resolvedContactId !== resolvedContactId) resolvedContactId = normalSendResult.resolvedContactId;

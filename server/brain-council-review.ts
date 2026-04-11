@@ -259,7 +259,7 @@ export async function runBrainCouncilSelfReview(): Promise<{
         }
 
         // Send the recovery message
-        const sendOpts = buildSendOpts(result.channel || issue.channel, result.message, result.fromName);
+        const sendOpts = buildSendOpts(result.channel || issue.channel, result.message, result.fromName, { leadName: issue.leadName });
         const sendResult = await sendMessage(issue.contactId, sendOpts);
 
         if (sendResult.success) {
@@ -307,10 +307,18 @@ export async function runBrainCouncilSelfReview(): Promise<{
 }
 
 // Helper: build send options per channel
-function buildSendOpts(channel: string, message: string, fromName: string) {
+function buildSendOpts(channel: string, message: string, fromName: string, lead?: { leadName?: string; businessName?: string | null }) {
+  const agentFirst = (fromName || "Abby").split(" ")[0];
+  let subject = `${agentFirst} from Adorb Custom Tees`;
+  if (lead?.businessName) {
+    subject = `${lead.businessName} — ${agentFirst} from Adorb`;
+  } else if (lead?.leadName) {
+    const firstName = lead.leadName.split(" ")[0];
+    subject = `${firstName} — ${agentFirst} from Adorb`;
+  }
   switch (channel) {
     case "Email":
-      return { type: "Email" as const, subject: `${fromName.split(" ")[0]} from Adorb Custom Tees`, html: formatEmailHtml(message), fromName };
+      return { type: "Email" as const, subject, html: formatEmailHtml(message), fromName };
     case "FB":
       return { type: "FB" as const, message };
     case "IG":
@@ -412,7 +420,7 @@ export async function runFastMissedReplyScanner(): Promise<number> {
       });
 
       if (!result.blocked && result.message) {
-        const sendOpts = buildSendOpts(result.channel || row.channel || "SMS", result.message, result.fromName);
+        const sendOpts = buildSendOpts(result.channel || row.channel || "SMS", result.message, result.fromName, { leadName: row.leadName || undefined });
         const sendResult = await sendMessage(row.ghlContactId, sendOpts);
         if (sendResult) {
           await addConversation({

@@ -121,7 +121,7 @@ export async function sendAutoCorrection(params: {
     const fullCorrection = `${apology}\n\n${correct}`;
 
     // Send the correction via the same channel
-    const sendOpts = buildSendOpts(channel, apology, agentName);
+    const sendOpts = buildSendOpts(channel, apology, agentName, { name: lead.name, businessName: lead.businessName });
     if (!sendOpts) return { success: false, error: `Cannot send via channel: ${channel}` };
 
     // Send apology
@@ -137,7 +137,7 @@ export async function sendAutoCorrection(params: {
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     // Send correct message
-    const correctOpts = buildSendOpts(channel, correct, agentName);
+    const correctOpts = buildSendOpts(channel, correct, agentName, { name: lead.name, businessName: lead.businessName });
     if (correctOpts) {
       try {
         await sendMessage(contactId, correctOpts);
@@ -308,10 +308,20 @@ function buildSendOpts(
   channel: string,
   message: string,
   fromName: string,
+  lead?: { name?: string | null; businessName?: string | null },
 ): Parameters<typeof sendMessage>[1] | undefined {
+  // Build context-aware subject for emails
+  const agentFirst = (fromName || "Abby").split(" ")[0];
+  let subject = `${agentFirst} from Adorb Custom Tees`;
+  if (lead?.businessName) {
+    subject = `${lead.businessName} — ${agentFirst} from Adorb`;
+  } else if (lead?.name) {
+    const firstName = lead.name.split(" ")[0];
+    subject = `${firstName} — ${agentFirst} from Adorb`;
+  }
   switch (channel) {
     case "Email":
-      return { type: "Email", subject: `${fromName.split(" ")[0]} from Adorb Custom Tees`, html: formatEmailHtml(message), fromName };
+      return { type: "Email", subject, html: formatEmailHtml(message), fromName };
     case "FB":
       return { type: "FB", message };
     case "IG":

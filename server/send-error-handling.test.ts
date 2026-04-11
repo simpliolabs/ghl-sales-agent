@@ -273,3 +273,81 @@ describe("sendMessageWithRetry — blocked send detection", () => {
     expect(result.success).toBe(true);
   });
 });
+
+
+// --- buildContextSubject tests ---
+import { buildContextSubject } from "./webhook-helpers";
+
+describe("buildContextSubject", () => {
+  it("uses businessName + productType when both available", () => {
+    const subject = buildContextSubject({
+      name: "Iory Yagami",
+      businessName: "LSU Construction Management",
+      formData: [{ label: "What type of products are you interested in?", value: "T-shirts" }],
+    }, "Abby");
+    expect(subject).toContain("LSU Construction Management");
+    expect(subject).toContain("T-shirts");
+    expect(subject).toContain("Abby");
+    expect(subject).not.toBe("Abby from Adorb Custom Tees");
+  });
+
+  it("uses productType + firstName when no businessName", () => {
+    const subject = buildContextSubject({
+      name: "John Smith",
+      businessName: null,
+      formData: [{ label: "Product type", value: "Hoodies" }],
+    }, "Chris");
+    expect(subject).toContain("John");
+    expect(subject).toContain("Hoodies");
+    expect(subject).toContain("Chris");
+  });
+
+  it("uses businessName alone when no productType in form data", () => {
+    const subject = buildContextSubject({
+      name: "Jane Doe",
+      businessName: "Acme Corp",
+      formData: [{ label: "Notes", value: "Need rush order" }],
+    }, "Abby");
+    expect(subject).toContain("Acme Corp");
+    expect(subject).toContain("Abby");
+  });
+
+  it("uses firstName when only name available", () => {
+    const subject = buildContextSubject({
+      name: "Glory",
+      businessName: null,
+      formData: null,
+    }, "Chris");
+    expect(subject).toContain("Glory");
+    expect(subject).toContain("Chris");
+    expect(subject).not.toBe("Chris from Adorb Custom Tees");
+  });
+
+  it("falls back to generic when no lead data", () => {
+    const subject = buildContextSubject({
+      name: null,
+      businessName: null,
+      formData: null,
+    }, "Abby");
+    expect(subject).toBe("Abby from Adorb Custom Tees");
+  });
+
+  it("handles empty formData array", () => {
+    const subject = buildContextSubject({
+      name: "Test Lead",
+      businessName: null,
+      formData: [],
+    }, "Abby");
+    expect(subject).toContain("Test");
+    expect(subject).toContain("Abby");
+  });
+
+  it("extracts product from 'interested in' label", () => {
+    const subject = buildContextSubject({
+      name: "Kim",
+      businessName: null,
+      formData: [{ label: "What are you interested in?", value: "Custom Mugs" }],
+    }, "Abby");
+    expect(subject).toContain("Custom Mugs");
+  });
+});
