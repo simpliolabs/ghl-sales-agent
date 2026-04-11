@@ -842,8 +842,32 @@ export async function recalculateStaleSchedules(): Promise<{ updated: number; de
       if (!result.isDnc) {
         // Apply 30-day cap (P1 customer timeline is exempt)
         const isLongLead = result.priority === 1;
+        let scheduledDate = capDate(result.nextFollowUpAt, isLongLead);
+        // ─── DAILY CAP ENFORCEMENT AT SCHEDULING LEVEL ───────────────────────────
+        // If a proactive AI message was sent today (same calendar day in ET),
+        // never schedule the next follow-up earlier than tomorrow.
+        // This prevents the scheduling engine from immediately re-queuing a lead
+        // that was just messaged, which would bypass the orchestrator's daily cap.
+        if (lead.lastAiSendAttemptAt) {
+          const lastSend = new Date(lead.lastAiSendAttemptAt);
+          const nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+          const lastSendET = new Date(lastSend.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+          const sentToday =
+            nowET.getFullYear() === lastSendET.getFullYear() &&
+            nowET.getMonth() === lastSendET.getMonth() &&
+            nowET.getDate() === lastSendET.getDate();
+          if (sentToday) {
+            // Enforce minimum: next follow-up is at least lastAiSendAttemptAt + 24h
+            const minNextFollowUp = new Date(lastSend.getTime() + 24 * 60 * 60 * 1000);
+            if (scheduledDate < minNextFollowUp) {
+              console.log(`[SchedulingEngine] ⏰ Daily cap: lead ${lead.id} was sent a message today — advancing nextFollowUpAt from ${scheduledDate.toISOString()} to ${minNextFollowUp.toISOString()}`);
+              scheduledDate = minNextFollowUp;
+            }
+          }
+        }
+        // ─────────────────────────────────────────────────────────────────────────
         await db.update(leads).set({
-          nextFollowUpAt: capDate(result.nextFollowUpAt, isLongLead),
+          nextFollowUpAt: scheduledDate,
           cadencePosition: result.cadencePosition,
           preferredChannel: result.channel,
         }).where(eq(leads.id, lead.id));
