@@ -46,8 +46,16 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   // Safely coerce body to string — GHL sometimes sends objects/arrays for FB form data
   const rawBody = payload.body ?? payload.message ?? "";
   const messageBody = typeof rawBody === "string" ? rawBody : (typeof rawBody === "object" ? JSON.stringify(rawBody) : String(rawBody));
-  const rawChannel = (payload.messageType || payload.type || "SMS") as string;
-  const channel = normalizeChannel(rawChannel);
+  // Channel detection: check multiple GHL payload fields for the message type.
+  // GHL sends messageType (string), messageTypeId (number), or nests it in message.type (workflow webhooks).
+  const rawChannel = (
+    payload.messageType ||
+    payload.messageTypeId ||
+    (typeof payload.message === 'object' && payload.message !== null ? (payload.message as any).type : undefined) ||
+    payload.type ||
+    "SMS"
+  ) as string;
+  let channel = normalizeChannel(rawChannel);
   const direction = (payload.direction || "inbound") as string;
 
   // --- ATTACHMENT DETECTION ---
@@ -193,6 +201,9 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
       console.log(`[Webhook/Msg] Corrected channel from SMS → FB for lead ${lead!.id} (FB form data detected in message body)`);
     }
   }
+  // CRITICAL: Propagate correctedChannel back to `channel` so ALL downstream logic
+  // (Brain Council, QC, send channel) uses the corrected value, not the raw webhook value.
+  channel = correctedChannel;
 
   // Store the message
   await addConversation({

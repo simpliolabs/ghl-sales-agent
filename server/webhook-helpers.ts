@@ -534,13 +534,18 @@ export function parseFormDataFromMessageBody(messageBody: string): Array<{ label
 // --- CHANNEL NORMALIZATION ---
 export function normalizeChannel(raw: unknown): string {
   const lower = String(raw || "SMS").toLowerCase().trim();
-  // GHL numeric message types: 2=SMS, 3=Email, 4=FB, 5=IG, 6=WhatsApp, 15=Live_Chat
+  // GHL numeric message types:
+  // 1=Call, 2=SMS, 3=Email, 4=FB, 5=IG, 6=WhatsApp, 7=GMB, 8=WebChat, 10=Voicemail, 11=FB Lead Form, 15=Live_Chat
   if (lower === "15") return "Live_Chat";
+  if (lower === "11") return "FB"; // FB Lead Form submissions come as type 11
   if (lower === "4") return "FB";
   if (lower === "5") return "IG";
   if (lower === "6") return "WhatsApp";
   if (lower === "3") return "Email";
   if (lower === "2") return "SMS";
+  if (lower === "7") return "SMS"; // GMB → treat as SMS for now
+  if (lower === "8") return "Live_Chat"; // WebChat → Live_Chat
+  if (lower === "1" || lower === "10") return "SMS"; // Call/Voicemail → SMS fallback
   // String-based types (GHL sends various formats)
   if (lower.includes("email")) return "Email";
   if (lower.includes("whatsapp")) return "WhatsApp";

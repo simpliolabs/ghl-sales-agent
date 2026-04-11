@@ -614,3 +614,13 @@
 - [x] Add tests: 11 new tests covering business name ack, form data product, conversation history events, outbound history products, name-only flagged, missing question flagged, no-context graceful fallback, high QC score bypass, non-ACA framework bypass, ministry/church events, Maceo Martin scenario
 - [x] All 650 tests passing
 - [x] Push to GitHub
+
+## BUG: CHANNEL MISMATCH blocking good messages — Curtis Lamar McBryde (Lead #900002)
+- [ ] Diagnose: FB message misidentified as SMS, then QC blocked 90/100 message instead of correcting channel
+- [ ] Fix 1: Improve FB channel detection — check GHL webhook payload fields beyond just messageType
+- [ ] Fix 2: Change channel_mismatch from blocking violation to auto-correction — override Strategist channel to match inbound, keep the message, send on correct channel
+- [ ] Fix 3: Ensure correctedChannel propagates to Brain Council call (not just raw channel)
+- [ ] Re-trigger Curtis Lamar McBryde engagement after fix
+- [ ] Add tests
+- [ ] All tests passing
+- [ ] Push to GitHub

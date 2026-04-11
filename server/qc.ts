@@ -23,6 +23,18 @@ import { PRICING_MATRIX, ESCALATION_RULES } from "../shared/sales-training";
 // QC REVIEWER
 // ============================================================
 
+/** Normalize channel strings for comparison (case-insensitive, alias-aware) */
+function normalizeChannelForQC(ch: string): string {
+  const lower = ch.toLowerCase().trim();
+  if (lower === "fb" || lower === "facebook" || lower === "messenger") return "fb";
+  if (lower === "ig" || lower === "instagram") return "ig";
+  if (lower === "sms" || lower === "text") return "sms";
+  if (lower === "email") return "email";
+  if (lower === "whatsapp") return "whatsapp";
+  if (lower === "live_chat" || lower === "livechat") return "live_chat";
+  return lower;
+}
+
 const QC_PROMPT = `You are the QC REVIEWER brain for Adorb Custom Tees' AI outreach system.
 
 You are the LAST LINE OF DEFENSE before a message goes to a real customer. Your job is to catch problems the other brains missed.
@@ -484,14 +496,25 @@ export function detectViolations(
     }
   }
 
-  // 9. CHANNEL MISMATCH — Reply must stay on same channel as inbound message
-  // If the lead sent an inbound message on a specific channel, the reply MUST go back on that channel.
-  // This prevents the critical FB→SMS mismatch bug where leads get disconnected replies.
+  // 9. CHANNEL MISMATCH — Reply should stay on same channel as inbound message
+  // If the lead sent an inbound message on a specific channel, the reply SHOULD go back on that channel.
+  // However, channel detection from GHL webhooks is unreliable (e.g., FB lead forms arrive as type 11
+  // which may be misidentified). So we only flag a hard violation when we're confident the mismatch
+  // is real — i.e., the Strategist chose a channel that ALSO doesn't match the lead's preferredChannel.
   if (input.channel && strategy.channel && input.channel !== strategy.channel) {
-    // Only flag if this is a response to an inbound message (not proactive outreach)
     const isResponding = ["answer_question", "provide_quote", "acknowledge_info", "confirm_details"].includes(strategy.approach);
     if (isResponding) {
-      return { category: "channel_mismatch", reason: `Lead messaged on ${input.channel} but strategy chose ${strategy.channel}. Replies MUST stay on the same channel as the inbound message. The lead expects the reply in their ${input.channel} conversation.` };
+      // If the Strategist's channel matches the lead's preferred channel, trust the Strategist.
+      // This handles cases where the inbound channel was misdetected (e.g., FB form → SMS)
+      // but the Strategist correctly picked FB based on lead.preferredChannel.
+      const leadPreferred = context.lead?.preferredChannel;
+      if (leadPreferred && normalizeChannelForQC(strategy.channel) === normalizeChannelForQC(leadPreferred)) {
+        // Strategist matches lead preference — likely a webhook channel detection issue, not a real mismatch.
+        // Log it but don't block.
+        console.log(`[QC] Channel mismatch detected (input=${input.channel} vs strategy=${strategy.channel}) but strategy matches lead.preferredChannel=${leadPreferred} — allowing.`);
+      } else {
+        return { category: "channel_mismatch", reason: `Lead messaged on ${input.channel} but strategy chose ${strategy.channel}. Replies MUST stay on the same channel as the inbound message. The lead expects the reply in their ${input.channel} conversation.` };
+      }
     }
   }
   // Also flag SMS for highly dormant leads (should use Email for re-engagement)

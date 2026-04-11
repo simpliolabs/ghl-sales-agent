@@ -352,6 +352,51 @@ describe("detectViolations — Layer 3 Expanded", () => {
       const result = detectViolations(makeComposed(), makeQC(), strategy, context, makeInput(), makeResearch());
       expect(result.category).not.toBe("channel_mismatch");
     });
+
+    // === NEW: Curtis Lamar McBryde scenario ===
+    // When inbound channel is misdetected as SMS but Strategist correctly picks FB
+    // and lead.preferredChannel is FB, trust the Strategist.
+    it("does NOT flag mismatch when strategy.channel matches lead.preferredChannel (FB form misdetected as SMS)", () => {
+      const context = makeContext({
+        lead: { name: "Curtis Lamar McBryde", businessName: "The Pulse Church HP", assignedAgent: "Abby", omnisendSegment: "brand", preferredChannel: "FB" },
+      });
+      const strategy = makeStrategy({ channel: "FB", approach: "acknowledge_info" });
+      const input = makeInput({ channel: "SMS" }); // misdetected
+
+      const result = detectViolations(makeComposed(), makeQC(), strategy, context, input, makeResearch());
+      expect(result.category).not.toBe("channel_mismatch");
+    });
+
+    it("DOES flag mismatch when strategy.channel differs from BOTH input.channel AND lead.preferredChannel", () => {
+      const context = makeContext({
+        lead: { name: "Test Lead", businessName: "Test Biz", assignedAgent: "Abby", omnisendSegment: "brand", preferredChannel: "SMS" },
+      });
+      const strategy = makeStrategy({ channel: "FB", approach: "acknowledge_info" });
+      const input = makeInput({ channel: "SMS" });
+
+      const result = detectViolations(makeComposed(), makeQC(), strategy, context, input, makeResearch());
+      expect(result.category).toBe("channel_mismatch");
+    });
+
+    it("DOES flag mismatch when lead has no preferredChannel set", () => {
+      const context = makeContext({
+        lead: { name: "Test Lead", businessName: "Test Biz", assignedAgent: "Abby", omnisendSegment: "brand" },
+      });
+      const strategy = makeStrategy({ channel: "FB", approach: "answer_question" });
+      const input = makeInput({ channel: "SMS" });
+
+      const result = detectViolations(makeComposed(), makeQC(), strategy, context, input, makeResearch());
+      expect(result.category).toBe("channel_mismatch");
+    });
+
+    it("does NOT flag mismatch for proactive outreach (non-responding approach)", () => {
+      const context = makeContext();
+      const strategy = makeStrategy({ channel: "FB", approach: "follow_up" });
+      const input = makeInput({ channel: "SMS" });
+
+      const result = detectViolations(makeComposed(), makeQC(), strategy, context, input, makeResearch());
+      expect(result.category).not.toBe("channel_mismatch");
+    });
   });
 
   describe("existing violations still work", () => {

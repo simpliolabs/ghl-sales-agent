@@ -168,6 +168,32 @@ describe("normalizeChannel", () => {
     expect(normalizeChannel(null)).toBe("SMS");
     expect(normalizeChannel("")).toBe("SMS");
   });
+
+  // === NEW: GHL type 11 = FB Lead Form (Curtis Lamar McBryde bug fix) ===
+  it("detects GHL numeric type 11 as FB (FB Lead Form submissions)", () => {
+    expect(normalizeChannel(11)).toBe("FB");
+    expect(normalizeChannel("11")).toBe("FB");
+  });
+
+  it("detects GHL numeric type 1 as SMS (Call fallback)", () => {
+    expect(normalizeChannel(1)).toBe("SMS");
+    expect(normalizeChannel("1")).toBe("SMS");
+  });
+
+  it("detects GHL numeric type 10 as SMS (Voicemail fallback)", () => {
+    expect(normalizeChannel(10)).toBe("SMS");
+    expect(normalizeChannel("10")).toBe("SMS");
+  });
+
+  it("detects GHL numeric type 7 as SMS (GMB fallback)", () => {
+    expect(normalizeChannel(7)).toBe("SMS");
+    expect(normalizeChannel("7")).toBe("SMS");
+  });
+
+  it("detects GHL numeric type 8 as Live_Chat (WebChat)", () => {
+    expect(normalizeChannel(8)).toBe("Live_Chat");
+    expect(normalizeChannel("8")).toBe("Live_Chat");
+  });
 });
 
 describe("parseFormDataFromMessageBody", () => {
