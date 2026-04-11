@@ -605,4 +605,4 @@
 - [x] Fixed: added event keyword extraction from outbound conversation history too
 - [x] Added 3 new tests: Paulette scenario, form data event name, first-name-only still flagged
 - [x] All 639 tests passing
-- [ ] Push to GitHub
+- [x] Push to GitHub
