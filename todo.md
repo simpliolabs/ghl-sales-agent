@@ -595,4 +595,14 @@
 - [x] Fixed channel priority: first-contact now enforces detected webhook channel (FB/IG) over Brain Council override
 - [x] 7 new tests for buildContextSubject (businessName+product, product only, businessName only, firstName only, no data fallback, empty formData, interested-in extraction)
 - [x] All 636 tests passing
+- [x] Push to GitHub
+
+## FIX: QC violation false positive spike (context_free_subject too narrow)
+- [x] Audited last 2 hours: 20 Brain Council runs, 16 sent, 4 blocked
+- [x] Identified Paulette Hughes Kornegay as false positive: "Hughes Reunion + Adorb" flagged because detector only checked businessName tokens, missed event/name context
+- [x] Fixed: separated lead name tokens from context tokens — first name alone is personalization, not context; last name counts as context
+- [x] Fixed: added ALL form data values as context tokens (not just product/purpose fields)
+- [x] Fixed: added event keyword extraction from outbound conversation history too
+- [x] Added 3 new tests: Paulette scenario, form data event name, first-name-only still flagged
+- [x] All 639 tests passing
 - [ ] Push to GitHub

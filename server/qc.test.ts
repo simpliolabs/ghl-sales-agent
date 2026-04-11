@@ -589,6 +589,61 @@ describe("context_free_subject violation", () => {
     const category: import("./brain-types").ViolationCategory = "context_free_subject";
     expect(category).toBe("context_free_subject");
   });
+
+  it("does NOT flag 'Hughes Reunion + Adorb' when lead name contains 'Hughes' (Paulette scenario)", () => {
+    const context = makeContext({
+      lead: { name: "Paulette Hughes Kornegay", businessName: "Kornegay Crafters", assignedAgent: "Abby", omnisendSegment: "" },
+      convHistory: [
+        { direction: "outbound", messageBody: "Hey Paulette! Heard you're planning the Hughes family reunion.", channel: "Email", timestamp: new Date().toISOString() },
+      ],
+    });
+    const strategy = makeStrategy({ channel: "Email" });
+    const composed = makeComposed({
+      message: "Hi Paulette, excited about the Hughes Reunion shirts...",
+      subject: "Hughes Reunion + Adorb",
+    });
+    // "Hughes" is a non-first-name part of the lead name AND "reunion" is an event keyword from conversation
+    const result = detectViolations(composed, makeQC(), strategy, context, makeInput({ channel: "Email" }), makeResearch());
+    expect(result.category).not.toBe("context_free_subject");
+  });
+
+  it("does NOT flag subject with form data event name even without product keywords", () => {
+    const input = makeInput({
+      channel: "Email",
+      formData: [
+        { label: "Event Name", value: "Smith Wedding" },
+        { label: "What type of products", value: "T-shirts" },
+      ],
+    });
+    const strategy = makeStrategy({ channel: "Email" });
+    const composed = makeComposed({
+      message: "Hi there, for the Smith Wedding tees...",
+      subject: "Smith Wedding Tees",
+    });
+    const result = detectViolations(composed, makeQC(), strategy, makeContext(), input, makeResearch());
+    expect(result.category).not.toBe("context_free_subject");
+  });
+
+  it("flags generic subject even when lead has a last name (name alone is not context)", () => {
+    const context = makeContext({
+      lead: { name: "John Smith", businessName: "", assignedAgent: "Abby", omnisendSegment: "" },
+      convHistory: [],
+    });
+    const input = makeInput({
+      channel: "Email",
+      formData: [
+        { label: "Product Interested In", value: "Hoodies" },
+      ],
+    });
+    const strategy = makeStrategy({ channel: "Email" });
+    const composed = makeComposed({
+      message: "Hi John, just checking in...",
+      subject: "Hey John",
+    });
+    // "Hey John" only matches first name, not product context "hoodies"
+    const result = detectViolations(composed, makeQC(), strategy, context, input, makeResearch());
+    expect(result.category).toBe("context_free_subject");
+  });
 });
 
 

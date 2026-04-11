@@ -470,10 +470,8 @@ export function detectViolations(
       /product|interested|looking for|item/i.test(f.label)
     );
     if (productField) {
-      // Split product value into keywords (e.g., "T-Shirts" → ["t-shirts", "shirts", "tees", "tee"])
       const pv = productField.value.toLowerCase();
       contextTokens.push(pv);
-      // Add common variations
       if (pv.includes("t-shirt") || pv.includes("tee")) contextTokens.push("tee", "tees", "shirt", "shirts", "t-shirt");
       if (pv.includes("hoodie") || pv.includes("hoody")) contextTokens.push("hoodie", "hoodies");
       if (pv.includes("polo")) contextTokens.push("polo", "polos");
@@ -483,33 +481,59 @@ export function detectViolations(
       if (pv.includes("tank")) contextTokens.push("tank", "tanks");
       if (pv.includes("sweatshirt")) contextTokens.push("sweatshirt", "sweatshirts");
     }
-    // Purpose/event from form data
-    const purposeField = (input.formData || []).find(f =>
-      /purpose|bulk printing|event|occasion/i.test(f.label)
-    );
-    if (purposeField) contextTokens.push(purposeField.value.toLowerCase());
+    // ALL form data values (not just product/purpose — captures event names, company names, etc.)
+    for (const f of (input.formData || [])) {
+      const fv = f.value.toLowerCase();
+      if (fv.length > 2) {
+        contextTokens.push(fv);
+        // Also add individual words from multi-word values (e.g., "Hughes Reunion" → ["hughes", "reunion"])
+        fv.split(/\s+/).filter((w: string) => w.length > 2).forEach((w: string) => contextTokens.push(w));
+      }
+    }
     // Business name
     if (businessName && businessName.length > 2) {
       contextTokens.push(businessName);
-      // Also add individual words from business name (e.g., "Grace Church" → ["grace", "church"])
       businessName.split(/\s+/).filter((w: string) => w.length > 2).forEach((w: string) => contextTokens.push(w));
     }
-    // Conversation topic keywords from last few messages
+    // Lead name tokens are tracked separately — name alone is personalization, not context.
+    // The subject matching ONLY checks contextTokens (product, business, event).
+    // Name tokens are used as an additional signal but don't count on their own.
+    const nameTokens: string[] = [];
+    const leadName = (context.lead.name || "").toLowerCase();
+    if (leadName.length > 2) {
+      leadName.split(/\s+/).filter((w: string) => w.length > 2).forEach((w: string) => nameTokens.push(w));
+    }
+    // Conversation topic keywords from last few messages — products AND events/purposes
     const lastInbound = context.convHistory.filter((c: any) => c.direction === "inbound").slice(-3);
     for (const msg of lastInbound) {
       const body = (msg.messageBody || "").toLowerCase();
-      // Extract product mentions from conversation
       const productMentions = body.match(/\b(tee|tees|shirt|shirts|t-shirt|hoodie|hoodies|polo|polos|hat|hats|cap|caps|tote|totes|bag|bags|jacket|jackets|tank|tanks|sweatshirt|embroidery|embroidered|print|printing|custom)\b/g);
       if (productMentions) contextTokens.push(...productMentions);
+      // Also extract event/purpose keywords from conversation
+      const eventMentions = body.match(/\b(reunion|wedding|birthday|party|fundraiser|conference|church|school|team|league|tournament|festival|concert|graduation|anniversary|memorial|charity|gala|banquet|retreat|camp|corporate|company|business|brand|startup|launch|opening|promotion)\b/g);
+      if (eventMentions) contextTokens.push(...eventMentions);
+    }
+    // Also check outbound messages for context (AI may have mentioned specific topics)
+    const lastOutbound = context.convHistory.filter((c: any) => c.direction === "outbound").slice(-2);
+    for (const msg of lastOutbound) {
+      const body = (msg.messageBody || "").toLowerCase();
+      const eventMentions = body.match(/\b(reunion|wedding|birthday|party|fundraiser|conference|church|school|team|league|tournament|festival|concert|graduation|anniversary|memorial|charity|gala|banquet|retreat|camp|corporate|company|business|brand|startup|launch|opening|promotion)\b/g);
+      if (eventMentions) contextTokens.push(...eventMentions);
     }
 
-    // Only enforce if we have context tokens (i.e., we KNOW something specific about this lead)
+    // Only enforce if we have REAL context tokens (product, business, event — not just the lead's name)
     if (contextTokens.length > 0) {
       const hasContextInSubject = contextTokens.some(token => {
         if (token.length <= 2) return false;
         return subjectLower.includes(token);
       });
-      if (!hasContextInSubject) {
+      // Also check if a non-first-name part of the lead name appears (e.g., last name = business/family context)
+      // But first name alone ("Hey John") doesn't count as context
+      const namePartsInSubject = nameTokens.filter(t => t.length > 2 && subjectLower.includes(t));
+      const firstNameLower = leadName.split(/\s+/)[0];
+      const hasNonFirstNameMatch = namePartsInSubject.some(t => t !== firstNameLower);
+      const hasRealContext = hasContextInSubject || hasNonFirstNameMatch;
+      if (!hasRealContext) {
         // Also check for banned generic patterns
         const BANNED_SUBJECTS = [
           "quick update", "checking in", "following up", "quick question",
@@ -521,7 +545,7 @@ export function detectViolations(
           subjectLower.length < 5 ||
           !subjectLower.match(/[a-z]{3,}/);
         // Flag if subject is generic AND we have specific context available
-        if (isGeneric || !hasContextInSubject) {
+        if (isGeneric || !hasRealContext) {
           return {
             category: "context_free_subject" as ViolationCategory,
             reason: `Email subject "${composed.subject}" does not reference any lead-specific context. Available context: ${contextTokens.slice(0, 5).join(", ")}. Subject must mention the lead's product, business, event, or conversation topic.`
