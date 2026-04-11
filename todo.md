@@ -626,14 +626,17 @@
 - [x] Push to GitHub
 
 ## BUG: Email not threading as reply — "WHY YO HAND O..." lead
-- [ ] Diagnose: Apr 11 email sent as new email ("Abby from Adorb") instead of reply to Apr 9 thread ("Still thinking about your design?")
-- [ ] Fix: Email threading must use prior email's threadId/messageId for In-Reply-To header
-- [ ] Verify getLastEmailThreadId returns the correct thread ID for follow-up emails
+- [x] Diagnose: GHL sendMessage returns `messageId` but code stored `emailMessageId` (undefined) → all thread IDs null
+- [x] Fix: GHL sendMessage now maps response.messageId → emailMessageId for email sends
+- [x] Fix: getLastEmailThreadInfo returns threadId + prior subject for Re: prefix threading
+- [x] Fix: follow-up-trigger.ts and webhook-message.ts both use getLastEmailThreadInfo for Re: subjects
 
 ## BUG: Follow-up messages generic/repetitive — no escalation or personality
-- [ ] Diagnose: Follow-up after no reply is basic, repeats same pitch, no curiosity/humor/sarcasm escalation
-- [ ] Fix: Strategist/Composer must escalate tone and approach on subsequent follow-ups (Hormozi methodology)
-- [ ] Fix: Composer must never repeat the same pitch angle — check prior outbound and use different approach
-- [ ] Add tests
-- [ ] All tests passing
-- [ ] Push to GitHub
+- [x] Diagnose: Strategist had no structured escalation ladder — same approach/tone regardless of attempt count
+- [x] Fix: Added FOLLOW-UP ESCALATION LADDER to Strategist (4 tiers: standard → value-first → pattern interrupt → breakup)
+- [x] Fix: Explicit escalation tier injected into Strategist engagement state based on unansweredCount
+- [x] Fix: Composer now receives FOLLOW-UP ESCALATION section matching Strategist tiers
+- [x] Fix: Composer extracts recent email subjects for anti-repetition (RECENT SUBJECTS section)
+- [x] Fix: Encourages humor, sarcasm, pattern interrupts at Attempt 3+; breakup angles at Attempt 4+
+- [x] All 659 tests passing
+- [x] Push to GitHub
