@@ -252,6 +252,33 @@ export async function runDispositionSweep(): Promise<DispositionStats> {
       // Skip if already handled in Pass 1
       // (DNC leads were already moved to not_qualified)
 
+      // ─── CIRCUIT BREAKER GUARD ─────────────────────────────────────────────
+      // If this humanTakeover was set by the circuit breaker (3 consecutive QC
+      // failures), do NOT auto-release it. The owner must manually review and
+      // reset consecutiveRejects before re-enabling AI for this lead.
+      // We detect this by checking for a circuit breaker audit in the last 7 days.
+      try {
+        const cbResult = await db.execute(sql`
+          SELECT COUNT(*) as cnt FROM brain_council_audit
+          WHERE leadId = ${candidate.id}
+            AND violationCategory = 'safety_violation'
+            AND blockReason LIKE '%Circuit breaker%'
+            AND createdAt > DATE_SUB(NOW(), INTERVAL 7 DAY)
+        `);
+        const cbCount = Number(((cbResult as any[])[0] as any[])[0]?.cnt || 0);
+        if (cbCount > 0) {
+          console.log(`[Disposition] Lead ${candidate.id} → SKIPPED stale takeover release — circuit breaker set this humanTakeover (${cbCount} CB audits in 7d). Requires manual review.`);
+          stats.processed++;
+          continue;
+        }
+      } catch (cbErr) {
+        console.error(`[Disposition] Circuit breaker guard check failed for lead ${candidate.id} (non-fatal):`, cbErr);
+        // Fail SAFE: if we can't check, don't release
+        stats.processed++;
+        continue;
+      }
+      // ─────────────────────────────────────────────────────────────────────────
+
       // First check if they're DNC — if so, move to not_qualified
       const history = await getConversationHistory(candidate.id, 20);
       const inboundOnly = history.filter((c: any) => c.direction === "inbound");

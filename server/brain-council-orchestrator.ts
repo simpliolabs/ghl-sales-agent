@@ -315,20 +315,110 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     // --- CIRCUIT BREAKER CHECK ---
     const circuitBreaker = await checkCircuitBreaker(input.leadId);
     if (circuitBreaker.tripped) {
-      console.log(`[BrainCouncil] CIRCUIT BREAKER TRIPPED for lead ${input.leadId} (${circuitBreaker.consecutiveFailures} consecutive failures). AI paused.`);
+      console.log(`[BrainCouncil] CIRCUIT BREAKER TRIPPED for lead ${input.leadId} (${circuitBreaker.consecutiveFailures} consecutive failures). Setting humanTakeover=1 to stop the loop.`);
       const context = await buildLeadContext(input.leadId);
+
+      // ─── CORE FIX 1: Set humanTakeover=1 IMMEDIATELY ─────────────────────────
+      // Without this, the fast scanner and follow-up trigger keep picking this
+      // lead up every 2 minutes, firing a new circuit breaker notification each
+      // time. humanTakeover=1 is the only reliable way to stop the loop.
+      try {
+        const { updateLeadFields } = await import("./db");
+        await updateLeadFields(input.leadId, { humanTakeover: 1 });
+        console.log(`[BrainCouncil] ✅ humanTakeover=1 set for lead ${input.leadId} — AI outreach paused until manual review`);
+      } catch (htErr) {
+        console.error(`[BrainCouncil] Failed to set humanTakeover (non-fatal):`, htErr);
+      }
+
+      // ─── CORE FIX 2: Notification dedup ──────────────────────────────────────
+      // Only send ONE circuit breaker email per lead per 24 hours.
+      // Check if we already notified the owner about this lead's circuit breaker today.
+      let ownerNotified = 0;
+      try {
+        const db = await getDb();
+        if (db) {
+          const recentNotifResult = await db.execute(sql`
+            SELECT COUNT(*) as cnt FROM brain_council_audit
+            WHERE leadId = ${input.leadId}
+              AND violationCategory = 'safety_violation'
+              AND blockReason LIKE '%Circuit breaker%'
+              AND ownerNotified = 1
+              AND createdAt > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+          `);
+          const notifCount = Number(((recentNotifResult as any[])[0] as any[])[0]?.cnt || 0);
+          if (notifCount === 0) {
+            await notifyOwnerOfViolation(
+              input.leadId,
+              context.lead.name || `Lead #${input.leadId}`,
+              "safety_violation",
+              `Circuit breaker tripped: ${circuitBreaker.consecutiveFailures} consecutive QC failures. humanTakeover set — AI paused until manual review.`,
+              "(no message composed — circuit breaker active)",
+              0,
+              circuitBreaker.consecutiveFailures
+            );
+            ownerNotified = 1;
+            console.log(`[BrainCouncil] 📧 Circuit breaker notification sent for lead ${input.leadId}`);
+          } else {
+            console.log(`[BrainCouncil] 🔕 Notification SUPPRESSED for lead ${input.leadId} — already notified ${notifCount}x today (dedup active)`);
+          }
+        }
+      } catch (notifErr) {
+        console.error(`[BrainCouncil] Notification dedup check failed (non-fatal):`, notifErr);
+        // Best effort: try to notify anyway
+        try {
+          await notifyOwnerOfViolation(
+            input.leadId,
+            context.lead.name || `Lead #${input.leadId}`,
+            "safety_violation",
+            `Circuit breaker tripped: ${circuitBreaker.consecutiveFailures} consecutive QC failures.`,
+            "(no message composed — circuit breaker active)",
+            0,
+            circuitBreaker.consecutiveFailures
+          );
+          ownerNotified = 1;
+        } catch { /* ignore */ }
+      }
+
+      // ─── CORE FIX 3: NEVER send cold-intro fallback to warm leads ────────────
+      // If the lead has ANY prior outbound conversation, suppress the fallback.
+      // A cold-intro to someone mid-conversation is worse than silence.
+      const hasConversationHistory = context.priorOutbound && context.priorOutbound.length > 0;
+      if (hasConversationHistory) {
+        console.log(`[BrainCouncil] 🚫 Fallback SUPPRESSED for lead ${input.leadId} — ${context.priorOutbound.length} prior outbound message(s) exist. Cold-intro to warm lead is prohibited.`);
+        await addBrainCouncilAudit({
+          leadId: input.leadId,
+          leadName: context.lead.name || undefined,
+          channel: input.channel,
+          incomingMessage: input.incomingMessage?.substring(0, 2000),
+          blocked: 1,
+          blockReason: `Circuit breaker: ${circuitBreaker.consecutiveFailures} consecutive failures [Fallback suppressed — warm lead with ${context.priorOutbound.length} prior messages]`,
+          violationCategory: "safety_violation",
+          ownerNotified,
+          fallbackUsed: 0,
+          messageSent: 0,
+        });
+        return {
+          message: "",
+          fromName: context.lead.assignedAgent || "Abby Bouwer",
+          framework: "CIRCUIT_BREAKER_PAUSED",
+          angle: "circuit_breaker",
+          channel: input.channel,
+          extractedDates: [],
+          score: 0,
+          segment: context.lead.omnisendSegment || "other",
+          nextEngagementHours: 168,
+          qcScore: 0,
+          strategyReasoning: "Circuit breaker tripped — AI paused, humanTakeover set, fallback suppressed (warm lead with prior conversation)",
+          researchSummary: "",
+          blocked: true,
+          blockReason: `Circuit breaker: ${circuitBreaker.consecutiveFailures} consecutive failures`,
+          violationCategory: "safety_violation",
+          fallbackUsed: false,
+        };
+      }
+
+      // Cold lead (no prior conversation) — safe to send the intro fallback once
       const fallbackMsg = buildSafeFallback(context, input);
-
-      await notifyOwnerOfViolation(
-        input.leadId,
-        context.lead.name || `Lead #${input.leadId}`,
-        "safety_violation",
-        `Circuit breaker tripped: ${circuitBreaker.consecutiveFailures} consecutive QC failures`,
-        "(no message composed — circuit breaker active)",
-        0,
-        circuitBreaker.consecutiveFailures
-      );
-
       await addBrainCouncilAudit({
         leadId: input.leadId,
         leadName: context.lead.name || undefined,
@@ -337,12 +427,11 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
         blocked: 1,
         blockReason: `Circuit breaker: ${circuitBreaker.consecutiveFailures} consecutive failures`,
         violationCategory: "safety_violation",
-        ownerNotified: 1,
+        ownerNotified,
         fallbackUsed: 1,
         fallbackMessage: fallbackMsg,
         messageSent: 0,
       });
-
       return {
         message: fallbackMsg,
         fromName: context.lead.assignedAgent || "Abby Bouwer",

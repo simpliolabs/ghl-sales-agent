@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { detectViolations } from "./qc";
+import { detectViolations, buildSafeFallback } from "./qc";
 import type {
   ComposedMessage,
   QCVerdict,
@@ -1005,5 +1005,48 @@ describe("detectViolations — HORMOZI_ACA missing_framework", () => {
     });
     const result = detectViolations(composed, lowQC(), acaStrategy(), context, makeInput(), makeResearch());
     expect(result.category).not.toBe("missing_framework");
+  });
+});
+
+describe("buildSafeFallback — warm lead suppression", () => {
+  it("returns cold-intro for a lead with no prior outbound (cold lead)", () => {
+    
+    const context = makeContext({
+      lead: { name: "John Smith", assignedAgent: "Abby" },
+      convHistory: [],
+    });
+    const input = makeInput({ formData: [] });
+    const result = buildSafeFallback(context, input);
+    expect(result).toContain("John");
+    expect(result).toContain("Adorb Custom Tees");
+  });
+
+  it("returns product-specific fallback when form data has product/purpose", () => {
+    
+    const context = makeContext({
+      lead: { name: "Eva Smith", assignedAgent: "Chris" },
+      convHistory: [],
+    });
+    const input = makeInput({
+      formData: [
+        { label: "Product", value: "T-Shirts" },
+        { label: "Purpose", value: "Company Event" },
+      ],
+    });
+    const result = buildSafeFallback(context, input);
+    expect(result).toContain("t-shirts");
+    expect(result).toContain("company event");
+  });
+
+  it("returns generic fallback when no form data available", () => {
+    
+    const context = makeContext({
+      lead: { name: "Jane Doe", assignedAgent: "Abby" },
+      convHistory: [],
+    });
+    const input = makeInput({ formData: [] });
+    const result = buildSafeFallback(context, input);
+    expect(result).toContain("Jane");
+    expect(result).toContain("What kind of custom apparel");
   });
 });

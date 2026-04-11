@@ -215,8 +215,10 @@ export async function sendMessage(contactId: string, opts: {
             // Skip system/automation messages
             if (isSystemMessage(m.body)) return false;
             // Skip GHL system message types (TYPE_ACTIVITY, TYPE_CALL, etc.)
+            // NOTE: GHL may return type as a number (e.g. 11) or string — convert to string first
             const systemTypes = ["TYPE_ACTIVITY", "TYPE_CALL_COMPLETED", "TYPE_CALL", "TYPE_NOTE", "TYPE_TASK", "TYPE_APPOINTMENT", "TYPE_WORKFLOW", "TYPE_SYSTEM"];
-            if (systemTypes.includes(m.type?.toUpperCase() || "")) return false;
+            const typeStr = m.type != null ? String(m.type).toUpperCase() : "";
+            if (systemTypes.includes(typeStr)) return false;
             // Check if this message matches a known AI message
             const isKnownAi = knownAiMessages.has(m.body.toLowerCase().trim());
             return !isKnownAi;

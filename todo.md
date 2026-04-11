@@ -676,3 +676,19 @@
 - [x] Reset 3 circuit breaker leads (Glory, Brenie Wooten, bob eytcheson)
 - [x] All 659 tests passing
 - [x] Push to GitHub
+
+## CRITICAL: Notification spam + Eva dali nyaosi circuit breaker loop
+- [ ] FIX: Only send owner email notification on circuit breaker trips — suppress individual block emails
+- [ ] FIX: Diagnose why Eva dali nyaosi (Lead #450001) keeps failing 3x in a row after reset
+- [ ] FIX: Verify all 21 re-triggered leads from earlier script were properly reset
+- [ ] All tests passing
+- [ ] Push to GitHub
+
+## CORE FIX: Fallback/circuit-breaker sending wrong messages + duplicate emails
+- [ ] FIX: Circuit breaker must block ALL sends including fallback — no message at all when tripped
+- [ ] FIX: Fallback must NEVER send cold-intro to warm leads (prior conversation history)
+- [ ] FIX: Deduplicate owner notifications — only 1 email per lead per circuit breaker trip (check humanTakeover before notifying)
+- [ ] FIX: Suppress fallback for leads with 1+ prior outbound messages (already in conversation)
+- [ ] Re-trigger all leads affected by duplicate/wrong fallback emails
+- [ ] All tests passing
+- [ ] Push to GitHub
