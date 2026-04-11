@@ -608,9 +608,9 @@
 - [x] Push to GitHub
 
 ## FIX: HORMOZI_ACA missing_framework false positives (Maceo Martin + others)
-- [ ] Broaden hasAcknowledge to check businessName, productType, event/purpose keywords from conversation history
-- [ ] Extract context tokens from priorOutbound + priorInbound conversation history
-- [ ] Add formData label-based context (not just values) for richer matching
-- [ ] Add tests: business name acknowledgment, conversation history context, product type reference, no-context lead still flagged
-- [ ] All tests passing
-- [ ] Push to GitHub
+- [x] Broaden hasAcknowledge to check businessName, productType, event/purpose keywords from conversation history
+- [x] Extract context tokens from priorOutbound + priorInbound conversation history (last 6 messages)
+- [x] Add formData label-based context (not just values) for richer matching
+- [x] Add tests: 11 new tests covering business name ack, form data product, conversation history events, outbound history products, name-only flagged, missing question flagged, no-context graceful fallback, high QC score bypass, non-ACA framework bypass, ministry/church events, Maceo Martin scenario
+- [x] All 650 tests passing
+- [x] Push to GitHub
