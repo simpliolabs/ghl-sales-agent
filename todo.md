@@ -606,3 +606,11 @@
 - [x] Added 3 new tests: Paulette scenario, form data event name, first-name-only still flagged
 - [x] All 639 tests passing
 - [x] Push to GitHub
+
+## FIX: HORMOZI_ACA missing_framework false positives (Maceo Martin + others)
+- [ ] Broaden hasAcknowledge to check businessName, productType, event/purpose keywords from conversation history
+- [ ] Extract context tokens from priorOutbound + priorInbound conversation history
+- [ ] Add formData label-based context (not just values) for richer matching
+- [ ] Add tests: business name acknowledgment, conversation history context, product type reference, no-context lead still flagged
+- [ ] All tests passing
+- [ ] Push to GitHub

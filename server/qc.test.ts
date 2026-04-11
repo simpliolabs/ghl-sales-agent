@@ -798,3 +798,167 @@ describe("detectViolations — passive_reactivation", () => {
     expect(category).toBe("passive_reactivation");
   });
 });
+
+
+describe("detectViolations — HORMOZI_ACA missing_framework", () => {
+  // Helper: HORMOZI_ACA strategy with low QC score (triggers the check)
+  const acaStrategy = () => makeStrategy({ framework: "HORMOZI_ACA" });
+  const lowQC = () => makeQC({ score: 50 });
+
+  it("passes when message references business name + has question", () => {
+    const context = makeContext({
+      lead: { name: "Maceo Martin", businessName: "Martin's Barbershop", assignedAgent: "Abby" },
+    });
+    const composed = makeComposed({
+      message: "Hey Maceo! Love what you're doing with Martin's Barbershop — those custom polos would look great on your team. What colors are you thinking?",
+    });
+    const result = detectViolations(composed, lowQC(), acaStrategy(), context, makeInput(), makeResearch());
+    expect(result.category).not.toBe("missing_framework");
+  });
+
+  it("passes when message references product type from form data + has question", () => {
+    const context = makeContext({
+      lead: { name: "Maceo Martin", assignedAgent: "Abby" },
+    });
+    const input = makeInput({
+      formData: [
+        { label: "Product Type", value: "Custom Hoodies" },
+        { label: "Quantity", value: "50" },
+      ],
+    });
+    const composed = makeComposed({
+      message: "Maceo! 50 custom hoodies is a solid order — we can definitely make those pop. Do you have a design in mind or want our team to help?",
+    });
+    const result = detectViolations(composed, lowQC(), acaStrategy(), context, input, makeResearch());
+    expect(result.category).not.toBe("missing_framework");
+  });
+
+  it("passes when message references event keyword from conversation history + has question", () => {
+    const context = makeContext({
+      lead: { name: "Maceo Martin", assignedAgent: "Abby" },
+      convHistory: [
+        { direction: "inbound", messageBody: "We're planning a family reunion next month and need matching shirts" },
+      ],
+    });
+    const composed = makeComposed({
+      message: "Hey Maceo! A family reunion is such a great reason for custom shirts — matching gear really brings everyone together. How many people are you expecting?",
+    });
+    const result = detectViolations(composed, lowQC(), acaStrategy(), context, makeInput(), makeResearch());
+    expect(result.category).not.toBe("missing_framework");
+  });
+
+  it("passes when message references product keyword from outbound conversation history + has question", () => {
+    const context = makeContext({
+      lead: { name: "Maceo Martin", assignedAgent: "Abby" },
+      convHistory: [
+        { direction: "outbound", messageBody: "We talked about custom embroidery for your team jerseys" },
+        { direction: "inbound", messageBody: "Yes I'm still interested" },
+      ],
+    });
+    const composed = makeComposed({
+      message: "Great to hear you're still interested in the embroidery, Maceo! Those jerseys are going to look sharp. Have you decided on the logo placement?",
+    });
+    const result = detectViolations(composed, lowQC(), acaStrategy(), context, makeInput(), makeResearch());
+    expect(result.category).not.toBe("missing_framework");
+  });
+
+  it("flags when message only mentions lead name without any context tokens", () => {
+    const context = makeContext({
+      lead: { name: "Maceo Martin", businessName: "Martin's Barbershop", assignedAgent: "Abby" },
+    });
+    const input = makeInput({
+      formData: [{ label: "Product Type", value: "Custom Tees" }],
+    });
+    const composed = makeComposed({
+      message: "Hey Maceo! How's it going? Just wanted to check in and see what you're up to.",
+    });
+    const result = detectViolations(composed, lowQC(), acaStrategy(), context, input, makeResearch());
+    expect(result.category).toBe("missing_framework");
+    expect(result.reason).toContain("acknowledgment");
+  });
+
+  it("flags when message has no question mark (missing Ask step)", () => {
+    const context = makeContext({
+      lead: { name: "Maceo Martin", businessName: "Martin's Barbershop", assignedAgent: "Abby" },
+    });
+    const input = makeInput({
+      formData: [{ label: "Product Type", value: "Custom Tees" }],
+    });
+    const composed = makeComposed({
+      message: "Hey Maceo! Those custom tees for Martin's Barbershop are going to look amazing. We can definitely help with that.",
+    });
+    const result = detectViolations(composed, lowQC(), acaStrategy(), context, input, makeResearch());
+    expect(result.category).toBe("missing_framework");
+    expect(result.reason).toContain("question");
+  });
+
+  it("passes when lead has NO context at all and message mentions lead name + has question (graceful fallback)", () => {
+    const context = makeContext({
+      lead: { name: "Maceo Martin", assignedAgent: "Abby" },
+      convHistory: [],
+    });
+    const input = makeInput({ formData: [] });
+    const composed = makeComposed({
+      message: "Hey Maceo Martin! Saw you reached out — what kind of custom gear are you looking for?",
+    });
+    const result = detectViolations(composed, lowQC(), acaStrategy(), context, input, makeResearch());
+    // With no context tokens available, name mention is acceptable as acknowledgment
+    expect(result.category).not.toBe("missing_framework");
+  });
+
+  it("does NOT trigger when QC score is above 60 (LLM already approved)", () => {
+    const context = makeContext({
+      lead: { name: "Maceo Martin", assignedAgent: "Abby" },
+    });
+    const composed = makeComposed({
+      message: "Hey Maceo! Just checking in.",
+    });
+    const highQC = makeQC({ score: 75 });
+    const result = detectViolations(composed, highQC, acaStrategy(), context, makeInput(), makeResearch());
+    expect(result.category).not.toBe("missing_framework");
+  });
+
+  it("does NOT trigger for non-HORMOZI_ACA frameworks", () => {
+    const context = makeContext({
+      lead: { name: "Maceo Martin", assignedAgent: "Abby" },
+    });
+    const composed = makeComposed({
+      message: "Hey Maceo! Just checking in.",
+    });
+    const pasStrategy = makeStrategy({ framework: "PAS" });
+    const result = detectViolations(composed, lowQC(), pasStrategy, context, makeInput(), makeResearch());
+    expect(result.category).not.toBe("missing_framework");
+  });
+
+  it("passes with ministry/church event from form data", () => {
+    const context = makeContext({
+      lead: { name: "Maceo Martin", assignedAgent: "Abby" },
+    });
+    const input = makeInput({
+      formData: [
+        { label: "Purpose", value: "Church Ministry Event" },
+        { label: "Product", value: "T-Shirts" },
+      ],
+    });
+    const composed = makeComposed({
+      message: "Hey Maceo! A church ministry event sounds wonderful — custom shirts really bring the team together. How many people are in your group?",
+    });
+    const result = detectViolations(composed, lowQC(), acaStrategy(), context, input, makeResearch());
+    expect(result.category).not.toBe("missing_framework");
+  });
+
+  it("Maceo Martin scenario: message references barbershop from business name", () => {
+    // Simulates the actual Maceo Martin case — business name is the primary context
+    const context = makeContext({
+      lead: { name: "Maceo Martin", businessName: "Maceo's Cuts & Styles", assignedAgent: "Chris" },
+      convHistory: [
+        { direction: "inbound", messageBody: "I need some branded shirts for my barber shop staff" },
+      ],
+    });
+    const composed = makeComposed({
+      message: "Hey Maceo! Branded shirts for Maceo's Cuts & Styles — your staff is going to look sharp. What style are you thinking, polos or tees?",
+    });
+    const result = detectViolations(composed, lowQC(), acaStrategy(), context, makeInput(), makeResearch());
+    expect(result.category).not.toBe("missing_framework");
+  });
+});

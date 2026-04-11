@@ -305,12 +305,51 @@ export function detectViolations(
     }
   }
 
-  // 5. MISSING FRAMEWORK
+  // 5. MISSING FRAMEWORK — HORMOZI_ACA requires Acknowledge + Compliment + Ask
+  // Acknowledgment = referencing something SPECIFIC about the lead (not just their name)
   if (strategy.framework === "HORMOZI_ACA" && qc.score < 60) {
-    const hasAcknowledge = formLabels.some(v => v.length > 2 && msg.includes(v)) || msg.includes(leadName);
+    // Build a rich set of acknowledgment tokens from all available context
+    const ackTokens: string[] = [];
+
+    // a) Form data values (product type, event name, purpose, etc.)
+    for (const f of (input.formData || [])) {
+      const fv = f.value.toLowerCase();
+      if (fv.length > 2) {
+        ackTokens.push(fv);
+        fv.split(/\s+/).filter((w: string) => w.length > 2).forEach((w: string) => ackTokens.push(w));
+      }
+    }
+
+    // b) Business name
+    if (businessName && businessName.length > 2) {
+      ackTokens.push(businessName);
+      businessName.split(/\s+/).filter((w: string) => w.length > 2).forEach((w: string) => ackTokens.push(w));
+    }
+
+    // c) Product keywords from conversation history (inbound + outbound)
+    const recentMsgs = context.convHistory.slice(-6);
+    for (const m of recentMsgs) {
+      const body = (m.messageBody || "").toLowerCase();
+      const productMentions = body.match(/\b(tee|tees|shirt|shirts|t-shirt|hoodie|hoodies|polo|polos|hat|hats|cap|caps|tote|totes|bag|bags|jacket|jackets|tank|tanks|sweatshirt|embroidery|embroidered|print|printing|custom|jersey|jerseys|uniform|uniforms|banner|banners|sticker|stickers|mug|mugs|pen|pens|notebook|notebooks)\b/g);
+      if (productMentions) ackTokens.push(...productMentions);
+      // Event/purpose keywords
+      const eventMentions = body.match(/\b(reunion|wedding|birthday|party|fundraiser|conference|church|school|team|league|tournament|festival|concert|graduation|anniversary|memorial|charity|gala|banquet|retreat|camp|corporate|company|business|brand|startup|launch|opening|promotion|ministry|nonprofit|event)\b/g);
+      if (eventMentions) ackTokens.push(...eventMentions);
+    }
+
+    // d) Lead name (counts as acknowledgment when combined with other context, but alone is weak)
+    const hasNameMention = leadName.length > 2 && msg.includes(leadName);
+
+    // Check: does the message reference any of the context tokens?
+    const hasContextAck = ackTokens.some(token => token.length > 2 && msg.includes(token));
+    // Name alone is a weak acknowledgment — only valid if we have NO other context available
+    const hasAcknowledge = hasContextAck || (hasNameMention && ackTokens.length === 0);
     const hasQuestion = msg.includes("?");
     if (!hasAcknowledge || !hasQuestion) {
-      return { category: "missing_framework", reason: `HORMOZI_ACA requires Acknowledge+Compliment+Ask but message is missing ${!hasAcknowledge ? "acknowledgment" : "question"}` };
+      const missingParts: string[] = [];
+      if (!hasAcknowledge) missingParts.push("acknowledgment (must reference lead's business, product, event, or conversation topic)");
+      if (!hasQuestion) missingParts.push("question (Ask step)");
+      return { category: "missing_framework", reason: `HORMOZI_ACA requires Acknowledge+Compliment+Ask but message is missing: ${missingParts.join("; ")}. Available context: ${ackTokens.slice(0, 5).join(", ") || "none"}` };
     }
   }
 
