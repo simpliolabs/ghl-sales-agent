@@ -616,11 +616,11 @@
 - [x] Push to GitHub
 
 ## BUG: CHANNEL MISMATCH blocking good messages — Curtis Lamar McBryde (Lead #900002)
-- [ ] Diagnose: FB message misidentified as SMS, then QC blocked 90/100 message instead of correcting channel
-- [ ] Fix 1: Improve FB channel detection — check GHL webhook payload fields beyond just messageType
-- [ ] Fix 2: Change channel_mismatch from blocking violation to auto-correction — override Strategist channel to match inbound, keep the message, send on correct channel
-- [ ] Fix 3: Ensure correctedChannel propagates to Brain Council call (not just raw channel)
+- [x] Diagnose: GHL type 11 (FB Lead Form) unmapped → defaulted to SMS; correctedChannel not propagated to Brain Council
+- [x] Fix 1: normalizeChannel — map GHL types 11→FB, 1/10→SMS, 7→SMS, 8→Live_Chat; check payload.messageTypeId + payload.message.type
+- [x] Fix 2: QC channel_mismatch — trust Strategist when strategy.channel matches lead.preferredChannel (defensive fix)
+- [x] Fix 3: Propagate correctedChannel back to `channel` variable for ALL downstream logic (Brain Council, QC, send)
 - [ ] Re-trigger Curtis Lamar McBryde engagement after fix
-- [ ] Add tests
-- [ ] All tests passing
-- [ ] Push to GitHub
+- [x] Add tests: 5 new normalizeChannel tests (type 11, 1, 7, 8, 10) + 4 new QC channel_mismatch tests
+- [x] All 659 tests passing
+- [x] Push to GitHub
