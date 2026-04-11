@@ -284,7 +284,10 @@ Attempt 3 (unanswered = 2): PATTERN INTERRUPT. Break the pattern completely.
   - Example: "Honest question — did my last email land in spam, or are you just playing hard to get? 😄"
   - Example: "Random thought — what if your team showed up to the next event in matching custom gear? Just saying."
 
-Attempt 4+ (unanswered = 3+): BREAKUP or SCARCITY. Last-resort engagement.
+Attempt 4+ (unanswered = 3+, AND lead age >= 7 days): BREAKUP or SCARCITY. Last-resort engagement.
+  - MINIMUM DAYS GATE: Do NOT use EMB_COLD or any breakup/give-up angle unless lead age >= 7 days.
+    If lead age < 7 days but unanswered = 3+, use SOAP_OPERA or HORMOZI_INDIRECT instead (not breakup).
+    Rationale: A lead who signed up 3 days ago and hasn't replied yet is NOT ready for a breakup message.
   - Tone: Direct, honest, respectful — with a clear "last chance" feel
   - Strategy: Breakup email ("Should I close your file?"), seasonal urgency, or exclusive offer
   - Framework: EMB_COLD or EMB_WINBACK

@@ -155,6 +155,45 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
   }
 
   // ================================================================
+  // PRE-FLIGHT CHECK 2.5: Daily send cap — max 1 proactive outbound per lead per calendar day
+  // Inbound replies and explicit overrides bypass this check.
+  // This prevents the follow-up trigger + fast scanner from both firing
+  // on the same lead on the same day (e.g. triple-send bug).
+  // ================================================================
+  if (!isRecoveryOrInbound) {
+    try {
+      const db = await getDb();
+      if (db) {
+        const [lead] = await db.select({ lastAiSendAttemptAt: leads.lastAiSendAttemptAt })
+          .from(leads)
+          .where(eq(leads.id, input.leadId))
+          .limit(1);
+        if (lead?.lastAiSendAttemptAt) {
+          const lastSend = new Date(lead.lastAiSendAttemptAt);
+          // Compare calendar dates in Eastern Time (where the business operates)
+          const nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+          const lastSendET = new Date(lastSend.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+          const sameCalendarDay =
+            nowET.getFullYear() === lastSendET.getFullYear() &&
+            nowET.getMonth() === lastSendET.getMonth() &&
+            nowET.getDate() === lastSendET.getDate();
+          if (sameCalendarDay) {
+            const hoursSinceSend = (Date.now() - lastSend.getTime()) / (1000 * 60 * 60);
+            console.log(`[BrainCouncil] ⛔ Daily cap: lead ${input.leadId} already received a proactive AI message today (${hoursSinceSend.toFixed(1)}h ago). Skipping.`);
+            return abortResult(
+              `Daily send cap: already sent 1 proactive message today (${lastSend.toISOString()})`,
+              input.leadId
+            );
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`[BrainCouncil] Daily cap check failed (non-fatal):`, err);
+      // Don't abort on check failure — proceed
+    }
+  }
+
+  // ================================================================
   // PRE-FLIGHT CHECK 3: Acquire DB lock (prevent concurrent runs)
   // Lock TTL is 5 minutes to cover worst-case pipeline duration.
   // ================================================================
@@ -504,6 +543,22 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     const strategy = await runStrategist(input, context);
     console.log(`[BrainCouncil] Strategy: ${strategy.approach}/${strategy.framework}/${strategy.angle} (tier ${strategy.personalizationTier})`);
 
+    // ============================================================
+    // PROGRAMMATIC EMB_COLD / BREAKUP MINIMUM DAYS GATE
+    // The LLM prompt says "7+ days" but LLMs can ignore soft instructions.
+    // This is a hard programmatic override: if the lead is < 7 days old
+    // and the strategist chose EMB_COLD or a breakup angle, override to
+    // SOAP_OPERA (pattern interrupt) which is appropriate for early-stage.
+    // ============================================================
+    const BREAKUP_MIN_DAYS = 7;
+    const isBreakupFramework = strategy.framework === 'EMB_COLD' || strategy.framework === 'EMB_WINBACK';
+    const isBreakupAngle = (strategy.angle || '').toLowerCase().includes('breakup') || (strategy.angle || '').toLowerCase().includes('close_file') || (strategy.angle || '').toLowerCase().includes('give_up');
+    if ((isBreakupFramework || isBreakupAngle) && context.leadAgeDays < BREAKUP_MIN_DAYS) {
+      console.log(`[BrainCouncil] ⚠️ EMB_COLD gate: lead ${input.leadId} is only ${context.leadAgeDays}d old (min ${BREAKUP_MIN_DAYS}d for breakup). Overriding ${strategy.framework}/${strategy.angle} → SOAP_OPERA/pattern_interrupt.`);
+      (strategy as any).framework = 'SOAP_OPERA';
+      (strategy as any).angle = 'pattern_interrupt';
+      (strategy as any).reasoning = `[EMB_COLD GATE: lead only ${context.leadAgeDays}d old, breakup requires ${BREAKUP_MIN_DAYS}d] ${strategy.reasoning}`;
+    }
     // ============================================================
     // PROGRAMMATIC PRIOR-CONTACT GUARD
     // If GHL history shows prior outbound messages, NEVER allow
