@@ -282,6 +282,11 @@ export async function sendMessage(contactId: string, opts: {
   try {
     const { data } = await ghlClient.post(`/conversations/messages`, payload);
     console.log(`[GHL] Message sent successfully: ${data.messageId || "no-id"}`);
+    // Normalize: GHL returns messageId but our threading code expects emailMessageId.
+    // Attach it explicitly so downstream callers can use it for email threading.
+    if (opts.type === "Email" && data.messageId && !data.emailMessageId) {
+      data.emailMessageId = data.messageId;
+    }
     return data;
   } catch (err: any) {
     const errData = err?.response?.data;

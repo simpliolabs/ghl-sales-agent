@@ -14,7 +14,7 @@
 
 import { Response } from "express";
 import {
-  upsertLead, getLeadByGhlContactId, updateLeadFields, addConversation, upsertAiState, getAiState, getLastEmailThreadId,
+  upsertLead, getLeadByGhlContactId, updateLeadFields, addConversation, upsertAiState, getAiState, getLastEmailThreadId, getLastEmailThreadInfo,
   getConversationHistory, getRecentAiOutboundCount, addBrainCouncilAudit, getBrainCouncilAuditForLead,
 } from "./db";
 import { shouldHandoffToAgent, generateContactNotes, estimateOrderValue, classifySegment } from "./ai-brain";
@@ -717,13 +717,19 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   }
   let normalSendResult: { success: boolean; resolvedContactId: string; emailMessageId?: string; error?: string };
   {
-    // Email threading: look up prior email thread ID for reply threading
+    // Email threading: look up prior email thread ID and subject for reply threading
     let emailThreadId: string | null = null;
+    let priorEmailSubject: string | null = null;
     if (sendChannel === "Email") {
-      emailThreadId = await getLastEmailThreadId(lead!.id);
-      if (emailThreadId) console.log(`[Webhook/Msg] Threading email reply for lead ${lead!.id} (threadId: ${emailThreadId})`);
+      const threadInfo = await getLastEmailThreadInfo(lead!.id);
+      emailThreadId = threadInfo?.threadId || null;
+      priorEmailSubject = threadInfo?.subject || null;
+      if (emailThreadId) console.log(`[Webhook/Msg] Threading email reply for lead ${lead!.id} (threadId: ${emailThreadId}, priorSubject: ${priorEmailSubject})`);
     }
-    const normalSubject = aiResponse.subject || buildContextSubject({ name: lead!.name, businessName: lead!.businessName }, aiResponse.fromName);
+    let normalSubject = aiResponse.subject || buildContextSubject({ name: lead!.name, businessName: lead!.businessName }, aiResponse.fromName);
+    if (emailThreadId && priorEmailSubject) {
+      normalSubject = priorEmailSubject.startsWith("Re:") ? priorEmailSubject : `Re: ${priorEmailSubject}`;
+    }
     const normalOpts: Parameters<typeof sendMessage>[1] = sendChannel === "Email"
       ? { type: "Email", subject: normalSubject, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName, ...(emailThreadId ? { threadId: emailThreadId, replyMessageId: emailThreadId } : {}) }
       : { type: sendChannel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };

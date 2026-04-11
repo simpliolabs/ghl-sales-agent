@@ -624,3 +624,16 @@
 - [x] Add tests: 5 new normalizeChannel tests (type 11, 1, 7, 8, 10) + 4 new QC channel_mismatch tests
 - [x] All 659 tests passing
 - [x] Push to GitHub
+
+## BUG: Email not threading as reply — "WHY YO HAND O..." lead
+- [ ] Diagnose: Apr 11 email sent as new email ("Abby from Adorb") instead of reply to Apr 9 thread ("Still thinking about your design?")
+- [ ] Fix: Email threading must use prior email's threadId/messageId for In-Reply-To header
+- [ ] Verify getLastEmailThreadId returns the correct thread ID for follow-up emails
+
+## BUG: Follow-up messages generic/repetitive — no escalation or personality
+- [ ] Diagnose: Follow-up after no reply is basic, repeats same pitch, no curiosity/humor/sarcasm escalation
+- [ ] Fix: Strategist/Composer must escalate tone and approach on subsequent follow-ups (Hormozi methodology)
+- [ ] Fix: Composer must never repeat the same pitch angle — check prior outbound and use different approach
+- [ ] Add tests
+- [ ] All tests passing
+- [ ] Push to GitHub

@@ -14,7 +14,7 @@
  * - Logs every engagement attempt
  */
 
-import { getLeadsDueForFollowUp, getConversationHistory, updateLeadFields, addConversation, upsertAiState, getAiState, getRecentAiOutboundCount, addBrainCouncilAudit, getBrainCouncilAuditForLead, isAiOffline, getLastEmailThreadId } from "./db";
+import { getLeadsDueForFollowUp, getConversationHistory, updateLeadFields, addConversation, upsertAiState, getAiState, getRecentAiOutboundCount, addBrainCouncilAudit, getBrainCouncilAuditForLead, isAiOffline, getLastEmailThreadId, getLastEmailThreadInfo } from "./db";
 import { runBrainCouncil } from "./brain-council-orchestrator";
 import { calculateNextFollowUp, checkRateLimits, capDate, checkDnc } from "./scheduling-engine";
 import { sendMessage, addNote, fetchGhlConversationHistory, getContact } from "./ghl";
@@ -436,13 +436,21 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
         }
 
         // --- SEND MESSAGE ---
-        // Email threading: look up prior email thread ID for reply threading
+        // Email threading: look up prior email thread ID and subject for reply threading
         let emailThreadId: string | null = null;
+        let priorEmailSubject: string | null = null;
         if (channel === "Email") {
-          emailThreadId = await getLastEmailThreadId(leadId);
-          if (emailThreadId) console.log(`[FollowUp] Threading email reply for lead ${leadId} (threadId: ${emailThreadId})`);
+          const threadInfo = await getLastEmailThreadInfo(leadId);
+          emailThreadId = threadInfo?.threadId || null;
+          priorEmailSubject = threadInfo?.subject || null;
+          if (emailThreadId) console.log(`[FollowUp] Threading email reply for lead ${leadId} (threadId: ${emailThreadId}, priorSubject: ${priorEmailSubject})`);
         }
-        const normalSubject = aiResponse.subject || buildContextSubject({ name: (lead as any).name, businessName: (lead as any).businessName }, aiResponse.fromName);
+        // For threaded replies, use "Re: <prior subject>" to keep the thread visible in email clients
+        let normalSubject = aiResponse.subject || buildContextSubject({ name: (lead as any).name, businessName: (lead as any).businessName }, aiResponse.fromName);
+        if (emailThreadId && priorEmailSubject) {
+          // Use the prior subject with Re: prefix (unless it already has one)
+          normalSubject = priorEmailSubject.startsWith("Re:") ? priorEmailSubject : `Re: ${priorEmailSubject}`;
+        }
         const msgOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
           ? { type: "Email", subject: normalSubject, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName, ...(emailThreadId ? { threadId: emailThreadId, replyMessageId: emailThreadId } : {}) }
           : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };

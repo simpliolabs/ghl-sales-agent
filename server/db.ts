@@ -126,17 +126,36 @@ export async function getConversationHistory(leadId: number, limit = 50) {
 }
 
 // --- Email threading: get the last email thread ID for a lead ---
+/** @deprecated Use getLastEmailThreadInfo instead */
 export async function getLastEmailThreadId(leadId: number): Promise<string | null> {
+  const info = await getLastEmailThreadInfo(leadId);
+  return info?.threadId || null;
+}
+
+/** Get the last outbound email's thread ID and subject for reply threading */
+export async function getLastEmailThreadInfo(leadId: number): Promise<{ threadId: string; subject: string | null } | null> {
   const db = await getDb();
   if (!db) return null;
-  const rows = await db.select({ ghlMessageId: conversations.ghlMessageId, emailMessageId: conversations.emailMessageId })
+  const rows = await db.select({
+    ghlMessageId: conversations.ghlMessageId,
+    emailMessageId: conversations.emailMessageId,
+    messageBody: conversations.messageBody,
+  })
     .from(conversations)
     .where(and(eq(conversations.leadId, leadId), eq(conversations.channel, "Email"), eq(conversations.direction, "outbound")))
     .orderBy(desc(conversations.timestamp))
     .limit(1);
   if (!rows.length) return null;
-  // Prefer emailMessageId (GHL's email-specific thread ID), fall back to ghlMessageId
-  return rows[0].emailMessageId || rows[0].ghlMessageId || null;
+  const threadId = rows[0].emailMessageId || rows[0].ghlMessageId || null;
+  if (!threadId) return null;
+  // Extract subject from message body if it starts with "Subject: ..."
+  let subject: string | null = null;
+  const body = rows[0].messageBody || "";
+  const subjectMatch = body.match(/^Subject:\s*(.+?)\n/i);
+  if (subjectMatch) {
+    subject = subjectMatch[1].trim();
+  }
+  return { threadId, subject };
 }
 
 // --- Dedup: count recent AI outbound messages within a time window ---

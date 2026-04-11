@@ -328,6 +328,22 @@ When writing to a DELIVERED/past customer, your message MUST follow these rules:
 - NEVER start two consecutive messages the same way. Vary the first 3 words.
 - Vary your structure: if prior messages were question-heavy, make this one statement-heavy.
 - If you cannot think of a different opener, just start with the content (no greeting).
+- Check the RECENT SUBJECTS section below. Your email subject MUST NOT repeat or closely resemble ANY listed subject.
+  If a prior subject was "Still thinking about your design?" you MUST NOT use anything similar.
+  Each subject must be fresh — different words, different angle, different hook.
+
+=== FOLLOW-UP ESCALATION (from Strategist toneDirective) ===
+The Strategist's toneDirective tells you the escalation tier. MATCH IT:
+- "Attempt 1": Warm, professional, conversational. Standard approach.
+- "Attempt 2": VALUE-FIRST. Lead with useful info (pricing, case study, example). Zero pressure. No questions.
+- "Attempt 3": PATTERN INTERRUPT. Be bold, creative, unexpected. Add humor, sarcasm, or a provocative hook.
+  Use personality: "Honest question —", "Random thought —", "Plot twist —", "Between us —"
+  Light humor is ENCOURAGED at this tier. Break the corporate mold.
+- "Attempt 4+": BREAKUP/SCARCITY. Direct, honest, respectful. "Should I close your file?" or a compelling last offer.
+  The breakup angle has the HIGHEST reply rate. Be genuine, not manipulative.
+
+If the toneDirective says "Attempt 3" and your message reads like a standard corporate follow-up, you have FAILED.
+Each escalation tier demands a distinctly different voice and energy.
 
 === SAME-QUESTION DETECTION (CRITICAL — violations cause IMMEDIATE message rejection) ===
 - Read ALL prior AI/agent outbound messages in the conversation history carefully.
@@ -375,6 +391,17 @@ export async function runComposer(
     .filter(Boolean)
     .slice(-5); // last 5 outbound openers
 
+  // Extract recent email subjects from prior outbound messages for subject anti-repetition
+  // Subjects appear in conversation history as "Sub: <subject>" or "Subject: <subject>" lines
+  const recentSubjects = fullHistory.split("\n")
+    .filter(line => /^\[(ai|agent)\//i.test(line))
+    .map(line => {
+      const subMatch = line.match(/(?:Sub|Subject):\s*(.+?)(?:\s*$|\s+Subject:)/i);
+      return subMatch ? subMatch[1].trim() : null;
+    })
+    .filter(Boolean)
+    .slice(-5) as string[]; // last 5 outbound subjects
+
   const composerInput = `
 === STRATEGY DIRECTIVE ===
 - Approach: ${strategy.approach}
@@ -413,6 +440,9 @@ IMPORTANT: Continue from where this left off. Do NOT repeat what was already dis
 ` : ""}
 === RECENT OPENERS (your last outbound messages started with these words — DO NOT repeat any) ===
 ${recentOpeners.length > 0 ? recentOpeners.map((o, i) => `${i + 1}. "${o}..."`).join("\n") : "(no prior outbound messages)"}
+
+=== RECENT SUBJECTS (your last outbound email subjects — DO NOT repeat or closely resemble any) ===
+${recentSubjects.length > 0 ? recentSubjects.map((s, i) => `${i + 1}. "${s}"`).join("\n") : "(no prior email subjects)"}
 
 === CONVERSATION HISTORY ===
 ${fullHistory || "No previous messages"}

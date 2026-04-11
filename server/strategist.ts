@@ -260,6 +260,46 @@ Only choose a DIFFERENT channel for proactive outreach (awareness = OUTREACH) wh
 - Apologetic language ("sorry to bother")
 - Easy outs ("if not relevant, no problem")
 
+=== FOLLOW-UP ESCALATION LADDER (MANDATORY for outreach with unanswered messages) ===
+
+When the lead has NOT replied to prior outbound messages, you MUST escalate based on the unanswered count.
+DO NOT repeat the same approach, tone, or angle. Each follow-up MUST be distinctly different from the previous one.
+
+Attempt 1 (unanswered = 0): Standard approach. Use the best framework for the lead's context.
+  - Tone: Warm, professional, conversational
+  - Goal: Open the conversation naturally
+
+Attempt 2 (unanswered = 1): VALUE-FIRST pivot. Provide something useful without requiring a response.
+  - Tone: Helpful, generous, zero pressure
+  - Strategy: Share a pricing range, relevant case study, or portfolio example
+  - MUST use a DIFFERENT framework than Attempt 1
+  - NEVER repeat the same question from Attempt 1
+  - Example: "Quick FYI — we just did 200 tees for a church in your area. Turned out amazing. Here's what they paid: [range]."
+
+Attempt 3 (unanswered = 2): PATTERN INTERRUPT. Break the pattern completely.
+  - Tone: Bold, creative, slightly humorous or unexpected
+  - Strategy: Use curiosity hooks, provocative questions, or unexpected angles
+  - Frameworks: SOAP_OPERA, CURIOSITY_HOOK, HORMOZI_INDIRECT, or CASE_STUDY
+  - Add personality: light humor, a surprising fact, or a bold statement
+  - Example: "Honest question — did my last email land in spam, or are you just playing hard to get? 😄"
+  - Example: "Random thought — what if your team showed up to the next event in matching custom gear? Just saying."
+
+Attempt 4+ (unanswered = 3+): BREAKUP or SCARCITY. Last-resort engagement.
+  - Tone: Direct, honest, respectful — with a clear "last chance" feel
+  - Strategy: Breakup email ("Should I close your file?"), seasonal urgency, or exclusive offer
+  - Framework: EMB_COLD or EMB_WINBACK
+  - The breakup angle has the HIGHEST reply rate of any follow-up type
+  - Example: "I've reached out a few times — no worries if custom printing isn't on your radar right now. Should I close your file, or circle back in a few months?"
+  - After attempt 4, space follow-ups at 30+ day intervals with completely fresh angles
+
+ESCALATION RULES:
+- Each attempt MUST use a different framework, angle, and opening than ALL prior attempts
+- Tone MUST escalate: professional → generous → creative/bold → direct/honest
+- NEVER send the same type of message twice (e.g., two "just checking in" messages)
+- If prior messages were question-heavy, next MUST be statement-heavy (and vice versa)
+- Reference what you PREVIOUSLY said/offered to show continuity: "I mentioned [X] last time..."
+- The toneDirective you output MUST explicitly state the escalation tier: "Attempt N — [description]"
+
 === SENTIMENT PRIORITY SCORING ===
 - priority = 100 * (0.40*urgency + 0.30*intent + 0.20*recency + 0.10*sentiment_risk)
 - P1 (>=75): immediate action | P2 (50-74): scheduled follow-up | P3 (<50): nurture
@@ -326,12 +366,15 @@ ENGAGEMENT STATE:
 - First response? ${isFirstResponse ? "YES — this is the very first message to this lead" : "NO — there are prior messages"}
 - Lead age: ${leadAgeDays} days (${urgencyStage})
 - Channel: ${input.channel}${input.channel === "Live_Chat" ? " ⚠️ LIVE VISITOR ON WEBSITE — respond immediately, keep it short" : ""}
-- Unanswered outbound messages: ${unansweredCount}${unansweredCount >= 2 ? `
+- Unanswered outbound messages: ${unansweredCount}
+- ⚡ ESCALATION TIER: ${unansweredCount === 0 ? 'Attempt 1 — Standard (warm, professional)' : unansweredCount === 1 ? 'Attempt 2 — VALUE-FIRST pivot (helpful, generous, zero pressure)' : unansweredCount === 2 ? 'Attempt 3 — PATTERN INTERRUPT (bold, creative, humorous, unexpected)' : `Attempt ${unansweredCount + 1} — BREAKUP/SCARCITY (direct, honest, "should I close your file?")`}
+  ↑ See the FOLLOW-UP ESCALATION LADDER above. Your toneDirective MUST match this tier.${unansweredCount >= 2 ? `
 ** CRITICAL: ${unansweredCount} consecutive messages with NO reply. The lead is NOT engaging. DO NOT ask the same questions again.
-- Your approach MUST shift to VALUE-FIRST: provide something useful (pricing range, example, social proof) WITHOUT requiring a response.
+- Your approach MUST shift dramatically — use the ESCALATION LADDER for Attempt ${unansweredCount + 1}.
 - If prior messages asked about quantity/print sides/colors, DO NOT repeat those questions. Instead: assume common defaults and offer a sample quote.
-- Consider: the lead may have lost interest. A fresh angle or different framework is essential.` : unansweredCount >= 1 ? `
-Note: 1 unanswered message. If your prior message asked a question, do NOT repeat it. Try a different angle or provide value first.` : ``}
+- Consider: the lead may have lost interest. A COMPLETELY fresh angle, framework, and tone is essential.
+- Add personality: humor, sarcasm, pattern interrupts, bold statements, or breakup angles.` : unansweredCount >= 1 ? `
+Note: 1 unanswered message. ESCALATION LADDER says Attempt 2 = VALUE-FIRST. Provide something useful without requiring a response. Do NOT repeat your prior question.` : ``}
 - Total messages: ${context.convHistory.length}
 - Email on file: ${lead.email ? "YES" : "NO"}
 - Phone on file: ${lead.phone ? "YES" : "NO"}
