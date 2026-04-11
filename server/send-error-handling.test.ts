@@ -205,3 +205,71 @@ describe("sendMessageWithRetry — corrective actions", () => {
     expect(result.errorType).toBe("transient");
   });
 });
+
+describe("sendMessageWithRetry — blocked send detection", () => {
+  const lead = { id: 42, email: "test@example.com", phone: "+15551234567" };
+  const smsOpts = { type: "SMS" as const, message: "Hello!" };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUpdateLeadFields.mockResolvedValue(undefined);
+  });
+
+  it("returns failure when sendMessage returns { blocked: true, reason: 'AI_OFFLINE' }", async () => {
+    mockSendMessage.mockResolvedValueOnce({ blocked: true, reason: "AI_OFFLINE", messageId: null });
+    const result = await sendMessageWithRetry("contact_1", smsOpts, lead);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("AI_OFFLINE");
+    expect(result.correctionTaken).toBe("blocked_by_ai_offline");
+  });
+
+  it("returns failure when sendMessage returns { blocked: true, reason: 'COOLDOWN' }", async () => {
+    mockSendMessage.mockResolvedValueOnce({ blocked: true, reason: "COOLDOWN", messageId: null });
+    const result = await sendMessageWithRetry("contact_1", smsOpts, lead);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("COOLDOWN");
+    expect(result.correctionTaken).toBe("blocked_by_cooldown");
+  });
+
+  it("returns failure when sendMessage returns { blocked: true, reason: 'HUMAN_AGENT_ACTIVE' }", async () => {
+    mockSendMessage.mockResolvedValueOnce({ blocked: true, reason: "HUMAN_AGENT_ACTIVE", messageId: null });
+    const result = await sendMessageWithRetry("contact_1", smsOpts, lead);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("HUMAN_AGENT_ACTIVE");
+    expect(result.correctionTaken).toBe("blocked_by_human_agent_active");
+  });
+
+  it("returns failure when sendMessage returns { blocked: true, reason: 'HUMAN_AGENT_ACTIVE_GHL' }", async () => {
+    mockSendMessage.mockResolvedValueOnce({ blocked: true, reason: "HUMAN_AGENT_ACTIVE_GHL", messageId: null });
+    const result = await sendMessageWithRetry("contact_1", smsOpts, lead);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("HUMAN_AGENT_ACTIVE_GHL");
+    expect(result.correctionTaken).toBe("blocked_by_human_agent_active_ghl");
+  });
+
+  it("returns failure when sendMessage returns { blocked: true, reason: 'OFFLINE_CHECK_FAILED' }", async () => {
+    mockSendMessage.mockResolvedValueOnce({ blocked: true, reason: "OFFLINE_CHECK_FAILED", messageId: null });
+    const result = await sendMessageWithRetry("contact_1", smsOpts, lead);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("OFFLINE_CHECK_FAILED");
+  });
+
+  it("returns failure with UNKNOWN_GATE when blocked reason is missing", async () => {
+    mockSendMessage.mockResolvedValueOnce({ blocked: true, messageId: null });
+    const result = await sendMessageWithRetry("contact_1", smsOpts, lead);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("UNKNOWN_GATE");
+  });
+
+  it("still returns success when sendMessage returns normal data (not blocked)", async () => {
+    mockSendMessage.mockResolvedValueOnce({ messageId: "msg_123", blocked: false });
+    const result = await sendMessageWithRetry("contact_1", smsOpts, lead);
+    expect(result.success).toBe(true);
+  });
+
+  it("still returns success when sendMessage returns data without blocked field", async () => {
+    mockSendMessage.mockResolvedValueOnce({ messageId: "msg_456" });
+    const result = await sendMessageWithRetry("contact_1", smsOpts, lead);
+    expect(result.success).toBe(true);
+  });
+});

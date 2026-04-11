@@ -53,8 +53,12 @@ export async function handleTaskWebhook(payload: Record<string, unknown>, res: R
     const notification = getStageNotification(STAGES.PROOF_SENT, lead.name || "");
     if (notification && lead.phone && !aiOffline) {
       try {
-        await sendMessageWithRetry(contactId, { type: "SMS", message: notification.message }, { email: lead.email, phone: lead.phone, id: lead.id });
-        await addConversation({ leadId: lead.id, channel: "SMS", direction: "outbound", messageBody: notification.message, senderType: "ai", senderName: notification.fromName });
+        const proofResult = await sendMessageWithRetry(contactId, { type: "SMS", message: notification.message }, { email: lead.email, phone: lead.phone, id: lead.id });
+        if (proofResult.success) {
+          await addConversation({ leadId: lead.id, channel: "SMS", direction: "outbound", messageBody: notification.message, senderType: "ai", senderName: notification.fromName });
+        } else {
+          console.error(`[Task] Proof notification send FAILED for lead ${lead.id}: ${proofResult.error}`);
+        }
       } catch { /* best effort */ }
     } else if (aiOffline) {
       console.log(`[Task] AI offline — skipping proof notification for lead ${lead.id}`);
@@ -72,8 +76,12 @@ export async function handleTaskWebhook(payload: Record<string, unknown>, res: R
     const notification = getStageNotification(STAGES.READY, lead.name || "");
     if (notification && lead.phone && !aiOffline) {
       try {
-        await sendMessageWithRetry(contactId, { type: "SMS", message: notification.message }, { email: lead.email, phone: lead.phone, id: lead.id });
-        await addConversation({ leadId: lead.id, channel: "SMS", direction: "outbound", messageBody: notification.message, senderType: "ai", senderName: notification.fromName });
+        const readyResult = await sendMessageWithRetry(contactId, { type: "SMS", message: notification.message }, { email: lead.email, phone: lead.phone, id: lead.id });
+        if (readyResult.success) {
+          await addConversation({ leadId: lead.id, channel: "SMS", direction: "outbound", messageBody: notification.message, senderType: "ai", senderName: notification.fromName });
+        } else {
+          console.error(`[Task] Ready notification send FAILED for lead ${lead.id}: ${readyResult.error}`);
+        }
       } catch { /* best effort */ }
     } else if (aiOffline) {
       console.log(`[Task] AI offline — skipping ready notification for lead ${lead.id}`);

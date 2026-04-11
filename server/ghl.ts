@@ -183,15 +183,53 @@ export async function sendMessage(contactId: string, opts: {
               .map((c: any) => c.messageBody.toLowerCase().trim())
           );
 
-          // Find recent outbound GHL messages that are NOT from our AI
+          // ── Filter out GHL system/automation messages ──────────────────
+          // These are NOT human agent messages — they're system-generated events
+          // that appear as outbound in GHL conversation history.
+          const SYSTEM_MESSAGE_PATTERNS = [
+            /opportunity\s*(created|updated|moved|deleted|won|lost|abandoned)/i,
+            /pipeline\s*(stage|moved|changed|updated)/i,
+            /workflow\s*(triggered|started|completed|action)/i,
+            /task\s*(created|assigned|completed|due)/i,
+            /appointment\s*(booked|scheduled|confirmed|cancelled|rescheduled)/i,
+            /tag\s*(added|removed)/i,
+            /contact\s*(created|updated|merged)/i,
+            /note\s*(added|created)/i,
+            /form\s*submitted/i,
+            /invoice\s*(sent|paid|overdue)/i,
+            /payment\s*(received|failed)/i,
+            /\bDND\b.*\b(enabled|disabled)\b/i,
+            /^\s*$/, // empty messages
+          ];
+          const isSystemMessage = (body: string): boolean => {
+            const trimmed = body.trim();
+            if (!trimmed) return true;
+            return SYSTEM_MESSAGE_PATTERNS.some(p => p.test(trimmed));
+          };
+
+          // Find recent outbound GHL messages that are NOT from our AI and NOT system messages
           const recentAgentMessages = ghlHistory.filter(m => {
             if (m.direction !== "outbound" || !m.body?.trim() || !m.dateAdded) return false;
             const msgAge = now - new Date(m.dateAdded).getTime();
             if (msgAge > AGENT_TAKEOVER_WINDOW_MS) return false;
+            // Skip system/automation messages
+            if (isSystemMessage(m.body)) return false;
+            // Skip GHL system message types (TYPE_ACTIVITY, TYPE_CALL, etc.)
+            const systemTypes = ["TYPE_ACTIVITY", "TYPE_CALL_COMPLETED", "TYPE_CALL", "TYPE_NOTE", "TYPE_TASK", "TYPE_APPOINTMENT", "TYPE_WORKFLOW", "TYPE_SYSTEM"];
+            if (systemTypes.includes(m.type?.toUpperCase() || "")) return false;
             // Check if this message matches a known AI message
             const isKnownAi = knownAiMessages.has(m.body.toLowerCase().trim());
             return !isKnownAi;
           });
+
+          // ── Safety: Skip Layer B for brand new contacts ──────────────────
+          // If we have zero local AI messages, every GHL outbound looks like
+          // a "human agent" message. This causes false blocks on first contact.
+          // Only trust Layer B when we have local history to compare against.
+          if (knownAiMessages.size === 0 && recentAgentMessages.length > 0) {
+            console.log(`[SEND-GATE] Skipping Layer B for ${contactId} — no local AI history to compare against (${recentAgentMessages.length} unmatched GHL outbound messages, likely system/workflow)`);
+            // Don't block — fall through to send
+          } else
 
           if (recentAgentMessages.length > 0) {
             const latestAgent = recentAgentMessages.sort((a, b) =>

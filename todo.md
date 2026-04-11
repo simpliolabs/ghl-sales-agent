@@ -569,3 +569,14 @@
 - [x] Write 11 new tests for passive_reactivation violation (6 positive, 4 negative, 1 type check)
 - [x] All 621 tests passing
 - [x] Push to GitHub
+
+## BUG: Iory Yagami (new FB lead) got no AI response after form submission at 11:20 PM
+- [x] Diagnose: Brain Council DID fire (score 96), message composed, but sendMessage was BLOCKED by Gate 3 (HUMAN_AGENT_ACTIVE_GHL) — "Opportunity Created" system event misidentified as human agent message
+- [x] ROOT CAUSE: sendMessageWithRetry returned { success: true } when ghl.sendMessage returned { blocked: true } — ALL callers thought message was sent when it wasn't
+- [x] FIX 1 (CORE): sendMessageWithRetry now checks for { blocked: true } returns and reports { success: false }
+- [x] FIX 2 (CALLERS): All 6 callers (webhook-contact, webhook-message x3, webhook-pipeline, webhook-task x2) now guard addConversation behind sendResult.success
+- [x] FIX 3 (GATE 3): Added system message pattern filter (13 patterns: Opportunity Created, Pipeline Stage, Workflow Triggered, etc.) + GHL system type filter (TYPE_ACTIVITY, TYPE_CALL, etc.)
+- [x] FIX 4 (GATE 3): Skip Layer B for brand new contacts with zero local AI history (every GHL outbound looks like "human agent" when there's nothing to compare against)
+- [x] 8 new tests for blocked-send detection (AI_OFFLINE, COOLDOWN, HUMAN_AGENT_ACTIVE, HUMAN_AGENT_ACTIVE_GHL, OFFLINE_CHECK_FAILED, UNKNOWN_GATE, normal success, no-blocked-field success)
+- [x] All 629 tests passing
+- [x] Push to GitHub

@@ -199,12 +199,16 @@ export async function handlePipelineWebhook(payload: Record<string, unknown>, re
         ? { type: "SMS", message: notification.message }
         : { type: "Email", subject: notification.fromName, html: formatEmailHtml(notification.message), fromName: notification.fromName };
       if (lead.phone || lead.email) {
-        await sendMessageWithRetry(contactId, notifOpts, { email: lead.email, phone: lead.phone, id: lead.id });
+        const notifResult = await sendMessageWithRetry(contactId, notifOpts, { email: lead.email, phone: lead.phone, id: lead.id });
+        if (notifResult.success) {
+          await addConversation({
+            leadId: lead.id, channel: lead.phone ? "SMS" : "Email", direction: "outbound",
+            messageBody: notification.message, senderType: "ai", senderName: notification.fromName,
+          });
+        } else {
+          console.error(`[Pipeline] Stage notification send FAILED for lead ${lead.id}: ${notifResult.error} — conversation NOT stored`);
+        }
       }
-      await addConversation({
-        leadId: lead.id, channel: lead.phone ? "SMS" : "Email", direction: "outbound",
-        messageBody: notification.message, senderType: "ai", senderName: notification.fromName,
-      });
     } catch (err) { console.error("[Webhook] Failed to send stage notification:", err); }
   } else if (aiOffline && notification) {
     console.log(`[Pipeline] AI offline — skipping stage notification for lead ${lead.id} (${toStage})`);

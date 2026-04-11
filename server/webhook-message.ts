@@ -618,9 +618,12 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
       ? { type: "Email", subject: "Adorb Custom Tees", html: formatEmailHtml(aiResponse.fallbackMessage), fromName: aiResponse.fromName }
       : { type: fallbackChannel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.fallbackMessage };
     const sendResult = await sendMessageWithRetry(resolvedContactId, fallbackOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
-    if (!sendResult.success) console.error(`[Webhook/Msg] Fallback send failed for lead ${lead!.id}: ${sendResult.error}`);
-    await addConversation({ leadId: lead!.id, channel: fallbackChannel, direction: "outbound", messageBody: `[FALLBACK] ${aiResponse.fallbackMessage}`, senderType: "ai", senderName: aiResponse.fromName });
-    res.json({ success: true, action: "blocked_fallback_sent", violation: aiResponse.violationCategory, blockReason: aiResponse.blockReason });
+    if (sendResult.success) {
+      await addConversation({ leadId: lead!.id, channel: fallbackChannel, direction: "outbound", messageBody: `[FALLBACK] ${aiResponse.fallbackMessage}`, senderType: "ai", senderName: aiResponse.fromName });
+    } else {
+      console.error(`[Webhook/Msg] Fallback send FAILED for lead ${lead!.id}: ${sendResult.error} — conversation NOT stored`);
+    }
+    res.json({ success: true, action: sendResult.success ? "blocked_fallback_sent" : "blocked_fallback_failed", violation: aiResponse.violationCategory, blockReason: aiResponse.blockReason });
     return;
   }
 
@@ -666,9 +669,12 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
         : { type: handoffChannel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
       const sendResult = await sendMessageWithRetry(resolvedContactId, handoffOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
       if (sendResult.resolvedContactId !== resolvedContactId) resolvedContactId = sendResult.resolvedContactId;
-      if (!sendResult.success) console.error(`[Webhook/Msg] Handoff send failed for lead ${lead!.id}: ${sendResult.error}`);
+      if (sendResult.success) {
+        await addConversation({ leadId: lead!.id, channel: handoffChannel, direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName });
+      } else {
+        console.error(`[Webhook/Msg] Handoff send FAILED for lead ${lead!.id}: ${sendResult.error} — conversation NOT stored`);
+      }
     }
-    await addConversation({ leadId: lead!.id, channel: handoffChannel, direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName });
     res.json({ success: true, action: "ai_responded_and_handed_off" });
     return;
   }
@@ -711,7 +717,11 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     if (!normalSendResult.success) console.error(`[Webhook/Msg] Normal send failed for lead ${lead!.id}: ${normalSendResult.error}`);
   }
 
-  await addConversation({ leadId: lead!.id, channel: sendChannel, direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName, emailMessageId: normalSendResult.emailMessageId || undefined });
+  if (normalSendResult.success) {
+    await addConversation({ leadId: lead!.id, channel: sendChannel, direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName, emailMessageId: normalSendResult.emailMessageId || undefined });
+  } else {
+    console.error(`[Webhook/Msg] Normal send FAILED for lead ${lead!.id}: ${normalSendResult.error} — conversation NOT stored`);
+  }
   // Increment messageCount so cadence backoff works correctly
   const currentAiStateForCount = await getAiState(lead!.id);
   const newMsgCount = ((currentAiStateForCount as any)?.messageCount || 0) + 1;

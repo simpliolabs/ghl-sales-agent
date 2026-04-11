@@ -160,6 +160,15 @@ export async function sendMessageWithRetry(
 ): Promise<{ success: boolean; resolvedContactId: string; error?: string; errorType?: GhlSendErrorType; correctionTaken?: string; emailMessageId?: string }> {
   try {
     const result = await sendMessage(contactId, opts);
+    // ── CHECK FOR BLOCKED SENDS ──────────────────────────────────────────
+    // ghl.sendMessage returns { blocked: true, reason: string } when pre-flight
+    // gates (AI_OFFLINE, COOLDOWN, HUMAN_AGENT_ACTIVE) block the message.
+    // These are resolved promises, NOT thrown errors — so we must check explicitly.
+    if ((result as any)?.blocked) {
+      const reason = (result as any).reason || "UNKNOWN_GATE";
+      console.warn(`[SendRetry] Send BLOCKED by gate — reason=${reason} channel=${opts.type} lead=${lead.id} contact=${contactId}`);
+      return { success: false, resolvedContactId: contactId, error: `Send blocked: ${reason}`, errorType: "unknown" as GhlSendErrorType, correctionTaken: `blocked_by_${reason.toLowerCase()}` };
+    }
     return { success: true, resolvedContactId: contactId, emailMessageId: (result as any)?.emailMessageId };
   } catch (err: unknown) {
     const classified = classifyGhlSendError(err);

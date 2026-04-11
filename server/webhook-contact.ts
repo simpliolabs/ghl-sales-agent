@@ -487,8 +487,12 @@ async function sendDelayedFirstContact(
           fromName: agentName,
         });
         if (fallbackOpts) {
-          await sendMessageWithRetry(resolvedContactId, fallbackOpts, { email: lead.email, phone: lead.phone, id: lead.id });
-          await addConversation({ leadId, channel, direction: "outbound", messageBody: brainResult.fallbackMessage, senderType: "ai", senderName: agentName });
+          const fbResult = await sendMessageWithRetry(resolvedContactId, fallbackOpts, { email: lead.email, phone: lead.phone, id: lead.id });
+          if (fbResult.success) {
+            await addConversation({ leadId, channel, direction: "outbound", messageBody: brainResult.fallbackMessage, senderType: "ai", senderName: agentName });
+          } else {
+            console.error(`[Webhook] Fallback send FAILED for lead ${leadId}: ${fbResult.error}`);
+          }
         }
       }
       return;
@@ -512,7 +516,11 @@ async function sendDelayedFirstContact(
       if (!messageSent) console.error(`[Webhook] Failed to send first-contact to lead ${leadId}: ${sendResult.error}`);
     }
 
-    await addConversation({ leadId, channel: brainChannel, direction: "outbound", messageBody: composedMessage, senderType: "ai", senderName: fromName });
+    if (messageSent) {
+      await addConversation({ leadId, channel: brainChannel, direction: "outbound", messageBody: composedMessage, senderType: "ai", senderName: fromName });
+    } else {
+      console.error(`[Webhook] First-contact message NOT stored in conversations — send failed for lead ${leadId}`);
+    }
 
     // --- SCHEDULING & STAGE ADVANCEMENT ---
     const contactSchedule = await calculateNextFollowUp({ leadId, aiSuggestedHours: brainResult.nextEngagementHours || 4, triggerEvent: "ai_response" });
