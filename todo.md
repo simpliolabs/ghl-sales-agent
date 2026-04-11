@@ -652,11 +652,11 @@
 - [x] Push to GitHub
 
 ## ARCHITECTURE: Wire QC violations into self-learning feedback loop
-- [ ] Wire orchestrator blocked path → recordError() with violation details
-- [ ] Wire orchestrator reformulation success → addKnownFix() to teach the fix
-- [ ] Create recordViolationPattern() in learning-loop.ts for QC-specific pattern detection
-- [ ] Add periodic violation pattern scan (alongside existing promotion scan)
-- [ ] Feed violation-derived learnings into Composer prompt (AVOID rules from recent violations)
-- [ ] Ensure Strategist receives violation pattern avoidance alongside outcome-based learnings
-- [ ] All tests passing
-- [ ] Push to GitHub
+- [x] Wire orchestrator blocked path → recordViolationLearning() + recordError() with violation details
+- [x] Wire orchestrator reformulation success → recordReformulationSuccess() + addKnownFix()
+- [x] Create recordViolationLearning() in learning-loop.ts — generates 3 pattern keys per violation (type, framework×type, persona×type)
+- [x] Create getViolationAvoidanceRules() — aggregates recurring violations (2+ occurrences, last 30 days) into AVOID rules
+- [x] Feed violation-derived learnings into Composer prompt via getViolationAvoidanceBlock()
+- [x] Feed violation-derived learnings into Strategist prompt via getViolationAvoidanceBlock()
+- [x] All 659 tests passing
+- [x] Push to GitHub
