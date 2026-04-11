@@ -558,43 +558,87 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     let qc = await runQC(input, context, strategy, composed);
     console.log(`[BrainCouncil] QC: score=${qc.score}, approved=${qc.approved}, issues=${qc.issues.length}`);
 
-    // --- VIOLATION DETECTION ---
+    // --- VIOLATION DETECTION + REFORMULATE-FIRST ARCHITECTURE ---
+    // Classify violations as DANGEROUS (hard-block immediately) or FIXABLE (retry Composer).
+    // Fixable violations get up to 2 reformulation attempts before blocking.
+    // This prevents good messages from being blocked over minor issues like repeated openers.
+    const DANGEROUS_VIOLATIONS = new Set<string>(["wrong_business", "safety_violation"]);
+    const MAX_REFORMULATE_ATTEMPTS = 2;
+
     let violation = detectViolations(composed, qc, strategy, context, input, research);
     let recomposeQcScore = qc.score;
     let wasRecomposed = false;
+    let reformulateAttempts = 0;
 
-    // If QC rejected OR violation detected, try ONE recompose
-    if ((!qc.approved && qc.score < 50) || violation.category) {
-      console.log(`[BrainCouncil] ${violation.category ? `VIOLATION: ${violation.category} — ${violation.reason}` : `QC REJECTED (score ${qc.score})`}. Recomposing...`);
-      wasRecomposed = true;
-      const recomposeInput = { ...input };
-      const feedback = [
-        qc.issues.length > 0 ? `QC Issues: ${qc.issues.join("; ")}` : "",
-        qc.suggestions.length > 0 ? `QC Suggestions: ${qc.suggestions.join("; ")}` : "",
-        violation.category ? `VIOLATION DETECTED (${violation.category}): ${violation.reason}. You MUST fix this.` : "",
-      ].filter(Boolean).join("\n");
-
-      recomposeInput.incomingMessage = `${input.incomingMessage}\n\n[QC FEEDBACK — YOUR PREVIOUS MESSAGE HAD ISSUES]\n${feedback}\nFix ALL issues in your rewrite. Reference the lead's ACTUAL form data.`;
-
-      composed = await runComposer(recomposeInput, context, strategy, research);
-      const qc2 = await runQC(recomposeInput, context, strategy, composed);
-      recomposeQcScore = qc2.score;
-      console.log(`[BrainCouncil] Recompose QC: score=${qc2.score}, approved=${qc2.approved}`);
-
-      // Re-check violations on recomposed message
-      violation = detectViolations(composed, qc2, strategy, context, input, research);
-
-      if (qc2.revisedMessage) {
-        composed.message = qc2.revisedMessage;
-      }
-      qc = qc2;
-    } else if (qc.revisedMessage) {
+    // Apply QC revised message if available and no issues
+    if (!violation.category && qc.approved && qc.revisedMessage) {
       composed.message = qc.revisedMessage;
       console.log(`[BrainCouncil] Using QC-revised message`);
     }
 
+    // --- REFORMULATION LOOP ---
+    // Keep retrying the Composer with specific fix instructions until the message is clean
+    // or we've exhausted our retry budget.
+    while (
+      ((!qc.approved && qc.score < 50) || violation.category) &&
+      reformulateAttempts < MAX_REFORMULATE_ATTEMPTS
+    ) {
+      // DANGEROUS violations: hard-block immediately, no reformulation
+      if (violation.category && DANGEROUS_VIOLATIONS.has(violation.category)) {
+        console.log(`[BrainCouncil] ⛔ DANGEROUS violation: ${violation.category} — ${violation.reason}. Hard-blocking immediately (no reformulation).`);
+        break;
+      }
+
+      reformulateAttempts++;
+      wasRecomposed = true;
+      console.log(`[BrainCouncil] 🔄 Reformulation attempt ${reformulateAttempts}/${MAX_REFORMULATE_ATTEMPTS}: ${violation.category ? `${violation.category} — ${violation.reason}` : `QC score ${qc.score}`}`);
+
+      const recomposeInput = { ...input };
+      const feedback = [
+        qc.issues.length > 0 ? `QC Issues: ${qc.issues.join("; ")}` : "",
+        qc.suggestions.length > 0 ? `QC Suggestions: ${qc.suggestions.join("; ")}` : "",
+        violation.category ? `VIOLATION (${violation.category}): ${violation.reason}. You MUST fix this specific issue.` : "",
+        // Add specific fix instructions based on violation type
+        violation.category === "repeated_opener" ? "Use a COMPLETELY different opening — try starting with the content directly, a question, or a statement. Do NOT use any greeting that resembles prior messages." : "",
+        violation.category === "repeated_question" ? "Do NOT ask any questions that were already asked in prior messages. Provide VALUE instead — share pricing, examples, or social proof." : "",
+        violation.category === "generic_opener" ? "Reference the lead's SPECIFIC request from form data in your opening sentence. Be specific about their product, event, or business." : "",
+        violation.category === "context_free_subject" ? "Your email subject MUST reference specific context from the lead's form data or conversation — product type, business name, event, or their specific request." : "",
+        violation.category === "passive_reactivation" ? "Be more DIRECT and assertive. Lead with a specific value proposition, pricing, or case study. Don't be passive or vague." : "",
+        violation.category === "missing_framework" ? "Follow the framework structure: Acknowledge their specific situation, Compliment something specific, then Ask a targeted question." : "",
+        violation.category === "form_data_ignored" ? "You MUST reference the lead's form data in your message. Their specific request is the most important context." : "",
+        violation.category === "ignored_request" ? "The lead asked about pricing/quotes — you MUST address this with actual pricing ranges or a commitment to provide a quote." : "",
+        violation.category === "irrelevant_research" ? "Drop ALL research data and focus ONLY on what the lead actually told you in form data and conversation history." : "",
+        violation.category === "channel_mismatch" ? "Reply on the SAME channel the lead messaged on. Do not switch channels." : "",
+      ].filter(Boolean).join("\n");
+
+      recomposeInput.incomingMessage = `${input.incomingMessage}\n\n[QC FEEDBACK — ATTEMPT ${reformulateAttempts} — YOUR PREVIOUS MESSAGE HAD ISSUES]\n${feedback}\nFix ALL issues in your rewrite. The message content was good but had a specific problem that needs fixing.`;
+
+      composed = await runComposer(recomposeInput, context, strategy, research);
+      qc = await runQC(recomposeInput, context, strategy, composed);
+      recomposeQcScore = qc.score;
+      console.log(`[BrainCouncil] Reformulation ${reformulateAttempts} QC: score=${qc.score}, approved=${qc.approved}`);
+
+      // Re-check violations on reformulated message
+      violation = detectViolations(composed, qc, strategy, context, input, research);
+
+      // Apply QC revised message if available
+      if (qc.revisedMessage) {
+        composed.message = qc.revisedMessage;
+      }
+
+      // If clean, break out of the loop
+      if (!violation.category && (qc.approved || qc.score >= 50)) {
+        console.log(`[BrainCouncil] ✅ Reformulation ${reformulateAttempts} succeeded — violation resolved, QC score ${qc.score}`);
+        break;
+      }
+    }
+
     // --- HARD BLOCK DECISION ---
-    const shouldBlock = (wasRecomposed && qc.score < 50) || (wasRecomposed && violation.category !== null);
+    // Only block if: (1) dangerous violation, OR (2) all reformulation attempts exhausted AND still failing
+    const isDangerous = violation.category !== null && DANGEROUS_VIOLATIONS.has(violation.category);
+    const reformulationExhausted = reformulateAttempts >= MAX_REFORMULATE_ATTEMPTS && violation.category !== null;
+    const qcStillFailing = reformulateAttempts >= MAX_REFORMULATE_ATTEMPTS && !qc.approved && qc.score < 50;
+    const shouldBlock = isDangerous || reformulationExhausted || qcStillFailing;
     const fallbackMsg = shouldBlock ? buildSafeFallback(context, input) : undefined;
 
     if (shouldBlock) {

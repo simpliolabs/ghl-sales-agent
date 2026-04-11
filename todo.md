@@ -640,3 +640,13 @@
 - [x] Fix: Encourages humor, sarcasm, pattern interrupts at Attempt 3+; breakup angles at Attempt 4+
 - [x] All 659 tests passing
 - [x] Push to GitHub
+
+## ARCHITECTURE: QC reformulate-first instead of block-first
+- [ ] Classify violations: fixable (repeated opener, subject repetition, missing ack) vs dangerous (wrong business, hallucination, DNC)
+- [ ] Change QC flow: fixable violations → retry Composer with fix instructions (up to 2 retries) instead of blocking
+- [ ] Only hard-block for dangerous violations (hallucination, wrong business, DNC contact, explicit content)
+- [ ] Remove fallback suppression for leads with many prior messages — reformulate instead
+- [ ] Re-trigger all contacts affected by false blocks (Larry D #930 and others)
+- [ ] Add tests for reformulate loop
+- [ ] All tests passing
+- [ ] Push to GitHub
