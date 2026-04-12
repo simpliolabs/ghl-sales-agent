@@ -515,10 +515,12 @@ export async function runComposer(
 ${(() => {
   const origChannel = context.originalInboundChannel;
   const outChannel = strategy.channel;
-  const channelMap: Record<string, string> = { FB: "Facebook", IG: "Instagram", SMS: "text", Email: "email", WhatsApp: "WhatsApp" };
-  const origLabel = channelMap[origChannel || ""] || origChannel;
+  const channelMap: Record<string, string> = { FB: "Facebook", IG: "Instagram", SMS: "text", Email: "email", WhatsApp: "WhatsApp", fb: "Facebook", ig: "Instagram", Facebook: "Facebook", Instagram: "Instagram", GMB: "Google", "chat widget": "website chat" };
+  const origLabel = channelMap[origChannel || ""];
   const outLabel = channelMap[outChannel || ""] || outChannel;
-  if (origChannel && outChannel && origChannel.toLowerCase() !== outChannel.toLowerCase()) {
+  // Only inject channel-switch context when origChannel maps to a known human-readable label
+  // Skip for unknown sources like "transferred_contact", "ghl", "stop bot", etc.
+  if (origLabel && outChannel && origChannel && origChannel.toLowerCase() !== outChannel.toLowerCase()) {
     return `=== CHANNEL SWITCH CONTEXT (HARD RULE) ===
 The lead ORIGINALLY contacted us via ${origLabel}.
 You are now sending via ${outLabel}.

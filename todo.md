@@ -762,3 +762,6 @@
 - [x] Phase 2: On handoff — UPDATE existing appointment/task/note to reflect live quote status (escalateNotification in agent-notifications.ts)
 - [x] Remove all other scattered appointment/task creation points (webhook-contact.ts, webhook-message.ts, action-dispatcher.ts all rewired)
 - [x] Tests, compile check, push, checkpoint (671 tests passing, 0 TS errors)
+
+## Channel-Switch Wording Fix (Apr 12 - Round 9)
+- [x] BUG: Composer produces "from the transferred contact" instead of natural channel reference like "your Facebook inquiry" — fixed: brain-context.ts now validates originalInboundChannel against known channel names (FB, IG, SMS, Email, WhatsApp, GMB), composer.ts only injects channel-switch block when origChannel maps to a human-readable label. Transferred contacts (1,554 leads) no longer trigger nonsensical channel references.

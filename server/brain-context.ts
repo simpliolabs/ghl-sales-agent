@@ -73,8 +73,12 @@ export async function buildLeadContext(leadId: number): Promise<LeadContext> {
 
   // Derive original inbound channel — the channel the lead FIRST contacted us on
   // This is critical for channel-switch context (e.g., lead messaged on FB, we follow up via SMS)
+  // IMPORTANT: Only use actual communication channel names, NOT raw lead.source values
+  // (lead.source can be "transferred_contact", "ghl", "stop bot", etc. — not real channels)
+  const VALID_CHANNELS = new Set(["FB", "IG", "SMS", "Email", "WhatsApp", "GMB", "Facebook", "Instagram", "fb", "ig", "chat widget"]);
   const firstInbound = convHistory.find((c: ConversationRow) => c.direction === "inbound" && c.channel);
-  const originalInboundChannel = firstInbound?.channel || lead.source || null;
+  const rawFallback = firstInbound?.channel || lead.source || null;
+  const originalInboundChannel = rawFallback && VALID_CHANNELS.has(rawFallback) ? rawFallback : (firstInbound?.channel || null);
 
   // Extract lookback context from AI state and lead fields
   // The lookback engine stores analysis in state.lastResearchSummary (format: "[LOOKBACK] keyContext | Status: X | Approach: Y")
