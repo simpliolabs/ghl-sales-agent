@@ -512,7 +512,25 @@ export async function runComposer(
 - MUST Include: ${strategy.keyPoints.join(", ")}
 - MUST NOT Say: ${strategy.avoidPoints.join(", ")}
 
-=== RESEARCH BRIEF (confidence: ${research.dataConfidence.toUpperCase()}) ===
+${(() => {
+  const origChannel = context.originalInboundChannel;
+  const outChannel = strategy.channel;
+  const channelMap: Record<string, string> = { FB: "Facebook", IG: "Instagram", SMS: "text", Email: "email", WhatsApp: "WhatsApp" };
+  const origLabel = channelMap[origChannel || ""] || origChannel;
+  const outLabel = channelMap[outChannel || ""] || outChannel;
+  if (origChannel && outChannel && origChannel.toLowerCase() !== outChannel.toLowerCase()) {
+    return `=== CHANNEL SWITCH CONTEXT (HARD RULE) ===
+The lead ORIGINALLY contacted us via ${origLabel}.
+You are now sending via ${outLabel}.
+⚠️ YOU MUST acknowledge the channel switch in your opening line. Examples:
+- "Following up on your ${origLabel} inquiry"
+- "You messaged us on ${origLabel} about..."
+- "Thanks for reaching out on ${origLabel}! Texting you here for a quicker response."
+NEVER start the message as if this is a cold outreach — the lead already contacted us on ${origLabel}.
+`;
+  }
+  return "";
+})()}=== RESEARCH BRIEF (confidence: ${research.dataConfidence.toUpperCase()}) ===
 ${research.alreadyAsked && research.alreadyAsked.length > 0 ? `
 ⚠️ ALREADY ASKED (DO NOT repeat these questions in ANY form):
 ${research.alreadyAsked.map((q: string, i: number) => `  ${i + 1}. ${q}`).join('\n')}

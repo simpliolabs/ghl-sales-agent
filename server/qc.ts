@@ -803,6 +803,45 @@ export function detectViolations(
     return { category: "safety_violation", reason: `Message contains an unfulfillable AI commitment: "${composed.message.match(unfulfillableMatch)?.[0]}". AI cannot send invoices, call leads, or process orders — only human agents can. Use "Our team will..." or "I'll have someone..." instead.` };
   }
 
+  // 13. CHANNEL SWITCH UNACKNOWLEDGED — when outbound channel differs from original inbound,
+  // the message MUST acknowledge the original channel (e.g., "following up on your Facebook inquiry")
+  const origInbound = context.originalInboundChannel;
+  const outboundChannel = strategy.channel;
+  if (origInbound && outboundChannel) {
+    const normOrig = normalizeChannelForQC(origInbound);
+    const normOut = normalizeChannelForQC(outboundChannel);
+    if (normOrig !== normOut && normOrig !== "unknown") {
+      // Build channel label map for natural language detection
+      const channelLabels: Record<string, string[]> = {
+        fb: ["facebook", "fb", "messenger", "facebook messenger"],
+        ig: ["instagram", "ig", "insta"],
+        sms: ["text", "sms", "texting"],
+        email: ["email", "e-mail", "inbox"],
+        whatsapp: ["whatsapp", "whats app"],
+        live_chat: ["live chat", "livechat", "chat", "web chat"],
+      };
+      const origLabels = channelLabels[normOrig] || [normOrig];
+      // Check if the message references the original channel in any form
+      const msgLower = composed.message.toLowerCase();
+      const acknowledgesOrigChannel = origLabels.some(label => msgLower.includes(label));
+      // Also check for generic channel-switch phrases
+      const genericSwitchPhrases = [
+        "reaching out here", "texting you here", "emailing you here",
+        "following up", "wanted to reach you", "switching over",
+        "reaching you on", "contacting you via", "messaged us",
+        "reached out", "your inquiry", "your message",
+      ];
+      const hasGenericSwitch = genericSwitchPhrases.some(p => msgLower.includes(p));
+      if (!acknowledgesOrigChannel && !hasGenericSwitch) {
+        const origLabel = origLabels[0];
+        return {
+          category: "channel_switch_unacknowledged" as ViolationCategory,
+          reason: `Lead originally contacted via ${origLabel} but message is being sent via ${outboundChannel} WITHOUT acknowledging the channel switch. The message must reference the original channel (e.g., "following up on your ${origLabel} inquiry") so the lead understands why they're receiving a message on a different channel.`
+        };
+      }
+    }
+  }
+
   return { category: null, reason: "" };
 }
 

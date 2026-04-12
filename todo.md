@@ -746,3 +746,7 @@
 - [x] Schedule all transferred contacts for re-engagement activation timeline (staggered M-F 9-5 ET)
 - [x] Pull external online references — lastResearchSummary cleared so Researcher brain auto-picks up on next lookback cycle
 - [x] Trigger Omnisend sync for all transferred contacts with email addresses (pushed during enrichment)
+
+## Channel-Switch Context Fix (Apr 12)
+- [ ] FIX: When outbound channel differs from original inbound channel, Composer must reference the original channel (e.g., "following up on your Facebook inquiry")
+- [ ] FIX: Add deterministic QC check — reject messages that switch channels without acknowledging the original channel

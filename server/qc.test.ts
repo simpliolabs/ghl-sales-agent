@@ -1050,3 +1050,126 @@ describe("buildSafeFallback — warm lead suppression", () => {
     expect(result).toContain("What kind of custom apparel");
   });
 });
+
+describe("detectViolations — channel_switch_unacknowledged", () => {
+  it("flags when FB lead gets SMS without acknowledging the channel switch", () => {
+    const context = makeContext({
+      originalInboundChannel: "FB",
+      lead: { name: "Curtis", businessName: "Curtis Barber", assignedAgent: "Chris" },
+    });
+    const composed = makeComposed({
+      message: "Hey Curtis! Chris here from Adorb Custom Tees. We'd love to help with your custom shirts!",
+    });
+    const strategy = makeStrategy({ channel: "SMS" });
+    const result = detectViolations(composed, makeQC(), strategy, context, makeInput(), makeResearch());
+    expect(result.category).toBe("channel_switch_unacknowledged");
+    expect(result.reason).toContain("facebook");
+  });
+
+  it("passes when FB lead gets SMS with explicit Facebook reference", () => {
+    const context = makeContext({
+      originalInboundChannel: "FB",
+      lead: { name: "Curtis", businessName: "Curtis Barber", assignedAgent: "Chris" },
+    });
+    const composed = makeComposed({
+      message: "Hey Curtis! Following up on your Facebook inquiry — Chris here from Adorb Custom Tees. We'd love to help with your custom shirts!",
+    });
+    const strategy = makeStrategy({ channel: "SMS" });
+    const result = detectViolations(composed, makeQC(), strategy, context, makeInput(), makeResearch());
+    expect(result.category).not.toBe("channel_switch_unacknowledged");
+  });
+
+  it("passes when FB lead gets SMS with 'following up' generic phrase", () => {
+    const context = makeContext({
+      originalInboundChannel: "FB",
+      lead: { name: "Curtis", businessName: "Curtis Barber", assignedAgent: "Chris" },
+    });
+    const composed = makeComposed({
+      message: "Hey Curtis! Following up on your message — Chris here from Adorb. Texting you here for a quicker response!",
+    });
+    const strategy = makeStrategy({ channel: "SMS" });
+    const result = detectViolations(composed, makeQC(), strategy, context, makeInput(), makeResearch());
+    expect(result.category).not.toBe("channel_switch_unacknowledged");
+  });
+
+  it("passes when outbound channel matches original inbound channel (no switch)", () => {
+    const context = makeContext({
+      originalInboundChannel: "SMS",
+      lead: { name: "John", businessName: "Life Church", assignedAgent: "Abby" },
+    });
+    const composed = makeComposed({
+      message: "Hey John! Abby here from Adorb Custom Tees. How can we help?",
+    });
+    const strategy = makeStrategy({ channel: "SMS" });
+    const result = detectViolations(composed, makeQC(), strategy, context, makeInput(), makeResearch());
+    expect(result.category).not.toBe("channel_switch_unacknowledged");
+  });
+
+  it("passes when originalInboundChannel is null (unknown original channel)", () => {
+    const context = makeContext({
+      originalInboundChannel: null,
+      lead: { name: "John", businessName: "Life Church", assignedAgent: "Abby" },
+    });
+    const composed = makeComposed({
+      message: "Hey John! Abby here from Adorb Custom Tees.",
+    });
+    const strategy = makeStrategy({ channel: "SMS" });
+    const result = detectViolations(composed, makeQC(), strategy, context, makeInput(), makeResearch());
+    expect(result.category).not.toBe("channel_switch_unacknowledged");
+  });
+
+  it("flags when IG lead gets Email without acknowledging Instagram", () => {
+    const context = makeContext({
+      originalInboundChannel: "IG",
+      lead: { name: "Maria", businessName: "Maria Boutique", assignedAgent: "Abby" },
+    });
+    const composed = makeComposed({
+      message: "Hi Maria!\n\nAbby here from Adorb Custom Tees.\nWe'd love to help with your custom apparel needs!\n\n---\nAbby | Adorb Custom Printing\nadorbcustomtees.com",
+      subject: "Custom Apparel for Maria's Boutique",
+    });
+    const strategy = makeStrategy({ channel: "Email" });
+    const result = detectViolations(composed, makeQC(), strategy, context, makeInput(), makeResearch());
+    expect(result.category).toBe("channel_switch_unacknowledged");
+    expect(result.reason).toContain("instagram");
+  });
+
+  it("passes when IG lead gets Email with Instagram reference", () => {
+    const context = makeContext({
+      originalInboundChannel: "IG",
+      lead: { name: "Maria", businessName: "Maria Boutique", assignedAgent: "Abby" },
+    });
+    const composed = makeComposed({
+      message: "Hi Maria!\n\nSaw your Instagram message about custom tees for your boutique — emailing you here with some options!\n\n---\nAbby | Adorb Custom Printing\nadorbcustomtees.com",
+      subject: "Following Up on Your Instagram Inquiry",
+    });
+    const strategy = makeStrategy({ channel: "Email" });
+    const result = detectViolations(composed, makeQC(), strategy, context, makeInput(), makeResearch());
+    expect(result.category).not.toBe("channel_switch_unacknowledged");
+  });
+
+  it("passes when message uses 'messaged us' generic switch phrase", () => {
+    const context = makeContext({
+      originalInboundChannel: "FB",
+      lead: { name: "Dave", businessName: "Dave Gym", assignedAgent: "Chris" },
+    });
+    const composed = makeComposed({
+      message: "Hey Dave! You messaged us about custom gym shirts — texting you here for a faster response!",
+    });
+    const strategy = makeStrategy({ channel: "SMS" });
+    const result = detectViolations(composed, makeQC(), strategy, context, makeInput(), makeResearch());
+    expect(result.category).not.toBe("channel_switch_unacknowledged");
+  });
+
+  it("normalizes FB/Facebook/Messenger as same channel (no false positive)", () => {
+    const context = makeContext({
+      originalInboundChannel: "Facebook",
+      lead: { name: "John", businessName: "Life Church", assignedAgent: "Abby" },
+    });
+    const composed = makeComposed({
+      message: "Hey John! Abby here from Adorb Custom Tees.",
+    });
+    const strategy = makeStrategy({ channel: "FB" });
+    const result = detectViolations(composed, makeQC(), strategy, context, makeInput(), makeResearch());
+    expect(result.category).not.toBe("channel_switch_unacknowledged");
+  });
+});

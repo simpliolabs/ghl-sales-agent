@@ -71,6 +71,11 @@ export async function buildLeadContext(leadId: number): Promise<LeadContext> {
     else break;
   }
 
+  // Derive original inbound channel — the channel the lead FIRST contacted us on
+  // This is critical for channel-switch context (e.g., lead messaged on FB, we follow up via SMS)
+  const firstInbound = convHistory.find((c: ConversationRow) => c.direction === "inbound" && c.channel);
+  const originalInboundChannel = firstInbound?.channel || lead.source || null;
+
   // Extract lookback context from AI state and lead fields
   // The lookback engine stores analysis in state.lastResearchSummary (format: "[LOOKBACK] keyContext | Status: X | Approach: Y")
   // and lead.lastStrategyReasoning (format: "[LOOKBACK] approach | keyContext")
@@ -109,6 +114,8 @@ export async function buildLeadContext(leadId: number): Promise<LeadContext> {
     intentHistory: (lead.intentHistory as any) || [],
     // Framework diversity: last 5 outreach frameworks (for Strategist prompt + diversity enforcement)
     recentOutreachFrameworks: await getRecentOutreachFrameworks(leadId, 5),
+    // Original inbound channel — for channel-switch context awareness
+    originalInboundChannel,
   };
 }
 
