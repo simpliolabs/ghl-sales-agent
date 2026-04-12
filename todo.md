@@ -753,3 +753,4 @@
 
 ## Bug Investigation (Apr 12 - Round 7)
 - [x] BUG: AI stopped responding to John Dugger's Facebook reply "Two sided and 20ish" at 12:01 PM — root cause: redundant second shouldHandoffToAgent LLM call (line 678) overrode Brain Council decision, set humanTakeover=1 prematurely. Fix: removed rogue post-Brain-Council handoff check, reset lead state. Handoff now handled by pre-BC check + conversation state machine + action dispatcher.
+- [x] BUG: Duplicate appointment + AI silenced again for John Dugger — root cause: GHL appointment activity (type 31) misidentified as human agent message by both SEND-GATE (ghl.ts) and GHL history scan (webhook-message.ts). Fix: added numeric GHL system type IDs (0, 28-40) to both filters. Reset lead state.

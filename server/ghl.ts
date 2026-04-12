@@ -214,11 +214,19 @@ export async function sendMessage(contactId: string, opts: {
             if (msgAge > AGENT_TAKEOVER_WINDOW_MS) return false;
             // Skip system/automation messages
             if (isSystemMessage(m.body)) return false;
-            // Skip GHL system message types (TYPE_ACTIVITY, TYPE_CALL, etc.)
-            // NOTE: GHL may return type as a number (e.g. 11) or string — convert to string first
-            const systemTypes = ["TYPE_ACTIVITY", "TYPE_CALL_COMPLETED", "TYPE_CALL", "TYPE_NOTE", "TYPE_TASK", "TYPE_APPOINTMENT", "TYPE_WORKFLOW", "TYPE_SYSTEM"];
+            // Skip GHL system message types — both string names AND numeric IDs
+            // GHL returns type as number (11=SMS/FB, 28=opportunity, 31=appointment, etc.)
+            const systemTypeNames = ["TYPE_ACTIVITY", "TYPE_CALL_COMPLETED", "TYPE_CALL", "TYPE_NOTE", "TYPE_TASK", "TYPE_APPOINTMENT", "TYPE_WORKFLOW", "TYPE_SYSTEM"];
+            // Numeric GHL message types that are system/activity (NOT customer messages):
+            //   0 = system, 28 = TYPE_ACTIVITY_OPPORTUNITY, 29 = TYPE_ACTIVITY_STAGECHANGE,
+            //   30 = TYPE_ACTIVITY_TASK, 31 = TYPE_ACTIVITY_APPOINTMENT,
+            //   32 = TYPE_ACTIVITY_NOTE, 33 = TYPE_ACTIVITY_CONTACT,
+            //   34+ = other system activities. Types 1-15 are messaging types (SMS, Email, FB, etc.)
+            const SYSTEM_TYPE_IDS = new Set([0, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40]);
             const typeStr = m.type != null ? String(m.type).toUpperCase() : "";
-            if (systemTypes.includes(typeStr)) return false;
+            const typeNum = m.type != null ? Number(m.type) : NaN;
+            if (systemTypeNames.includes(typeStr)) return false;
+            if (!isNaN(typeNum) && SYSTEM_TYPE_IDS.has(typeNum)) return false;
             // Check if this message matches a known AI message
             const isKnownAi = knownAiMessages.has(m.body.toLowerCase().trim());
             return !isKnownAi;

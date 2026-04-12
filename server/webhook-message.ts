@@ -431,8 +431,10 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
               body.length > 500 || // System dumps / form data are usually long
               (m as any).messageType === "TYPE_ACTIVITY" ||
               (m as any).contentType === "activity" ||
-              (m as any).type === 0 || // GHL type 0 = system/activity
-              (m as any).type === "0" ||
+              // GHL numeric system/activity types: 0=system, 28=opportunity, 29=stagechange,
+              // 30=task, 31=appointment, 32=note, 33=contact, 34+=other activities
+              (typeof (m as any).type === 'number' && ((m as any).type === 0 || (m as any).type >= 28)) ||
+              (typeof (m as any).type === 'string' && ["0","28","29","30","31","32","33","34","35","36","37","38","39","40","TYPE_ACTIVITY","TYPE_APPOINTMENT","TYPE_TASK","TYPE_NOTE"].includes((m as any).type)) ||
               // FB form data pattern: multiple "label: value" lines
               (body.split("\n").filter((l: string) => l.includes(":")).length >= 3);
             if (isSystemMsg) return false;
