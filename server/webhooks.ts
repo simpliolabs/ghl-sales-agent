@@ -27,6 +27,47 @@ import { runPromotionScan } from "./learning-loop";
 import { seedKnownErrors } from "./error-memory";
 import { runAndStoreSupervisorCycle, logTimerHeartbeat } from "./supervisor";
 
+// --- CONTACT-LEVEL MUTEX ---
+// Prevents concurrent processing of the same ghlContactId across different
+// webhook types (ContactCreate + InboundMessage race condition).
+// When two webhooks arrive simultaneously for the same contact, the second
+// one waits up to 5 seconds for the first to finish, then proceeds.
+// This is defense-in-depth on top of the atomic upsert in db.ts.
+const CONTACT_PROCESSING_LOCK = new Map<string, { promise: Promise<void>; resolve: () => void }>();
+
+function acquireContactLock(contactId: string): { acquired: boolean; waitForPrevious: () => Promise<void> } {
+  const existing = CONTACT_PROCESSING_LOCK.get(contactId);
+  if (existing) {
+    // Another webhook is processing this contact — return a wait function
+    return {
+      acquired: false,
+      waitForPrevious: () => Promise.race([
+        existing.promise,
+        new Promise<void>(resolve => setTimeout(resolve, 5000)), // 5s max wait
+      ]),
+    };
+  }
+  // No existing lock — create one
+  let lockResolve: () => void;
+  const lockPromise = new Promise<void>(resolve => { lockResolve = resolve; });
+  CONTACT_PROCESSING_LOCK.set(contactId, { promise: lockPromise, resolve: lockResolve! });
+  return { acquired: true, waitForPrevious: () => Promise.resolve() };
+}
+
+function releaseContactLock(contactId: string): void {
+  const lock = CONTACT_PROCESSING_LOCK.get(contactId);
+  if (lock) {
+    lock.resolve();
+    CONTACT_PROCESSING_LOCK.delete(contactId);
+  }
+}
+
+/** For testing: clear all contact locks. */
+export function _resetContactLockForTests(): void {
+  CONTACT_PROCESSING_LOCK.forEach(lock => lock.resolve());
+  CONTACT_PROCESSING_LOCK.clear();
+}
+
 // --- IN-MEMORY DEDUP LOCK ---
 // Prevents concurrent processing of the same message webhook.
 // Key: contactId + messageBody hash, Value: timestamp of lock acquisition.
@@ -377,10 +418,25 @@ export function createWebhookRouter(): Router {
       }).substring(0, 2000);
 
       switch (detectedType) {
-        case "contact":
+        case "contact": {
           action = "contact_handler";
-          await handleContactWebhook(payload, res);
+          // CONTACT-LEVEL MUTEX: Serialize concurrent webhooks for the same contact.
+          // If an InboundMessage webhook is already processing this contact,
+          // wait up to 5s for it to finish before proceeding.
+          const contactLock = acquireContactLock(contactId);
+          if (!contactLock.acquired) {
+            console.log(`[Webhook/Mutex] Contact ${contactId}: waiting for concurrent webhook to finish`);
+            await contactLock.waitForPrevious();
+            // Re-acquire the lock now that the previous one is done
+            acquireContactLock(contactId);
+          }
+          try {
+            await handleContactWebhook(payload, res);
+          } finally {
+            releaseContactLock(contactId);
+          }
           break;
+        }
         case "message": {
           action = "message_handler";
           const msgBody = (payload.body || payload.message || "") as string;
@@ -389,9 +445,19 @@ export function createWebhookRouter(): Router {
             res.json({ success: true, action: "dedup_blocked" });
             break;
           }
+          // CONTACT-LEVEL MUTEX: Serialize concurrent webhooks for the same contact.
+          // If a ContactCreate webhook is already processing this contact,
+          // wait up to 5s for it to finish before proceeding.
+          const msgContactLock = acquireContactLock(contactId);
+          if (!msgContactLock.acquired) {
+            console.log(`[Webhook/Mutex] Message for contact ${contactId}: waiting for concurrent webhook to finish`);
+            await msgContactLock.waitForPrevious();
+            acquireContactLock(contactId);
+          }
           try {
             await handleMessageWebhook(payload, res);
           } finally {
+            releaseContactLock(contactId);
             releaseMessageLock(contactId, msgBody);
           }
           break;
@@ -445,9 +511,16 @@ export function createWebhookRouter(): Router {
               res.json({ success: true, action: "dedup_blocked" });
               break;
             }
+            // Contact-level mutex for fallback message path
+            const fbMsgContactLock = acquireContactLock(contactId);
+            if (!fbMsgContactLock.acquired) {
+              await fbMsgContactLock.waitForPrevious();
+              acquireContactLock(contactId);
+            }
             try {
               await handleMessageWebhook(payload, res);
             } finally {
+              releaseContactLock(contactId);
               releaseMessageLock(contactId, fbMsgBody);
             }
           } else if (payload.currentStage || payload.toStage || payload.stageName || payload.pipelineId) {
@@ -461,7 +534,17 @@ export function createWebhookRouter(): Router {
             await handlePipelineWebhook(payload, res);
           } else if (payload.id || payload.contactId) {
             action = "fallback_contact";
-            await handleContactWebhook(payload, res);
+            // Contact-level mutex for fallback contact path
+            const fbContactLock = acquireContactLock(contactId);
+            if (!fbContactLock.acquired) {
+              await fbContactLock.waitForPrevious();
+              acquireContactLock(contactId);
+            }
+            try {
+              await handleContactWebhook(payload, res);
+            } finally {
+              releaseContactLock(contactId);
+            }
           } else {
             action = "unrecognized";
             res.json({ success: true, action: "unrecognized_event" });

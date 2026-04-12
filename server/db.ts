@@ -41,18 +41,45 @@ export async function getUserByOpenId(openId: string) {
 }
 
 // --- Leads ---
+/**
+ * Atomic upsert: INSERT ... ON DUPLICATE KEY UPDATE.
+ * Uses the UNIQUE index on ghlContactId to prevent race-condition duplicates.
+ * When two webhooks fire simultaneously for the same contact, the DB enforces
+ * uniqueness — the second INSERT becomes an UPDATE instead of a duplicate row.
+ *
+ * Returns the lead record (existing or newly created).
+ */
 export async function upsertLead(lead: InsertLead) {
   const db = await getDb();
   if (!db) return null;
-  if (lead.ghlContactId) {
-    const existing = await db.select().from(leads).where(eq(leads.ghlContactId, lead.ghlContactId)).limit(1);
-    if (existing.length > 0) {
-      const updateFields: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(lead)) { if (v !== undefined && k !== "id" && k !== "ghlContactId") updateFields[k] = v; }
-      if (Object.keys(updateFields).length > 0) await db.update(leads).set(updateFields).where(eq(leads.ghlContactId, lead.ghlContactId));
-      return existing[0];
+
+  // Build the update set: all non-undefined fields except id and ghlContactId.
+  // For ON DUPLICATE KEY UPDATE, we only overwrite fields that have real values
+  // (not null/undefined) to avoid clobbering existing data with blanks.
+  const updateFields: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(lead)) {
+    if (v !== undefined && v !== null && k !== "id" && k !== "ghlContactId") {
+      updateFields[k] = v;
     }
   }
+
+  if (lead.ghlContactId) {
+    // ATOMIC UPSERT: INSERT or UPDATE in a single statement.
+    // If ghlContactId already exists (UNIQUE constraint), MySQL updates the row.
+    // If it doesn't exist, MySQL inserts a new row.
+    // This eliminates the SELECT→INSERT race condition entirely.
+    await db.insert(leads).values(lead).onDuplicateKeyUpdate({
+      set: Object.keys(updateFields).length > 0
+        ? updateFields
+        : { updatedAt: sql`NOW()` }, // Must set something; touch updatedAt as no-op
+    });
+
+    // Read back the canonical row (whether it was just inserted or updated)
+    const result = await db.select().from(leads).where(eq(leads.ghlContactId, lead.ghlContactId)).limit(1);
+    return result[0] || null;
+  }
+
+  // No ghlContactId — plain insert (rare edge case)
   const result = await db.insert(leads).values(lead);
   return { id: result[0].insertId, ...lead };
 }

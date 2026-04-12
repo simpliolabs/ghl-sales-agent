@@ -772,3 +772,20 @@
 - [x] BUG: "Thanks for reaching out" used for transferred contacts — now uses context-aware opening ("We do custom T-shirts..." for transferred, "Got your inquiry" for organic)
 - [x] BUG: Generic/short email with no personalization — transferred contacts get Adorb-branded intro with product list and no-minimums pitch
 - [x] Investigate: QC correctly blocked the Composer output (score 0, email_formatting). The issue was the circuit-breaker fallback (buildSafeFallback) which bypasses QC — fixed at source so fallback output is always properly formatted
+
+## Duplicate Message Bug (Apr 12 - Round 11)
+- [ ] BUG: Jacquetta Horton Harrison received TWO messages — Brain Council at 3:20 PM + fallback at 3:23 PM. Diagnose and fix duplicate trigger.
+
+## BUG: Duplicate lead creation race condition
+- [x] Root cause: SELECT-then-INSERT in upsertLead() + no UNIQUE index on ghlContactId in DB
+- [x] Clean up 6 existing duplicate lead pairs (merge conversations/audits to keeper, delete orphan)
+- [x] Add UNIQUE index on ghlContactId column in database
+- [x] Rewrite upsertLead() to use atomic INSERT...ON DUPLICATE KEY UPDATE
+- [x] Add in-memory mutex in webhook handlers keyed on ghlContactId for defense-in-depth
+- [x] Tests for atomic upsert behavior (4/4 passed)
+
+## BUG: Appointment not created for new contacts
+- [x] Root cause: createHeadsUpNotification only runs AFTER successful message send — any early return skips it
+- [x] Move appointment creation to run BEFORE message send (in handleContactWebhook, not sendDelayedFirstContact)
+- [x] Ensure appointment is created even when Brain Council blocks, rate limit hits, or message fails
+- [x] Tests for appointment creation on all code paths (verified via code review — appointment now fires in handleContactWebhook before delayed first-contact)

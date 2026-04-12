@@ -153,12 +153,51 @@ export async function handleContactWebhook(payload: Record<string, unknown>, res
     await updateLeadFields(lead.id, { nextFollowUpAt: initialSchedule.nextFollowUpAt, cadencePosition: initialSchedule.cadencePosition });
 
     // =================================================================
-    // NOTE: Auto-task/appointment/notification creation has been moved
-    // INSIDE sendDelayedFirstContact() to run AFTER the first-contact
-    // message is sent. This prevents GHL bounce-back webhooks from
-    // the task/appointment/note from triggering humanTakeover and
-    // blocking the first-contact message.
+    // PHASE 1: HEADS-UP NOTIFICATION (fires immediately, before AI message)
+    // Creates ONE appointment (10-min, next biz hour) + ONE task + ONE note.
+    // This runs BEFORE the delayed first-contact so the agent always gets
+    // notified about new contacts, even if the AI message is blocked by
+    // rate limits, DNC, Brain Council rejection, or send failure.
+    //
+    // NOTE: We previously deferred this to after the message send to avoid
+    // GHL bounce-back webhooks triggering humanTakeover. That is now handled
+    // by the GHL numeric type filtering fix (types 28-40 are system activity,
+    // not human agent messages). The appointment/task/note creation uses
+    // addNote() and createTask()/createAppointment() which produce system
+    // activity types that are now correctly filtered.
     // =================================================================
+    try {
+      const leadLabel = lead.name || lead.businessName || `Lead #${lead.id}`;
+      const headsUpResult = await createHeadsUpNotification(
+        {
+          leadId: lead.id,
+          ghlContactId: resolvedContactId,
+          leadName: lead.name || null,
+          businessName: lead.businessName || null,
+          email: lead.email || null,
+          phone: lead.phone || null,
+          assignedAgent: lead.assignedAgent || null,
+          pipelineValue: lead.pipelineValue ?? null,
+          channel: lead.source || "unknown",
+          existingAppointmentId: lead.appointmentId || null,
+          existingTaskId: lead.ghlTaskId || null,
+        },
+        `New inquiry via ${lead.source || "unknown"}`,
+      );
+      console.log(`[Webhook] Heads-up notification for lead ${lead.id}: ${headsUpResult.actions.join(", ")}`);
+      if (headsUpResult.errors.length > 0) {
+        console.warn(`[Webhook] Heads-up errors for lead ${lead.id}: ${headsUpResult.errors.join(", ")}`);
+      }
+
+      // Notify owner about the new contact
+      await notifyOwner({
+        title: `\u{1F4DE} New Contact: ${leadLabel}`,
+        content: `A new contact has entered the system.\n\n\u2022 Name: ${leadLabel}\n\u2022 Business: ${lead.businessName || "N/A"}\n\u2022 Phone: ${lead.phone || "N/A"}\n\u2022 Email: ${lead.email || "N/A"}\n\u2022 Source: ${lead.source || "N/A"}\n\u2022 Assigned to: ${lead.assignedAgent || "Abby Bouwer"}\n\nHeads-up appointment + task created in GHL.\nAI will attempt first-contact in ${FIRST_CONTACT_DELAY_MS / 1000}s.`,
+      });
+    } catch (autoErr) {
+      console.error(`[Webhook] Heads-up notification failed for lead ${lead.id}:`, autoErr);
+      // Non-fatal — continue to delayed first-contact
+    }
 
     // =================================================================
     // DELAYED FIRST-CONTACT SEQUENCE (45s wait → Hormozi ACA)
@@ -572,44 +611,9 @@ async function sendDelayedFirstContact(
     console.log(`[Webhook] Brain Council composed: "${composedMessage.substring(0, 100)}..."`);
     console.log(`[Webhook] Strategy: ${brainResult.strategyReasoning?.substring(0, 200) || "N/A"}`);
 
-    // =================================================================
-    // PHASE 1: HEADS-UP NOTIFICATION (centralized via agent-notifications.ts)
-    // Creates ONE appointment (10-min, next biz hour) + ONE task + ONE note.
-    // Saves IDs to leads table for Phase 2 escalation.
-    // =================================================================
-    try {
-      const leadLabel = lead.name || lead.businessName || `Lead #${lead.id}`;
-      const headsUpResult = await createHeadsUpNotification(
-        {
-          leadId: lead.id,
-          ghlContactId: resolvedContactId,
-          leadName: lead.name,
-          businessName: lead.businessName,
-          email: lead.email,
-          phone: lead.phone,
-          assignedAgent: lead.assignedAgent,
-          pipelineValue: lead.pipelineValue ?? null,
-          channel: lead.source || "unknown",
-          existingAppointmentId: lead.appointmentId || null,
-          existingTaskId: lead.ghlTaskId || null,
-        },
-        `New inquiry via ${lead.source || "unknown"}`,
-      );
-      console.log(`[Webhook] Heads-up notification for lead ${leadId}: ${headsUpResult.actions.join(", ")}`);
-      if (headsUpResult.errors.length > 0) {
-        console.warn(`[Webhook] Heads-up errors for lead ${leadId}: ${headsUpResult.errors.join(", ")}`);
-      }
-
-      // Internal notification to owner
-      await notifyOwner({
-        title: `📞 New Contact: ${leadLabel}`,
-        content: `A new contact has entered the system.\n\n• Name: ${leadLabel}\n• Business: ${lead.businessName || "N/A"}\n• Phone: ${lead.phone || "N/A"}\n• Email: ${lead.email || "N/A"}\n• Source: ${lead.source || "N/A"}\n• Assigned to: ${lead.assignedAgent || "Abby Bouwer"}\n\nHeads-up appointment + task created in GHL.\nFirst-contact message was ${messageSent ? "sent successfully" : "NOT sent"}.`,
-      });
-      console.log(`[Webhook] Owner notified about new contact ${leadId}`);
-    } catch (autoErr) {
-      console.error(`[Webhook] Heads-up notification failed for lead ${leadId}:`, autoErr);
-      // Non-fatal — first-contact message already sent
-    }
+    // NOTE: Heads-up notification (appointment + task + note) now fires in
+    // handleContactWebhook() BEFORE the delayed first-contact, so the agent
+    // is always notified regardless of whether the AI message sends.
   } catch (err) {
     console.error(`[Webhook] Delayed first-contact error for lead ${leadId}:`, err);
   }
