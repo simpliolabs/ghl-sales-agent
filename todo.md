@@ -748,5 +748,5 @@
 - [x] Trigger Omnisend sync for all transferred contacts with email addresses (pushed during enrichment)
 
 ## Channel-Switch Context Fix (Apr 12)
-- [ ] FIX: When outbound channel differs from original inbound channel, Composer must reference the original channel (e.g., "following up on your Facebook inquiry")
-- [ ] FIX: Add deterministic QC check — reject messages that switch channels without acknowledging the original channel
+- [x] FIX: When outbound channel differs from original inbound channel, Composer must reference the original channel (e.g., "following up on your Facebook inquiry")
+- [x] FIX: Add deterministic QC check — reject messages that switch channels without acknowledging the original channel
