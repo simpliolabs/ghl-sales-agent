@@ -422,6 +422,31 @@ export function detectViolations(
     return { category: "safety_violation", reason: `Message contains potentially unsafe promise: ${safetyPatterns.find(p => msg.includes(p))}` };
   }
 
+  // 6b. TEMPORAL PROMISE VIOLATION — catch promises of same-day action outside business hours
+  const nowETForQC = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const qcDay = nowETForQC.getDay(); // 0=Sun, 6=Sat
+  const qcHour = nowETForQC.getHours();
+  const isWeekend = qcDay === 0 || qcDay === 6;
+  const isAfterHours = qcHour < 9 || qcHour >= 17;
+  const isOutsideBizHours = isWeekend || isAfterHours;
+
+  if (isOutsideBizHours) {
+    const temporalPromises = [
+      "later today", "today we", "reach out today", "call you today",
+      "get back to you today", "send that today", "have that today",
+      "this afternoon", "this morning", "this evening",
+      "right away", "right now", "shortly",
+    ];
+    const foundPromise = temporalPromises.find(p => msg.includes(p));
+    if (foundPromise) {
+      const dayName = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][qcDay];
+      return {
+        category: "safety_violation" as ViolationCategory,
+        reason: `Message promises "${foundPromise}" but it's currently ${dayName} ${qcHour > 12 ? qcHour - 12 : qcHour}${qcHour >= 12 ? "PM" : "AM"} ET (outside business hours M-F 9-5). Use "next business day" or "Monday" instead.`,
+      };
+    }
+  }
+
   // 7a. REPEATED OPENER — composed message starts with EXACTLY the same words as a prior outbound
   // IMPORTANT: "Hey [Name]" is a VALID personalized greeting, NOT a repeated opener.
   // Only flag when the EXACT first 3+ words match a prior message (e.g., "Hey Larry! It's" === "Hey Larry! It's").
@@ -448,6 +473,49 @@ export function detectViolations(
       const isJustGreeting = /^(hey|hi|hello|yo)\s+\S+[!.,]?$/i.test(composedOpener3);
       if (!isJustGreeting && priorOpener3.length > 5 && composedOpener3 === priorOpener3) {
         return { category: "repeated_opener" as ViolationCategory, reason: `Message starts with "${composedOpener3}" which matches a prior outbound opener. Use a different opening.` };
+      }
+    }
+  }
+
+  // 7a-2. REPEATED DISTINCTIVE PHRASES — catch repeated exclamations/catchphrases across messages
+  // e.g., "AWESOME MATT!" appearing in multiple outbound messages is a pattern the AI is stuck on
+  if (context.priorOutbound && context.priorOutbound.length > 0) {
+    // Extract distinctive phrases: 2-4 word combos that contain proper nouns, ALL CAPS, or exclamations
+    const extractDistinctivePhrases = (text: string): string[] => {
+      const phrases: string[] = [];
+      const words = text.trim().split(/\s+/);
+      for (let len = 2; len <= 4 && len <= words.length; len++) {
+        for (let i = 0; i <= words.length - len; i++) {
+          const phrase = words.slice(i, i + len).join(" ");
+          // Distinctive = contains ALL CAPS word (2+ chars), exclamation, or unusual emphasis
+          const hasAllCaps = words.slice(i, i + len).some(w => w.length >= 2 && w === w.toUpperCase() && /[A-Z]/.test(w));
+          const hasExclamation = phrase.includes("!");
+          if (hasAllCaps || hasExclamation) {
+            phrases.push(phrase.toLowerCase().replace(/[!.,?]/g, "").trim());
+          }
+        }
+      }
+      return phrases;
+    };
+
+    const composedPhrases = extractDistinctivePhrases(composed.message);
+    if (composedPhrases.length > 0) {
+      // Count how many prior outbound messages contain each distinctive phrase
+      for (const phrase of composedPhrases) {
+        if (phrase.length < 5) continue; // Skip very short phrases
+        let matchCount = 0;
+        for (const prior of context.priorOutbound) {
+          const priorLower = (prior.messageBody || "").toLowerCase().replace(/[!.,?]/g, "");
+          if (priorLower.includes(phrase)) matchCount++;
+        }
+        // If the same distinctive phrase appears in 2+ prior messages, it's a stuck pattern
+        if (matchCount >= 2) {
+          return { category: "repeated_opener" as ViolationCategory, reason: `Distinctive phrase "${phrase}" appears in ${matchCount} prior outbound messages — the AI is stuck on this pattern. Use completely different language.` };
+        }
+        // Even 1 match for a very distinctive phrase (ALL CAPS + name) is suspicious
+        if (matchCount >= 1 && /[A-Z]{2,}.*[a-z]|[a-z].*[A-Z]{2,}/.test(phrase)) {
+          return { category: "repeated_opener" as ViolationCategory, reason: `Distinctive phrase "${phrase}" was already used in a prior outbound message. Vary your language — don't repeat catchphrases.` };
+        }
       }
     }
   }

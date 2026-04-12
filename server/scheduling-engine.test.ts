@@ -154,10 +154,15 @@ describe("Scheduling Engine — 30-Day Max Cap", () => {
     expect(Math.abs(capped.getTime() - farFuture.getTime())).toBeLessThan(1000);
   });
 
-  it("capDate should handle past dates (return as-is)", () => {
+  it("capDate should bump past dates to future (floor enforcement)", () => {
     const pastDate = new Date(Date.now() - 24 * 60 * 60 * 1000); // 1 day ago
     const capped = capDate(pastDate, false);
-    expect(Math.abs(capped.getTime() - pastDate.getTime())).toBeLessThan(1000);
+    // Past dates should now be bumped to at least 1h from now (floor enforcement)
+    expect(capped.getTime()).toBeGreaterThan(Date.now());
+    // Should be roughly 1h + 0-30min jitter from now
+    const diffMs = capped.getTime() - Date.now();
+    expect(diffMs).toBeGreaterThanOrEqual(55 * 60 * 1000); // at least ~55 min
+    expect(diffMs).toBeLessThan(95 * 60 * 1000); // less than ~95 min (1h + 30min jitter + buffer)
   });
 });
 

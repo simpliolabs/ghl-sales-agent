@@ -356,12 +356,57 @@ async function handleHumanActive(ctx: DispatchContext, reason: string): Promise<
     errors.push(`Failed to set humanTakeover: ${err?.message}`);
   }
 
+  // Add GHL note
   try {
     await addNote(ctx.ghlContactId,
-      `🤖 AI State Machine: HUMAN ACTIVE\n` +
+      `\ud83e\udd16 AI State Machine: HUMAN ACTIVE\n` +
       `Reason: ${reason}\n` +
-      `AI will stand down until agent activity expires (2hr window).`
+      `AI will stand down until agent activity expires (2hr window).\n` +
+      `A task has been created for the assigned agent to follow up.`
     );
+  } catch { /* best effort */ }
+
+  // CREATE TASK for assigned agent to call during next business hours slot
+  try {
+    const { getNextBusinessHoursSlot } = await import("./ghl");
+    const slot = getNextBusinessHoursSlot();
+    const agentName = ctx.assignedAgent || "Team";
+    const leadLabel = ctx.leadName || ctx.businessName || `Lead #${ctx.leadId}`;
+
+    await createTask(ctx.ghlContactId, {
+      title: `\ud83d\udcde Call ${leadLabel} — Human Handoff Required`,
+      body: [
+        `Reason for handoff: ${reason}`,
+        `Lead: ${leadLabel}${ctx.businessName ? ` (${ctx.businessName})` : ""}`,
+        `Phone: ${ctx.phone || "N/A"} | Email: ${ctx.email || "N/A"}`,
+        ``,
+        `The AI has stepped back from this conversation. Please review the conversation`,
+        `history and reach out to the lead during business hours (M-F 9am-5pm ET).`,
+        ``,
+        `After your interaction, the AI will auto-resume if no agent activity is detected for 2 hours.`,
+      ].join("\n"),
+      dueDate: slot.start.toISOString(),
+      assignedTo: ctx.assignedAgent || undefined,
+    });
+    actions.push(`Created handoff task for ${agentName} due ${slot.start.toISOString()}`);
+  } catch (err: any) {
+    errors.push(`Failed to create handoff task: ${err?.message}`);
+  }
+
+  // Notify owner about the handoff
+  try {
+    const { notifyOwner } = await import("./_core/notification");
+    const leadLabel = ctx.leadName || ctx.businessName || `Lead #${ctx.leadId}`;
+    await notifyOwner({
+      title: `\ud83d\udcde Human Handoff: ${leadLabel}`,
+      content: [
+        `Lead: ${leadLabel}${ctx.businessName ? ` (${ctx.businessName})` : ""}`,
+        `Reason: ${reason}`,
+        `Assigned to: ${ctx.assignedAgent || "Unassigned"}`,
+        `AI has stepped back. A task has been created in GHL.`,
+      ].join("\n"),
+    });
+    actions.push("Sent owner notification");
   } catch { /* best effort */ }
 
   return { actionsExecuted: actions, errors, skipped: false };

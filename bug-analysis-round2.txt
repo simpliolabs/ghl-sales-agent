@@ -1,0 +1,44 @@
+BUG ANALYSIS - Round 2 (Apr 12 2026)
+
+=== BUG 1: Past-date nextFollowUpAt ===
+ROOT CAUSE: The scheduling engine always calculates dates relative to Date.now() + delay, 
+then pushToNextBusinessHour, so it should never produce past dates. However:
+- The capDate function does NOT check for past dates, only future overflow
+- Admin overrides can set dates that become past if not consumed
+- The supervisor corrects has_future_schedule violations but only to now+2h
+- The follow-up-trigger has an overdue-catchup section
+- The REAL issue: recalculateStaleSchedules and bulk_backfill may not run frequently enough,
+  and leads that were scheduled in the past (before system restart, or during downtime) 
+  stay with past dates until consumed or corrected.
+FIX: Add a floor in capDate() that ensures no date is ever in the past. Also add a floor
+at the end of calculateNextFollowUp. Any date < now should be bumped to now + small jitter.
+
+=== BUG 2: AI repeats "AWESOME MATT!" ===
+ROOT CAUSE: The repeated opener detection in QC's detectViolations checks if the composed 
+message starts with the SAME words as a prior outbound. But "AWESOME MATT!" is a phrase 
+that appears in the middle or as an exclamation, not necessarily the exact opener. The 
+current check only compares first N words. Need to also check for repeated distinctive 
+phrases across messages.
+FIX: Add phrase-level repetition detection in detectViolations — extract distinctive 
+phrases (2-4 word combos with proper nouns or exclamations) and check if they appear 
+in multiple prior outbound messages.
+
+=== BUG 3: Weekend/after-hours scheduling + "later today" language ===
+ROOT CAUSE: 
+A) isBusinessHours allows Saturday 10-2 for SMS. User says staff is M-F 9am-5pm EST ONLY.
+   Need to remove Saturday hours entirely.
+B) The Composer doesn't know the current day/time or business hours, so it can say 
+   "someone will reach out later today" at 10pm on a Saturday.
+C) pushToNextBusinessHour allows Saturday sends.
+FIX: 
+A) Remove Saturday from isBusinessHours — Mon-Fri 9am-5pm only
+B) Inject current day/time and business hours into Composer context
+C) Add QC deterministic check for temporal promises outside business hours
+
+=== BUG 4: No handoff task/appointment created ===
+ROOT CAUSE: action-dispatcher.ts handleHumanActive() only sets humanTakeover=1 and 
+lastAgentActivityAt, then adds a note. It does NOT create a GHL task or appointment.
+The webhook-contact.ts has task/appointment creation for NEW contacts but not for 
+human takeover transitions.
+FIX: In action-dispatcher.ts handleHumanActive(), add createTask() for the assigned 
+agent to call during next business hours slot, and create an internal notification.

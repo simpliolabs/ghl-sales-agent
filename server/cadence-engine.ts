@@ -44,8 +44,8 @@ const CADENCE_TABLE: Record<string, CadenceRule> = {
 
 // ─── BUSINESS HOURS ──────────────────────────────────────────────
 const BUSINESS_START_HOUR = 9;  // 9 AM ET
-const BUSINESS_END_HOUR = 19;   // 7 PM ET
-const BUSINESS_DAYS = [1, 2, 3, 4, 5, 6]; // Mon-Sat (0=Sun)
+const BUSINESS_END_HOUR = 17;   // 5 PM ET (staff hours: M-F 9am-5pm)
+const BUSINESS_DAYS = [1, 2, 3, 4, 5]; // Mon-Fri only (0=Sun, 6=Sat)
 
 function isBusinessHoursET(date: Date): boolean {
   const etStr = date.toLocaleString("en-US", { timeZone: "America/New_York" });

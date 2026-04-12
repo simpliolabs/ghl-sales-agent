@@ -477,7 +477,30 @@ export async function runComposer(
     .filter(Boolean)
     .slice(-5) as string[]; // last 5 outbound subjects
 
+  // Build current time context for the Composer
+  const nowET = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const currentDayET = dayNames[nowET.getDay()];
+  const currentHourET = nowET.getHours();
+  const currentTimeET = `${currentHourET > 12 ? currentHourET - 12 : currentHourET}:${String(nowET.getMinutes()).padStart(2, "0")} ${currentHourET >= 12 ? "PM" : "AM"} ET`;
+  const isCurrentlyBusinessHours = nowET.getDay() >= 1 && nowET.getDay() <= 5 && currentHourET >= 9 && currentHourET < 17;
+  const nextBizDay = nowET.getDay() === 5 ? "Monday" : nowET.getDay() === 6 ? "Monday" : nowET.getDay() === 0 ? "Monday" : dayNames[nowET.getDay() + 1];
+
   const composerInput = `
+=== CURRENT TIME CONTEXT ===
+- Current time: ${currentTimeET} on ${currentDayET}
+- Business hours: Monday–Friday, 9 AM – 5 PM ET ONLY
+- Currently ${isCurrentlyBusinessHours ? "INSIDE" : "OUTSIDE"} business hours
+- Next business day: ${isCurrentlyBusinessHours ? "today" : nextBizDay}
+
+\u26a0\ufe0f TEMPORAL LANGUAGE RULES (HARD):
+- NEVER say "later today" or "today" if it is currently OUTSIDE business hours or after 3 PM ET
+- NEVER say "someone will reach out today" on a weekend or evening
+- If outside business hours, say "next business day" or "Monday" (whichever applies)
+- If it's Friday afternoon, say "early next week" not "tomorrow"
+- NEVER promise same-day action after 3 PM ET
+- Staff works Monday–Friday 9 AM–5 PM ET ONLY. No exceptions.
+
 === STRATEGY DIRECTIVE ===
 - Approach: ${strategy.approach}
 - Framework: ${strategy.framework}

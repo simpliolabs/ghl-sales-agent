@@ -723,3 +723,10 @@
 - [x] SLA TIMER: Tie SLA timer into existing lead next-outreach scheduling + error-memory (updates nextFollowUpAt, overrideReason, overrideBy on SLA breach)
 - [x] SELF-LEARNING TIE-IN: Hall of Fame + Channel Intelligence already in outcome-engine; email formatting violations recorded to learning-loop; post-delivery/seasonal errors feed error-memory
 - [x] SELF-HEALING TIE-IN: All new features (SLA, post-delivery, seasonal, email formatting, follow-up send failures) feed into error-memory with known fixes seeded
+
+## Source-Level Bugs (Apr 12 2026 - Round 2)
+- [x] BUG: Leads showing past-date nextFollowUpAt — capDate now has floor that bumps any past date to now+1h+jitter
+- [x] BUG: AI repeats same opener "AWESOME MATT!" — added phrase-level repetition detection in QC detectViolations (catches ALL CAPS + exclamation patterns across 2+ prior messages)
+- [x] BUG: Weekend/after-hours scheduling — both scheduling-engine.ts and cadence-engine.ts now enforce Mon-Fri 9am-5pm ET only (Saturday removed, end hour changed from 6/7pm to 5pm)
+- [x] BUG: AI says "someone will reach out later today" at 10pm — Composer now receives current time context + temporal language rules; QC has deterministic temporal promise gate that hard-rejects same-day promises outside M-F 9-5 ET
+- [x] BUG: No handoff task/appointment created when human takeover triggers — handleHumanActive now creates GHL task with next-biz-hours due date, assigns to agent, and sends owner notification

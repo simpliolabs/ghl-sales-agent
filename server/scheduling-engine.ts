@@ -116,10 +116,9 @@ function isBusinessHours(date: Date, channel: string): boolean {
     return !isEmailOutsideOptimalWindow(date);
   }
 
-  // SMS/Phone: Mon-Fri 9-6, Sat 10-2
-  if (day === 0) return false; // Sunday
-  if (day === 6) return hour >= 10 && hour < 14; // Saturday
-  return hour >= 9 && hour < 18; // Weekday
+  // SMS/Phone: Mon-Fri 9am-5pm ET only (staff hours)
+  if (day === 0 || day === 6) return false; // No weekends
+  return hour >= 9 && hour < 17; // 9 AM - 5 PM ET
 }
 
 function isHoliday(date: Date): boolean {
@@ -200,7 +199,7 @@ function pushToNextBusinessHour(date: Date, channel: string): Date {
   // If we couldn't find a valid time in a week, just use the original
   if (attempts >= 168) return date;
 
-  // For non-email, snap to business hour start if we landed before it
+  // For non-email, snap to business hour start if we landed before 9 AM on a weekday
   if (channel.toLowerCase() !== "email") {
     const et = toET(result);
     const day = et.getDay();
@@ -208,9 +207,8 @@ function pushToNextBusinessHour(date: Date, channel: string): Date {
 
     if (day >= 1 && day <= 5 && hour < 9) {
       result.setHours(result.getHours() + (9 - hour));
-    } else if (day === 6 && hour < 10) {
-      result.setHours(result.getHours() + (10 - hour));
     }
+    // No Saturday handling — weekends are excluded from business hours
   }
 
   return result;
@@ -745,11 +743,19 @@ const MAX_SAFE_DATE = new Date('2029-12-31T23:59:59Z');
  * @param allowLongLead - If true, skip the 30-day cap (for customer-stated timelines)
  */
 export function capDate(d: Date, allowLongLead = false): Date {
+  // FLOOR: Never allow a date in the past — bump to now + 1h with jitter
+  const now = Date.now();
+  if (d.getTime() <= now) {
+    const jitterMs = Math.floor(Math.random() * 30 * 60 * 1000); // 0-30 min jitter
+    const bumped = new Date(now + 60 * 60 * 1000 + jitterMs); // 1h + jitter
+    console.log(`[SchedulingEngine] \u26a0\ufe0f Past-date floor applied: ${d.toISOString()} \u2192 ${bumped.toISOString()}`);
+    d = bumped;
+  }
   // 30-day max cap (unless this is a customer-stated timeline / long-lead sequence)
   if (!allowLongLead) {
-    const maxDate = new Date(Date.now() + MAX_FOLLOWUP_DELAY_MS);
+    const maxDate = new Date(now + MAX_FOLLOWUP_DELAY_MS);
     if (d > maxDate) {
-      console.log(`[SchedulingEngine] ⚠️ 30-day cap applied: ${d.toISOString()} → ${maxDate.toISOString()}`);
+      console.log(`[SchedulingEngine] \u26a0\ufe0f 30-day cap applied: ${d.toISOString()} \u2192 ${maxDate.toISOString()}`);
       d = maxDate;
     }
   }
