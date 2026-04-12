@@ -692,3 +692,17 @@
 - [ ] Re-trigger all leads affected by duplicate/wrong fallback emails
 - [ ] All tests passing
 - [ ] Push to GitHub
+
+## AI System Overhaul — Root Cause Fix (April 11, 2026)
+- [ ] Phase 1: Replace Strategist prompt with hard-constraint-first version
+- [ ] Phase 1: Replace Researcher prompt with hard-constraint-first version
+- [ ] Phase 1: Replace Composer prompt with hard-constraint-first version (one-shot, no reformulation)
+- [ ] Phase 1: Replace QC prompt with hard-constraint-first version
+- [ ] Phase 2: Rename orchestrator to Chief Sales Manager
+- [ ] Phase 2: Remove reformulation loop (QC→Composer feedback)
+- [ ] Phase 2: Isolate all brains — data flows only through Chief
+- [ ] Phase 2: Remove timing output from Strategist
+- [ ] Phase 3: Build deterministic Cadence Engine
+- [ ] Phase 3: Restructure QC — deterministic hard rules first, LLM scoring second
+- [ ] Run full test suite and verify all tests pass
+- [ ] Push to GitHub and save checkpoint

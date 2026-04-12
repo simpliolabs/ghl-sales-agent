@@ -49,6 +49,7 @@ import type {
 import { assignVariant } from "./ab-testing";
 import { normalizePersona, getPersonaLearningContext } from "./persona-learning";
 import { recordViolationLearning, recordReformulationSuccess } from "./learning-loop";
+import { computeCadence, normalizeStageName } from "./cadence-engine";
 import { recordError, addKnownFix } from "./error-memory";
 
 // Re-export types so callers only need one import
@@ -66,7 +67,7 @@ const BRAIN_COUNCIL_LOCK_TTL_SECONDS = 300;
  * The `aborted` flag tells callers "I decided not to send, don't retry."
  */
 function abortResult(reason: string, leadId: number): BrainCouncilOutput {
-  console.log(`[BrainCouncil] ✋ ABORT for lead ${leadId}: ${reason}`);
+  console.log(`[SalesManager] ✋ ABORT for lead ${leadId}: ${reason}`);
   return {
     message: "",
     fromName: "",
@@ -93,8 +94,11 @@ function abortResult(reason: string, leadId: number): BrainCouncilOutput {
  * 
  * ALL callers should treat a `blocked: true` return as "do not send."
  */
-export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCouncilOutput> {
-  console.log(`[BrainCouncil] === START for lead ${input.leadId} on ${input.channel} ===`);
+// Backward-compatible alias
+export const runBrainCouncil = runSalesManager;
+
+export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCouncilOutput> {
+  console.log(`[SalesManager] === START for lead ${input.leadId} on ${input.channel} ===`);
 
   // ================================================================
   // PRE-FLIGHT CHECK 1: Is AI offline?
@@ -104,7 +108,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
       return abortResult("AI is OFFLINE — system paused by admin", input.leadId);
     }
   } catch (err) {
-    console.error(`[BrainCouncil] isAiOffline check failed:`, err);
+    console.error(`[SalesManager] isAiOffline check failed:`, err);
     // Fail CLOSED — if we can't check, don't send
     return abortResult("AI offline check failed — blocking as precaution", input.leadId);
   }
@@ -139,7 +143,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
                 input.leadId
               );
             }
-            console.log(`[BrainCouncil] Bypassing ${SEND_COOLDOWN_SECONDS}s cooldown for lead ${input.leadId} — isInboundReply=${input.isInboundReply}, overrideReason=${!!input.overrideReason}`);
+            console.log(`[SalesManager] Bypassing ${SEND_COOLDOWN_SECONDS}s cooldown for lead ${input.leadId} — isInboundReply=${input.isInboundReply}, overrideReason=${!!input.overrideReason}`);
           } else {
             return abortResult(
               `DB send cooldown: last AI send attempt was ${Math.round(secondsSinceLastSend)}s ago (cooldown: ${SEND_COOLDOWN_SECONDS}s)`,
@@ -150,7 +154,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
       }
     }
   } catch (err) {
-    console.error(`[BrainCouncil] DB send cooldown check failed:`, err);
+    console.error(`[SalesManager] DB send cooldown check failed:`, err);
     // Don't abort on check failure — proceed with other checks
   }
 
@@ -179,7 +183,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
             nowET.getDate() === lastSendET.getDate();
           if (sameCalendarDay) {
             const hoursSinceSend = (Date.now() - lastSend.getTime()) / (1000 * 60 * 60);
-            console.log(`[BrainCouncil] ⛔ Daily cap: lead ${input.leadId} already received a proactive AI message today (${hoursSinceSend.toFixed(1)}h ago). Skipping.`);
+            console.log(`[SalesManager] ⛔ Daily cap: lead ${input.leadId} already received a proactive AI message today (${hoursSinceSend.toFixed(1)}h ago). Skipping.`);
             return abortResult(
               `Daily send cap: already sent 1 proactive message today (${lastSend.toISOString()})`,
               input.leadId
@@ -188,7 +192,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
         }
       }
     } catch (err) {
-      console.error(`[BrainCouncil] Daily cap check failed (non-fatal):`, err);
+      console.error(`[SalesManager] Daily cap check failed (non-fatal):`, err);
       // Don't abort on check failure — proceed
     }
   }
@@ -204,7 +208,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
       return abortResult("DB lock not acquired — another Brain Council run is in progress for this lead", input.leadId);
     }
   } catch (err) {
-    console.error(`[BrainCouncil] DB lock acquire failed:`, err);
+    console.error(`[SalesManager] DB lock acquire failed:`, err);
     // Fail CLOSED
     return abortResult("DB lock acquire failed — blocking as precaution", input.leadId);
   }
@@ -226,7 +230,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
         }
       }
     } catch (err) {
-      console.error(`[BrainCouncil] humanTakeover check failed:`, err);
+      console.error(`[SalesManager] humanTakeover check failed:`, err);
       // Don't abort on check failure — proceed with caution
     }
 
@@ -271,11 +275,11 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
                   if (nqStageId) await updateOpportunityStage(leadRow.ghlOpportunityId, nqStageId);
                 }
               } catch { /* best effort GHL update */ }
-              console.log(`[BrainCouncil] 🚫 DNC on ${dncChannel} — ALL channels exhausted for lead ${input.leadId} → Not Qualified`);
+              console.log(`[SalesManager] 🚫 DNC on ${dncChannel} — ALL channels exhausted for lead ${input.leadId} → Not Qualified`);
               return abortResult(`DNC on ${dncChannel} — all channels exhausted. Moved to Not Qualified.`, input.leadId);
             } else {
               // Escalated to another channel — abort this run, follow-up will use new channel
-              console.log(`[BrainCouncil] 🔄 DNC on ${dncChannel} — escalated lead ${input.leadId} to ${result.nextChannel}`);
+              console.log(`[SalesManager] 🔄 DNC on ${dncChannel} — escalated lead ${input.leadId} to ${result.nextChannel}`);
               return abortResult(`DNC on ${dncChannel} — escalated to ${result.nextChannel}. Will follow up on new channel.`, input.leadId);
             }
           } else {
@@ -284,7 +288,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
         }
       }
     } catch (err) {
-      console.error(`[BrainCouncil] DNC check failed:`, err);
+      console.error(`[SalesManager] DNC check failed:`, err);
       // Fail CLOSED for DNC — if we can't check, don't risk messaging an opted-out lead
       return abortResult("DNC check failed — blocking as precaution", input.leadId);
     }
@@ -304,7 +308,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
         );
       }
     } catch (err) {
-      console.error(`[BrainCouncil] DND channel check failed:`, err);
+      console.error(`[SalesManager] DND channel check failed:`, err);
       // Don't abort on check failure — other gates will catch at send time
     }
 
@@ -339,22 +343,22 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
           }
         }
       } catch (err) {
-        console.error(`[BrainCouncil] recent-outbound check failed:`, err);
+        console.error(`[SalesManager] recent-outbound check failed:`, err);
         // Don't abort on check failure — proceed with caution
       }
     } else {
-      console.log(`[BrainCouncil] Bypassing already-responded check for lead ${input.leadId} — inbound reply or recovery scan`);
+      console.log(`[SalesManager] Bypassing already-responded check for lead ${input.leadId} — inbound reply or recovery scan`);
     }
 
     // ================================================================
     // ALL PRE-FLIGHT CHECKS PASSED — Run the 4-brain pipeline
     // ================================================================
-    console.log(`[BrainCouncil] ✅ All pre-flight checks passed for lead ${input.leadId}. Running pipeline...`);
+    console.log(`[SalesManager] ✅ All pre-flight checks passed for lead ${input.leadId}. Running pipeline...`);
 
     // --- CIRCUIT BREAKER CHECK ---
     const circuitBreaker = await checkCircuitBreaker(input.leadId);
     if (circuitBreaker.tripped) {
-      console.log(`[BrainCouncil] CIRCUIT BREAKER TRIPPED for lead ${input.leadId} (${circuitBreaker.consecutiveFailures} consecutive failures). Setting humanTakeover=1 to stop the loop.`);
+      console.log(`[SalesManager] CIRCUIT BREAKER TRIPPED for lead ${input.leadId} (${circuitBreaker.consecutiveFailures} consecutive failures). Setting humanTakeover=1 to stop the loop.`);
       const context = await buildLeadContext(input.leadId);
 
       // ─── CORE FIX 1: Set humanTakeover=1 IMMEDIATELY ─────────────────────────
@@ -364,9 +368,9 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
       try {
         const { updateLeadFields } = await import("./db");
         await updateLeadFields(input.leadId, { humanTakeover: 1 });
-        console.log(`[BrainCouncil] ✅ humanTakeover=1 set for lead ${input.leadId} — AI outreach paused until manual review`);
+        console.log(`[SalesManager] ✅ humanTakeover=1 set for lead ${input.leadId} — AI outreach paused until manual review`);
       } catch (htErr) {
-        console.error(`[BrainCouncil] Failed to set humanTakeover (non-fatal):`, htErr);
+        console.error(`[SalesManager] Failed to set humanTakeover (non-fatal):`, htErr);
       }
 
       // ─── CORE FIX 2: Notification dedup ──────────────────────────────────────
@@ -396,13 +400,13 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
               circuitBreaker.consecutiveFailures
             );
             ownerNotified = 1;
-            console.log(`[BrainCouncil] 📧 Circuit breaker notification sent for lead ${input.leadId}`);
+            console.log(`[SalesManager] 📧 Circuit breaker notification sent for lead ${input.leadId}`);
           } else {
-            console.log(`[BrainCouncil] 🔕 Notification SUPPRESSED for lead ${input.leadId} — already notified ${notifCount}x today (dedup active)`);
+            console.log(`[SalesManager] 🔕 Notification SUPPRESSED for lead ${input.leadId} — already notified ${notifCount}x today (dedup active)`);
           }
         }
       } catch (notifErr) {
-        console.error(`[BrainCouncil] Notification dedup check failed (non-fatal):`, notifErr);
+        console.error(`[SalesManager] Notification dedup check failed (non-fatal):`, notifErr);
         // Best effort: try to notify anyway
         try {
           await notifyOwnerOfViolation(
@@ -423,7 +427,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
       // A cold-intro to someone mid-conversation is worse than silence.
       const hasConversationHistory = context.priorOutbound && context.priorOutbound.length > 0;
       if (hasConversationHistory) {
-        console.log(`[BrainCouncil] 🚫 Fallback SUPPRESSED for lead ${input.leadId} — ${context.priorOutbound.length} prior outbound message(s) exist. Cold-intro to warm lead is prohibited.`);
+        console.log(`[SalesManager] 🚫 Fallback SUPPRESSED for lead ${input.leadId} — ${context.priorOutbound.length} prior outbound message(s) exist. Cold-intro to warm lead is prohibited.`);
         await addBrainCouncilAudit({
           leadId: input.leadId,
           leadName: context.lead.name || undefined,
@@ -494,7 +498,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
 
     // Build shared context once
     const context = await buildLeadContext(input.leadId);
-    console.log(`[BrainCouncil] Context built: ${context.convHistory.length} messages, age ${context.leadAgeDays}d, ${context.urgencyStage}`);
+    console.log(`[SalesManager] Context built: ${context.convHistory.length} messages, age ${context.leadAgeDays}d, ${context.urgencyStage}`);
 
     // ============================================================
     // HISTORY OVERRIDE: If externalHistory (GHL) contains prior outbound
@@ -505,7 +509,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     if (input.externalHistory && context.isFirstResponse) {
       const externalHasOutbound = /\[agent\//i.test(input.externalHistory) || /\[ai\//i.test(input.externalHistory);
       if (externalHasOutbound) {
-        console.log(`[BrainCouncil] ⚠️ isFirstResponse overridden to FALSE — GHL history contains prior outbound messages for lead ${input.leadId}`);
+        console.log(`[SalesManager] ⚠️ isFirstResponse overridden to FALSE — GHL history contains prior outbound messages for lead ${input.leadId}`);
         (context as any).isFirstResponse = false;
       }
     }
@@ -521,10 +525,10 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
         undefined, // approach not yet known
       );
       if (experimentAssignment) {
-        console.log(`[BrainCouncil] A/B: lead ${input.leadId} → ${experimentAssignment.experimentId} variant ${experimentAssignment.variant}`);
+        console.log(`[SalesManager] A/B: lead ${input.leadId} → ${experimentAssignment.experimentId} variant ${experimentAssignment.variant}`);
       }
     } catch (err) {
-      console.error(`[BrainCouncil] A/B assignment error (non-fatal):`, err);
+      console.error(`[SalesManager] A/B assignment error (non-fatal):`, err);
     }
 
     // Inject persona-specific learning context for Strategist
@@ -532,16 +536,16 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     try {
       personaLearningBlock = await getPersonaLearningContext(persona);
     } catch (err) {
-      console.error(`[BrainCouncil] Persona learning error (non-fatal):`, err);
+      console.error(`[SalesManager] Persona learning error (non-fatal):`, err);
     }
     if (personaLearningBlock) {
       (context as any)._personaLearningBlock = personaLearningBlock;
     }
 
     // BRAIN 1: STRATEGIST
-    console.log(`[BrainCouncil] Running Strategist...`);
+    console.log(`[SalesManager] Running Strategist...`);
     const strategy = await runStrategist(input, context);
-    console.log(`[BrainCouncil] Strategy: ${strategy.approach}/${strategy.framework}/${strategy.angle} (tier ${strategy.personalizationTier})`);
+    console.log(`[SalesManager] Strategy: ${strategy.approach}/${strategy.framework}/${strategy.angle} (tier ${strategy.personalizationTier})`);
 
     // ============================================================
     // PROGRAMMATIC EMB_COLD / BREAKUP MINIMUM DAYS GATE
@@ -554,7 +558,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     const isBreakupFramework = strategy.framework === 'EMB_COLD' || strategy.framework === 'EMB_WINBACK';
     const isBreakupAngle = (strategy.angle || '').toLowerCase().includes('breakup') || (strategy.angle || '').toLowerCase().includes('close_file') || (strategy.angle || '').toLowerCase().includes('give_up');
     if ((isBreakupFramework || isBreakupAngle) && context.leadAgeDays < BREAKUP_MIN_DAYS) {
-      console.log(`[BrainCouncil] ⚠️ EMB_COLD gate: lead ${input.leadId} is only ${context.leadAgeDays}d old (min ${BREAKUP_MIN_DAYS}d for breakup). Overriding ${strategy.framework}/${strategy.angle} → SOAP_OPERA/pattern_interrupt.`);
+      console.log(`[SalesManager] ⚠️ EMB_COLD gate: lead ${input.leadId} is only ${context.leadAgeDays}d old (min ${BREAKUP_MIN_DAYS}d for breakup). Overriding ${strategy.framework}/${strategy.angle} → SOAP_OPERA/pattern_interrupt.`);
       (strategy as any).framework = 'SOAP_OPERA';
       (strategy as any).angle = 'pattern_interrupt';
       (strategy as any).reasoning = `[EMB_COLD GATE: lead only ${context.leadAgeDays}d old, breakup requires ${BREAKUP_MIN_DAYS}d] ${strategy.reasoning}`;
@@ -568,7 +572,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     if (input.externalHistory) {
       const externalHasOutbound = /\[agent\//i.test(input.externalHistory) || /\[ai\//i.test(input.externalHistory);
       if (externalHasOutbound && (strategy.approach === 'first_contact' || strategy.approach === 'new_pitch')) {
-        console.log(`[BrainCouncil] 🚨 APPROACH OVERRIDE: Strategist chose '${strategy.approach}' but GHL history shows prior contact. Overriding to 'follow_up'.`);
+        console.log(`[SalesManager] 🚨 APPROACH OVERRIDE: Strategist chose '${strategy.approach}' but GHL history shows prior contact. Overriding to 'follow_up'.`);
         (strategy as any).approach = 'follow_up';
         (strategy as any).reasoning = `[PRIOR CONTACT OVERRIDE: ${strategy.approach}\u2192follow_up] ${strategy.reasoning}`;
       }
@@ -580,7 +584,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     // do NOT send a goodbye message. Just silently retire the lead.
     // ============================================================
     if (strategy.approach === 'graceful_exit') {
-      console.log(`[BrainCouncil] \u{1F6D1} GRACEFUL EXIT — blocking send for lead ${input.leadId}. Reason: ${strategy.reasoning}`);
+      console.log(`[SalesManager] \u{1F6D1} GRACEFUL EXIT — blocking send for lead ${input.leadId}. Reason: ${strategy.reasoning}`);
       // Set humanTakeover to prevent future automated outreach
       const { updateLeadFields } = await import("./db");
       await updateLeadFields(input.leadId, { humanTakeover: 1 });
@@ -627,21 +631,21 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     if (context.convState) {
       const convState = context.convState;
       if (convState === "committed" && strategy.approach !== "confirm_details" && strategy.approach !== "acknowledge_info") {
-        console.log(`[BrainCouncil] 🎯 CONV STATE OVERRIDE: Lead is COMMITTED — overriding '${strategy.approach}' → 'confirm_details'`);
+        console.log(`[SalesManager] 🎯 CONV STATE OVERRIDE: Lead is COMMITTED — overriding '${strategy.approach}' → 'confirm_details'`);
         (strategy as any).approach = "confirm_details";
         (strategy as any).framework = "DIRECT_RESPONSE";
         (strategy as any).angle = "Confirm order details and next steps — customer has already committed";
         (strategy as any).reasoning = `[COMMITTED STATE OVERRIDE] ${strategy.reasoning}`;
         (strategy as any).avoidPoints = [...(strategy.avoidPoints || []), "Do NOT re-pitch or sell", "Do NOT ask if they're interested", "Do NOT use urgency tactics"];
       } else if (convState === "objecting" && strategy.approach !== "answer_question") {
-        console.log(`[BrainCouncil] 🎯 CONV STATE OVERRIDE: Lead is OBJECTING — overriding '${strategy.approach}' → 'answer_question'`);
+        console.log(`[SalesManager] 🎯 CONV STATE OVERRIDE: Lead is OBJECTING — overriding '${strategy.approach}' → 'answer_question'`);
         (strategy as any).approach = "answer_question";
         (strategy as any).framework = "DIRECT_RESPONSE";
         (strategy as any).angle = "Address the customer's specific concern directly and empathetically";
         (strategy as any).reasoning = `[OBJECTING STATE OVERRIDE] ${strategy.reasoning}`;
         (strategy as any).avoidPoints = [...(strategy.avoidPoints || []), "Do NOT ignore their concern", "Do NOT push harder", "Do NOT use high-pressure tactics"];
       } else if (convState === "fulfilled" && strategy.approach !== "post_delivery" && strategy.approach !== "relationship_nurture") {
-        console.log(`[BrainCouncil] 🎯 CONV STATE OVERRIDE: Lead is FULFILLED — overriding '${strategy.approach}' → 'post_delivery'`);
+        console.log(`[SalesManager] 🎯 CONV STATE OVERRIDE: Lead is FULFILLED — overriding '${strategy.approach}' → 'post_delivery'`);
         (strategy as any).approach = "post_delivery";
         (strategy as any).reasoning = `[FULFILLED STATE OVERRIDE] ${strategy.reasoning}`;
       }
@@ -652,12 +656,12 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     if (experimentAssignment) {
       const cfg = experimentAssignment.config;
       if (cfg.framework && cfg.framework !== strategy.framework) {
-        console.log(`[BrainCouncil] A/B override: framework ${strategy.framework} → ${cfg.framework} (experiment ${experimentAssignment.experimentId} variant ${experimentAssignment.variant})`);
+        console.log(`[SalesManager] A/B override: framework ${strategy.framework} → ${cfg.framework} (experiment ${experimentAssignment.experimentId} variant ${experimentAssignment.variant})`);
         (strategy as any).framework = cfg.framework;
         (strategy as any).reasoning = `[A/B TEST: variant ${experimentAssignment.variant}] ${strategy.reasoning}`;
       }
       if (cfg.approach && cfg.approach !== strategy.approach) {
-        console.log(`[BrainCouncil] A/B override: approach ${strategy.approach} → ${cfg.approach}`);
+        console.log(`[SalesManager] A/B override: approach ${strategy.approach} → ${cfg.approach}`);
         (strategy as any).approach = cfg.approach;
       }
       if (cfg.toneDirective) {
@@ -688,21 +692,50 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
           const anyAlternatives = ALL_OUTREACH_FRAMEWORKS.filter(f => f !== strategy.framework);
           const pool = freshAlternatives.length > 0 ? freshAlternatives : anyAlternatives;
           const override = pool[Math.floor(Math.random() * pool.length)];
-          console.log(`[BrainCouncil] ⚠️ Framework diversity override: ${strategy.framework} used ${usageCount}x in last 5 outreach → switching to ${override} (recent: ${recentOutreachFrameworks.slice(0,5).join(',')})`);
+          console.log(`[SalesManager] ⚠️ Framework diversity override: ${strategy.framework} used ${usageCount}x in last 5 outreach → switching to ${override} (recent: ${recentOutreachFrameworks.slice(0,5).join(',')})`);
           (strategy as any).framework = override;
           (strategy as any).reasoning = `[DIVERSITY OVERRIDE: ${strategy.framework}→${override} (used ${usageCount}/5)] ${strategy.reasoning}`;
         }
       } catch (diversityErr) {
-        console.error('[BrainCouncil] Diversity check error (non-fatal):', diversityErr);
+        console.error('[SalesManager] Diversity check error (non-fatal):', diversityErr);
+      }
+    }
+
+    // ============================================================
+    // CADENCE ENGINE — Deterministic timing override
+    // The Strategist suggests nextEngagementHours, but the Cadence Engine
+    // has the final say. It clamps to the stage-appropriate range and
+    // applies progressive backoff for unanswered leads.
+    // ============================================================
+    try {
+      const cadenceInput = {
+        pipelineStage: normalizeStageName(context.lead.pipelineStageName || context.lead.pipelineStage),
+        lastAiSendAt: context.lead.lastAiSendAttemptAt ? new Date(context.lead.lastAiSendAttemptAt) : null,
+        leadCreatedAt: new Date(context.lead.createdAt || Date.now()),
+        unansweredCount: context.unansweredCount || 0,
+        isInboundReply: !!input.isInboundReply,
+        strategistSuggestedHours: strategy.nextEngagementHours,
+      };
+      const cadence = computeCadence(cadenceInput);
+      if (cadence.wasOverridden) {
+        console.log(`[SalesManager] ⏱️ Cadence Engine override: Strategist suggested ${strategy.nextEngagementHours}h → clamped to ${cadence.hoursUntilSend.toFixed(1)}h (${cadence.reason})`);
+      }
+      (strategy as any).nextEngagementHours = Math.max(Math.round(cadence.hoursUntilSend), 24);
+      console.log(`[SalesManager] Cadence: nextEngagementHours=${strategy.nextEngagementHours}h, canSendNow=${cadence.canSendNow}, reason=${cadence.reason}`);
+    } catch (cadenceErr) {
+      console.error(`[SalesManager] Cadence Engine error (non-fatal):`, cadenceErr);
+      // Fallback: ensure minimum 24h
+      if (strategy.nextEngagementHours < 24) {
+        (strategy as any).nextEngagementHours = 24;
       }
     }
 
     // BRAIN 2: RESEARCHER (skip for first contact — uses locked template)
-    console.log(`[BrainCouncil] Running Researcher...`);
+    console.log(`[SalesManager] Running Researcher...`);
     const research = context.isFirstResponse
       ? emptyResearch()
       : await runResearcher(input, context, strategy);
-    console.log(`[BrainCouncil] Research: ${research.summary.substring(0, 100)}...`);
+    console.log(`[SalesManager] Research: ${research.summary.substring(0, 100)}...`);
 
     // BRAIN 3: COMPOSER (or specialized Sales Brain based on convState)
     let composed;
@@ -710,127 +743,45 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     const useObjectionHandler = context.convState === "objecting";
 
     if (useCloser) {
-      console.log(`[BrainCouncil] Running CLOSER (committed lead)...`);
+      console.log(`[SalesManager] Running CLOSER (committed lead)...`);
       composed = await runCloser(input, context, strategy, research);
-      console.log(`[BrainCouncil] Closer: "${composed.message.substring(0, 80)}..." (${composed.message.length} chars)`);
+      console.log(`[SalesManager] Closer: "${composed.message.substring(0, 80)}..." (${composed.message.length} chars)`);
     } else if (useObjectionHandler) {
-      console.log(`[BrainCouncil] Running OBJECTION HANDLER (objecting lead)...`);
+      console.log(`[SalesManager] Running OBJECTION HANDLER (objecting lead)...`);
       composed = await runObjectionHandler(input, context, strategy, research);
-      console.log(`[BrainCouncil] ObjectionHandler: "${composed.message.substring(0, 80)}..." (${composed.message.length} chars)`);
+      console.log(`[SalesManager] ObjectionHandler: "${composed.message.substring(0, 80)}..." (${composed.message.length} chars)`);
     } else {
-      console.log(`[BrainCouncil] Running Composer...`);
+      console.log(`[SalesManager] Running Composer...`);
       composed = await runComposer(input, context, strategy, research);
-      console.log(`[BrainCouncil] Composed: "${composed.message.substring(0, 80)}..." (${composed.message.length} chars)`);
+      console.log(`[SalesManager] Composed: "${composed.message.substring(0, 80)}..." (${composed.message.length} chars)`);
     }
 
     // BRAIN 4: QC REVIEWER
-    console.log(`[BrainCouncil] Running QC Reviewer...`);
+    console.log(`[SalesManager] Running QC Reviewer...`);
     let qc = await runQC(input, context, strategy, composed);
-    console.log(`[BrainCouncil] QC: score=${qc.score}, approved=${qc.approved}, issues=${qc.issues.length}`);
+    console.log(`[SalesManager] QC: score=${qc.score}, approved=${qc.approved}, issues=${qc.issues.length}`);
 
-    // --- VIOLATION DETECTION + REFORMULATE-FIRST ARCHITECTURE ---
-    // Classify violations as DANGEROUS (hard-block immediately) or FIXABLE (retry Composer).
-    // Fixable violations get up to 2 reformulation attempts before blocking.
-    // This prevents good messages from being blocked over minor issues like repeated openers.
-    const DANGEROUS_VIOLATIONS = new Set<string>(["wrong_business", "safety_violation"]);
-    const MAX_REFORMULATE_ATTEMPTS = 2;
+    // --- VIOLATION DETECTION (ONE-SHOT GATE — no reformulation loop) ---
+    // The Composer gets ONE shot. QC is a pass/fail gate.
+    // If the message fails, it's blocked. No brain-to-brain feedback.
+    // This forces the prompts to be good enough that the Composer gets it right first time.
+    const violation = detectViolations(composed, qc, strategy, context, input, research);
 
-    let violation = detectViolations(composed, qc, strategy, context, input, research);
-    let recomposeQcScore = qc.score;
-    let wasRecomposed = false;
-    let reformulateAttempts = 0;
-
-    // Apply QC revised message if available and no issues
+    // Apply QC revised message if approved with minor edits and no violations
     if (!violation.category && qc.approved && qc.revisedMessage) {
       composed.message = qc.revisedMessage;
-      console.log(`[BrainCouncil] Using QC-revised message`);
+      console.log(`[SalesManager] Using QC-revised message`);
     }
 
-    // --- REFORMULATION LOOP ---
-    // Keep retrying the Composer with specific fix instructions until the message is clean
-    // or we've exhausted our retry budget.
-    while (
-      ((!qc.approved && qc.score < 50) || violation.category) &&
-      reformulateAttempts < MAX_REFORMULATE_ATTEMPTS
-    ) {
-      // DANGEROUS violations: hard-block immediately, no reformulation
-      if (violation.category && DANGEROUS_VIOLATIONS.has(violation.category)) {
-        console.log(`[BrainCouncil] ⛔ DANGEROUS violation: ${violation.category} — ${violation.reason}. Hard-blocking immediately (no reformulation).`);
-        break;
-      }
+    // Also check QC LLM's violationCategory if deterministic checks didn't catch anything
+    const qcViolationCategory = (qc as any).violationCategory;
+    const hasQcLlmViolation = qcViolationCategory && qcViolationCategory.length > 0 && !qc.approved;
 
-      reformulateAttempts++;
-      wasRecomposed = true;
-      console.log(`[BrainCouncil] 🔄 Reformulation attempt ${reformulateAttempts}/${MAX_REFORMULATE_ATTEMPTS}: ${violation.category ? `${violation.category} — ${violation.reason}` : `QC score ${qc.score}`}`);
-
-      const recomposeInput = { ...input };
-      const feedback = [
-        qc.issues.length > 0 ? `QC Issues: ${qc.issues.join("; ")}` : "",
-        qc.suggestions.length > 0 ? `QC Suggestions: ${qc.suggestions.join("; ")}` : "",
-        violation.category ? `VIOLATION (${violation.category}): ${violation.reason}. You MUST fix this specific issue.` : "",
-        // Add specific fix instructions based on violation type
-        violation.category === "repeated_opener" ? "Use a COMPLETELY different opening — try starting with the content directly, a question, or a statement. Do NOT use any greeting that resembles prior messages." : "",
-        violation.category === "repeated_question" ? "Do NOT ask any questions that were already asked in prior messages. Provide VALUE instead — share pricing, examples, or social proof." : "",
-        violation.category === "generic_opener" ? "Reference the lead's SPECIFIC request from form data in your opening sentence. Be specific about their product, event, or business." : "",
-        violation.category === "context_free_subject" ? "Your email subject MUST reference specific context from the lead's form data or conversation — product type, business name, event, or their specific request." : "",
-        violation.category === "passive_reactivation" ? "Be more DIRECT and assertive. Lead with a specific value proposition, pricing, or case study. Don't be passive or vague." : "",
-        violation.category === "missing_framework" ? "Follow the framework structure: Acknowledge their specific situation, Compliment something specific, then Ask a targeted question." : "",
-        violation.category === "form_data_ignored" ? "You MUST reference the lead's form data in your message. Their specific request is the most important context." : "",
-        violation.category === "ignored_request" ? "The lead asked about pricing/quotes — you MUST address this with actual pricing ranges or a commitment to provide a quote." : "",
-        violation.category === "irrelevant_research" ? "Drop ALL research data and focus ONLY on what the lead actually told you in form data and conversation history." : "",
-        violation.category === "channel_mismatch" ? "Reply on the SAME channel the lead messaged on. Do not switch channels." : "",
-      ].filter(Boolean).join("\n");
-
-      recomposeInput.incomingMessage = `${input.incomingMessage}\n\n[QC FEEDBACK — ATTEMPT ${reformulateAttempts} — YOUR PREVIOUS MESSAGE HAD ISSUES]\n${feedback}\nFix ALL issues in your rewrite. The message content was good but had a specific problem that needs fixing.`;
-
-      composed = await runComposer(recomposeInput, context, strategy, research);
-      qc = await runQC(recomposeInput, context, strategy, composed);
-      recomposeQcScore = qc.score;
-      console.log(`[BrainCouncil] Reformulation ${reformulateAttempts} QC: score=${qc.score}, approved=${qc.approved}`);
-
-      // Re-check violations on reformulated message
-      violation = detectViolations(composed, qc, strategy, context, input, research);
-
-      // Apply QC revised message if available
-      if (qc.revisedMessage) {
-        composed.message = qc.revisedMessage;
-      }
-
-      // If clean, break out of the loop
-      if (!violation.category && (qc.approved || qc.score >= 50)) {
-        console.log(`[BrainCouncil] ✅ Reformulation ${reformulateAttempts} succeeded — violation resolved, QC score ${qc.score}`);
-
-        // --- SELF-LEARNING: Record successful reformulation ---
-        try {
-          await recordReformulationSuccess({
-            violationCategory: violation.category || "low_qc_score",
-            framework: strategy.framework,
-            reformulationAttempt: reformulateAttempts,
-            originalQcScore: recomposeQcScore,
-            finalQcScore: qc.score,
-          });
-          await addKnownFix({
-            errorType: "llm_hallucination",
-            errorMessage: `QC violation: ${violation.category || "low_qc_score"}`,
-            context: `lead:${input.leadId} framework:${strategy.framework}`,
-            rootCause: violation.reason || `QC score too low`,
-            knownFix: `Reformulation with specific fix instructions resolved the issue in ${reformulateAttempts} attempt(s)`,
-            prevention: `Composer should proactively avoid ${violation.category || "low_qc_score"} patterns`,
-          });
-        } catch (learnErr) {
-          console.error(`[BrainCouncil] Self-learning record error (non-fatal):`, learnErr);
-        }
-
-        break;
-      }
-    }
-
-    // --- HARD BLOCK DECISION ---
-    // Only block if: (1) dangerous violation, OR (2) all reformulation attempts exhausted AND still failing
-    const isDangerous = violation.category !== null && DANGEROUS_VIOLATIONS.has(violation.category);
-    const reformulationExhausted = reformulateAttempts >= MAX_REFORMULATE_ATTEMPTS && violation.category !== null;
-    const qcStillFailing = reformulateAttempts >= MAX_REFORMULATE_ATTEMPTS && !qc.approved && qc.score < 50;
-    const shouldBlock = isDangerous || reformulationExhausted || qcStillFailing;
+    // --- BLOCK DECISION ---
+    // Block if: (1) deterministic violation detected, OR (2) QC LLM rejected with violation, OR (3) QC score < 50
+    const shouldBlock = violation.category !== null || hasQcLlmViolation || (!qc.approved && qc.score < 50);
+    const effectiveViolationCategory = violation.category || (hasQcLlmViolation ? qcViolationCategory : null);
+    const effectiveViolationReason = violation.reason || (hasQcLlmViolation ? `QC LLM violation: ${qcViolationCategory}` : `QC score ${qc.score}`);
     const fallbackMsg = shouldBlock ? buildSafeFallback(context, input) : undefined;
 
     if (shouldBlock) {
@@ -838,14 +789,14 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
       try {
         await recordViolationLearning({
           violationCategory: violation.category || "low_qc_score",
-          violationReason: violation.reason || `QC score ${qc.score} after ${reformulateAttempts} reformulations`,
+          violationReason: effectiveViolationReason,
           leadId: input.leadId,
           channel: input.channel,
           framework: strategy.framework,
           approach: strategy.approach,
           persona,
           qcScore: qc.score,
-          reformulationAttempts: reformulateAttempts,
+          reformulationAttempts: 0,
         });
         await recordError({
           errorType: "llm_hallucination",
@@ -855,14 +806,14 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
           prevention: `Avoid ${violation.category || "low_qc_score"} patterns for ${persona} leads using ${strategy.framework}`,
         });
       } catch (learnErr) {
-        console.error(`[BrainCouncil] Self-learning record error (non-fatal):`, learnErr);
+        console.error(`[SalesManager] Self-learning record error (non-fatal):`, learnErr);
       }
 
       // CONTEXT-AWARE FALLBACK: If lead already has prior outbound messages,
       // don't send a cold-intro fallback — it would confuse them.
       // Instead, just block silently and notify owner.
       if (context.priorOutbound && context.priorOutbound.length >= 2) {
-        console.log(`[BrainCouncil] BLOCKED + SUPPRESSED fallback for lead ${input.leadId} — ${context.priorOutbound.length} prior outbound messages exist, cold-intro fallback would be confusing`);
+        console.log(`[SalesManager] BLOCKED + SUPPRESSED fallback for lead ${input.leadId} — ${context.priorOutbound.length} prior outbound messages exist, cold-intro fallback would be confusing`);
         // Skip fallback, just notify and abort
         await updateCircuitBreaker(input.leadId, true);
         const updatedBreaker2 = await checkCircuitBreaker(input.leadId);
@@ -894,7 +845,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
         };
       }
 
-      console.log(`[BrainCouncil] BLOCKED — ${violation.category || "low_qc_score"}: ${violation.reason || `QC score ${qc.score} after recompose`}`);
+      console.log(`[SalesManager] BLOCKED — ${violation.category || "low_qc_score"}: ${violation.reason || `QC score ${qc.score} after recompose`}`);
 
       await updateCircuitBreaker(input.leadId, true);
       const updatedBreaker = await checkCircuitBreaker(input.leadId);
@@ -925,13 +876,13 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
         qcApproved: 0,
         qcIssues: qc.issues.length > 0 ? JSON.stringify(qc.issues) : undefined,
         qcFeedback: qc.suggestions.length > 0 ? JSON.stringify(qc.suggestions) : undefined,
-        wasRecomposed: 1,
-        recomposeScore: recomposeQcScore,
+        wasRecomposed: 0,
+        recomposeScore: undefined,
         finalMessage: fallbackMsg,
         messageSent: 0,
         blocked: 1,
-        blockReason: violation.reason || `QC score ${qc.score} after recompose`,
-        violationCategory: violation.category || "missing_framework",
+        blockReason: effectiveViolationReason,
+        violationCategory: effectiveViolationCategory || "missing_framework",
         ownerNotified: notified ? 1 : 0,
         fallbackUsed: 1,
         fallbackMessage: fallbackMsg,
@@ -952,8 +903,8 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
         strategyReasoning: strategy.reasoning,
         researchSummary: research.summary,
         blocked: true,
-        blockReason: violation.reason || `QC score ${qc.score} after recompose`,
-        violationCategory: violation.category || "missing_framework",
+        blockReason: effectiveViolationReason,
+        violationCategory: effectiveViolationCategory || "missing_framework",
         fallbackUsed: true,
         fallbackMessage: fallbackMsg,
       };
@@ -974,10 +925,10 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
         await db.update(leads)
           .set({ lastAiSendAttemptAt: new Date() })
           .where(eq(leads.id, input.leadId));
-        console.log(`[BrainCouncil] 🔒 Set lastAiSendAttemptAt for lead ${input.leadId} — ${SEND_COOLDOWN_SECONDS}s cooldown active`);
+        console.log(`[SalesManager] 🔒 Set lastAiSendAttemptAt for lead ${input.leadId} — ${SEND_COOLDOWN_SECONDS}s cooldown active`);
       }
     } catch (err) {
-      console.error(`[BrainCouncil] Failed to set lastAiSendAttemptAt (non-fatal):`, err);
+      console.error(`[SalesManager] Failed to set lastAiSendAttemptAt (non-fatal):`, err);
     }
 
     // Score the lead
@@ -1019,8 +970,8 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
         qcApproved: qc.approved ? 1 : 0,
         qcIssues: qc.issues.length > 0 ? JSON.stringify(qc.issues) : undefined,
         qcFeedback: qc.suggestions.length > 0 ? JSON.stringify(qc.suggestions) : undefined,
-        wasRecomposed: wasRecomposed ? 1 : 0,
-        recomposeScore: wasRecomposed ? recomposeQcScore : undefined,
+        wasRecomposed: 0,
+        recomposeScore: undefined,
         finalMessage: composed.message,
         messageSent: 1,
         blocked: 0,
@@ -1033,7 +984,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
         persona,
       });
     } catch (auditErr) {
-      console.error('[BrainCouncil] Audit log error (non-fatal):', auditErr);
+      console.error('[SalesManager] Audit log error (non-fatal):', auditErr);
     }
 
     // --- CACHE INVALIDATION: Ensure next Brain Council run sees the message we just approved ---
@@ -1044,10 +995,10 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
       const summary = `[${strategy.approach}/${strategy.framework}] ${strategy.angle}. Sent via ${strategy.channel}. Key: ${composed.message.substring(0, 150).replace(/\n/g, ' ')}...`;
       await upsertAiState(input.leadId, { lastInteractionSummary: summary.substring(0, 500) });
     } catch (summaryErr) {
-      console.error('[BrainCouncil] Interaction summary error (non-fatal):', summaryErr);
+      console.error('[SalesManager] Interaction summary error (non-fatal):', summaryErr);
     }
 
-    console.log(`[BrainCouncil] === COMPLETE for lead ${input.leadId}: approved, QC=${qc.score} ===`);
+    console.log(`[SalesManager] === COMPLETE for lead ${input.leadId}: approved, QC=${qc.score} ===`);
 
     return {
       message: composed.message,
@@ -1074,7 +1025,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     // ALWAYS release the DB lock, no matter what happened
     if (lockAcquired) {
       await releaseDbBrainCouncilLock(input.leadId);
-      console.log(`[BrainCouncil] 🔓 Lock released for lead ${input.leadId}`);
+      console.log(`[SalesManager] 🔓 Lock released for lead ${input.leadId}`);
     }
   }
 }

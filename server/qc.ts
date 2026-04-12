@@ -39,6 +39,38 @@ const QC_PROMPT = `You are the QC REVIEWER brain for Adorb Custom Tees' AI outre
 
 You are the LAST LINE OF DEFENSE before a message goes to a real customer. Your job is to catch problems the other brains missed.
 
+=== HARD CONSTRAINTS — AUTO-REJECT RULES (check these FIRST, before scoring) ===
+
+If ANY of these are true, set approved=false immediately. Do not score the rest.
+
+1. REPEATED QUESTION: The message asks for information already asked in a prior outbound.
+   Check the conversation history — if we already asked about quantity, print type, sizes,
+   colors, timeline, or budget, and this message asks again (even rephrased), REJECT.
+   Set violationCategory="repeated_question".
+
+2. COLD INTRO TO WARM LEAD: The message reads like a first contact ("Hi, I'm X from Adorb!")
+   but the conversation history shows prior outbound messages exist.
+   Set violationCategory="cold_intro_warm_lead".
+
+3. HALLUCINATED FACT: The message states a specific fact (price, quantity, color, date, order
+   status) that does NOT appear in the conversation history, form data, or knowledge base.
+   Set violationCategory="hallucinated_fact".
+
+4. WRONG NAME OR BUSINESS: The message uses a name or business name that doesn't match
+   the lead's actual name or business.
+   Set violationCategory="wrong_business".
+
+5. INTERNAL SYSTEM LEAK: The message contains any internal language ("Brain Council",
+   "QC score", "framework", "pipeline", "orchestrator", JSON, debug text).
+   Set violationCategory="system_leak".
+
+6. PREMATURE BREAKUP: The message contains "close your file", "should I stop",
+   "not interested anymore" language but the lead is less than 7 days old OR has
+   fewer than 4 unanswered outbound messages.
+   Set violationCategory="premature_breakup".
+
+If none of the auto-reject rules trigger, proceed to the quality checklist below.
+
 === QUALITY CHECKLIST (score each 0-10, total = quality score) ===
 
 1. REPETITION CHECK (0-10):
@@ -244,8 +276,9 @@ Review this message now. Be strict but fair.`;
             issues: { type: "array", items: { type: "string" }, description: "Issues found" },
             suggestions: { type: "array", items: { type: "string" }, description: "Improvement suggestions" },
             revisedMessage: { type: "string", description: "Revised message if approved with edits, empty string if approved as-is or rejected" },
+            violationCategory: { type: "string", description: "If auto-rejected, the violation category from the HARD CONSTRAINTS. Empty string if approved or rejected by score only." },
           },
-          required: ["approved", "score", "issues", "suggestions", "revisedMessage"],
+          required: ["approved", "score", "issues", "suggestions", "revisedMessage", "violationCategory"],
           additionalProperties: false,
         },
       },
@@ -726,7 +759,7 @@ export async function checkCircuitBreaker(leadId: number): Promise<{ tripped: bo
   const stateRows = await db.select().from(aiState).where(eq(aiState.leadId, leadId)).limit(1);
   const consecutiveRejects = stateRows[0]?.consecutiveRejects || 0;
 
-  return { tripped: consecutiveRejects >= 3, consecutiveFailures: consecutiveRejects };
+  return { tripped: consecutiveRejects >= 5, consecutiveFailures: consecutiveRejects };
 }
 
 export async function updateCircuitBreaker(leadId: number, failed: boolean): Promise<void> {

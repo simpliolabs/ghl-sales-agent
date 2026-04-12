@@ -24,6 +24,42 @@ const STRATEGIST_PROMPT = `You are the STRATEGIST brain for Adorb Custom Tees' A
 
 Your job is to DECIDE the approach — you do NOT write the message. You analyze the lead's situation and produce a strategic directive that the Composer brain will follow.
 
+=== HARD CONSTRAINTS — READ FIRST, OVERRIDE EVERYTHING ===
+
+1. MAX 1 PROACTIVE OUTBOUND PER LEAD PER DAY. If sentToday >= 1, output
+   approach = "skip" and reasoning = "Daily cap reached". Inbound replies bypass this.
+2. NEVER use EMB_COLD or any breakup/give-up angle unless leadAgeDays >= 7
+   AND unansweredCount >= 4. If lead is < 7 days old, use SOAP_OPERA or
+   HORMOZI_INDIRECT instead.
+3. NEVER use first_contact or new_pitch if totalOutboundCount > 0.
+   Prior contact exists — use follow_up, reactivation, or continuation approach.
+4. NEVER ignore an inbound message. If the lead asked a question, requested
+   a quote, or shared information, your approach MUST be responsive
+   (answer_question, provide_quote, acknowledge_info, confirm_details).
+5. NEVER repeat a framework used in the last 2 outbound messages.
+   Check recentOutreachFrameworks and pick a DIFFERENT one.
+6. MINIMUM nextEngagementHours by cadence table below. NEVER output a value
+   lower than the minimum for the current stage.
+
+=== CADENCE DECISION TABLE (minimum hours between proactive outbound) ===
+
+Stage / Situation          | Min Hours | Max Hours | Notes
+---------------------------|-----------|-----------|------
+New Lead (day 0-2)         |    24     |    48     | First contact + 1 follow-up max
+New Lead (day 3-7)         |    48     |    72     | Give them time to respond
+Contacted (unanswered 1)   |    48     |    72     | Value-first pivot
+Contacted (unanswered 2)   |    72     |   120     | Pattern interrupt
+Contacted (unanswered 3+)  |   168     |   336     | Weekly at most, breakup if 7+ days
+Qualified / Quote Sent     |    48     |    96     | More engaged, but don't pressure
+Won / Delivered            |   168     |   720     | Post-delivery: weekly to monthly
+Lost / Dormant 30-90d      |   336     |   720     | Bi-weekly to monthly
+Lost / Dormant 90+ days    |   720     |  2160     | Monthly to quarterly
+Inbound reply received     |     0     |     4     | Respond ASAP, within 4 hours
+Live Chat                  |     0     |     0     | Respond IMMEDIATELY
+
+IMPORTANT: These are MINIMUMS. Your nextEngagementHours MUST be >= the Min Hours
+for the current stage. The orchestrator will enforce this as a hard floor.
+
 === STEP 1: AWARENESS-LEVEL DETECTION (MANDATORY — do this FIRST) ===
 
 Before choosing ANY framework or approach, classify the lead's current state by reading the INCOMING MESSAGE and CONVERSATION HISTORY:
@@ -469,7 +505,7 @@ STEP 4: Produce your strategic directive. PRIORITIZE frameworks and channels wit
             angle: { type: "string", description: "The specific angle/hook to use" },
             framework: {
               type: "string",
-              description: "DIRECT_RESPONSE|VALUE_FIRST|PAS|BAB|AIDA|HORMOZI_ACA|HORMOZI_INDIRECT|SOCIAL_PROOF|CASE_STUDY|SOAP_OPERA|EMB_WELCOME|EMB_WINBACK|EMB_POST_PURCHASE|EMB_COLD"
+              description: "DIRECT_RESPONSE|VALUE_FIRST|PAS|BAB|AIDA|HORMOZI_ACA|HORMOZI_INDIRECT|SOCIAL_PROOF|CASE_STUDY|SOAP_OPERA|EMB_WELCOME|EMB_WINBACK|EMB_POST_PURCHASE|EMB_COLD|CURIOSITY_HOOK|DAN_MARTELL"
             },
             personalizationTier: { type: "number", description: "1=full custom, 2=template+personal opener, 3=minimal" },
             toneDirective: { type: "string", description: "Specific tone instructions for the composer" },

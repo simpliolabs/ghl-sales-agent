@@ -60,7 +60,7 @@ export interface StrategyDecision {
   approach: Approach;
   channel: string;
   angle: string;
-  framework: "PAS" | "BAB" | "AIDA" | "HORMOZI_ACA" | "HORMOZI_INDIRECT" | "SOCIAL_PROOF" | "CASE_STUDY" | "SOAP_OPERA" | "EMB_WELCOME" | "EMB_WINBACK" | "EMB_POST_PURCHASE" | "EMB_COLD" | "DIRECT_RESPONSE" | "VALUE_FIRST";
+  framework: "PAS" | "BAB" | "AIDA" | "HORMOZI_ACA" | "HORMOZI_INDIRECT" | "SOCIAL_PROOF" | "CASE_STUDY" | "SOAP_OPERA" | "EMB_WELCOME" | "EMB_WINBACK" | "EMB_POST_PURCHASE" | "EMB_COLD" | "DIRECT_RESPONSE" | "VALUE_FIRST" | "CURIOSITY_HOOK" | "DAN_MARTELL";
   personalizationTier: 1 | 2 | 3;
   toneDirective: string;
   maxLength: number;
@@ -78,6 +78,10 @@ export interface ResearchResult {
   competitorInsights: string;
   seasonalRelevance: string;
   summary: string;
+  /** Questions already asked in prior outbound messages — Composer must NOT repeat these */
+  alreadyAsked: string[];
+  /** Lead contact status: WARM, COLD, RESPONSIVE, or DORMANT */
+  leadStatus: string;
   /** Confidence level for this research output.
    * - "verified": all facts sourced from form data or conversation history (ground truth)
    * - "inferred": some facts are LLM inferences from business name/segment (may be wrong)
@@ -100,6 +104,10 @@ export interface QCVerdict {
   issues: string[];
   suggestions: string[];
   revisedMessage?: string;
+  /** Category of the violation for circuit breaker logic.
+   * HARD_VIOLATION: immediately set humanTakeover=1 after 1 occurrence
+   * SOFT_VIOLATION: circuit breaker trips after 5 consecutive occurrences */
+  violationCategory?: string;
 }
 
 export interface BrainCouncilOutput {
