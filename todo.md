@@ -750,3 +750,6 @@
 ## Channel-Switch Context Fix (Apr 12)
 - [x] FIX: When outbound channel differs from original inbound channel, Composer must reference the original channel (e.g., "following up on your Facebook inquiry")
 - [x] FIX: Add deterministic QC check — reject messages that switch channels without acknowledging the original channel
+
+## Bug Investigation (Apr 12 - Round 7)
+- [x] BUG: AI stopped responding to John Dugger's Facebook reply "Two sided and 20ish" at 12:01 PM — root cause: redundant second shouldHandoffToAgent LLM call (line 678) overrode Brain Council decision, set humanTakeover=1 prematurely. Fix: removed rogue post-Brain-Council handoff check, reset lead state. Handoff now handled by pre-BC check + conversation state machine + action dispatcher.

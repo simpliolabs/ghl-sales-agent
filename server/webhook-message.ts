@@ -674,51 +674,15 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     return;
   }
 
-  // Check if AI wants to hand off
-  const aiHandoff = await shouldHandoffToAgent(historyStr + `\n[lead/${channel}] ${effectiveMessageBody}`, null);
-  if (aiHandoff.handoff) {
-    const leadInfo = `${lead!.name || "Unknown"} - ${lead!.businessName || "Unknown"} - ${lead!.email || "N/A"}`;
-    const [notes, valueEstimate] = await Promise.all([
-      generateContactNotes(leadInfo, historyStr + `\n[lead/${channel}] ${effectiveMessageBody}`),
-      estimateOrderValue(historyStr + `\n[lead/${channel}] ${effectiveMessageBody}`, leadInfo),
-    ]);
-    try { await addNote(contactId, `🤖 AI Handoff Notes:\n${notes}`); } catch { /* best effort */ }
-    if (valueEstimate.estimatedValue > 0 && payload.opportunityId) {
-      try { const { updateOpportunityValue } = await import("./ghl"); await updateOpportunityValue(payload.opportunityId as string, valueEstimate.estimatedValue); } catch { /* best effort */ }
-    }
-    await updateLeadFields(lead!.id, { humanTakeover: 1, lastAgentActivityAt: new Date(), pipelineValue: valueEstimate.estimatedValue });
-    if (lead!.assignedAgent) {
-      // Assign agent in GHL contact record
-      const ghlUserId = AGENT_GHL_USER_IDS[lead!.assignedAgent];
-      if (ghlUserId) {
-        updateContactAssignment(resolvedContactId, ghlUserId).catch(() => {});
-      }
-      try {
-        await createTask(contactId, {
-          title: `🔥 Quote needed: ${lead!.name || lead!.businessName || "Lead"} — Est. $${valueEstimate.estimatedValue}`,
-          body: `Lead needs a firm quote. AI has handed off.\n\nReason: ${aiHandoff.reason}\n\n${notes}\n\nEstimated Value: $${valueEstimate.estimatedValue} (${valueEstimate.confidence} confidence)\n${valueEstimate.reasoning}`,
-          assignedTo: lead!.assignedAgent,
-        });
-      } catch { /* best effort */ }
-    }
-    // Use Brain Council's channel for handoff too
-    const handoffChannel = normalizeChannel(aiResponse.channel || channel);
-    {
-      const handoffSubject = aiResponse.subject || buildContextSubject({ name: lead!.name, businessName: lead!.businessName }, aiResponse.fromName);
-      const handoffOpts: Parameters<typeof sendMessage>[1] = handoffChannel === "Email"
-        ? { type: "Email", subject: handoffSubject, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName }
-        : { type: handoffChannel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
-      const sendResult = await sendMessageWithRetry(resolvedContactId, handoffOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
-      if (sendResult.resolvedContactId !== resolvedContactId) resolvedContactId = sendResult.resolvedContactId;
-      if (sendResult.success) {
-        await addConversation({ leadId: lead!.id, channel: handoffChannel, direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName });
-      } else {
-        console.error(`[Webhook/Msg] Handoff send FAILED for lead ${lead!.id}: ${sendResult.error} — conversation NOT stored`);
-      }
-    }
-    res.json({ success: true, action: "ai_responded_and_handed_off" });
-    return;
-  }
+  // NOTE: Second shouldHandoffToAgent check was REMOVED (Apr 12, 2026).
+  // Root cause: This redundant LLM call ran AFTER the Brain Council already composed a response,
+  // and would override the Brain Council's decision by setting humanTakeover=1.
+  // Example: John Dugger replied "Two sided and 20ish" — Brain Council composed a response,
+  // but this second check decided to hand off, silencing the AI permanently.
+  // Handoff decisions are now handled by:
+  //   1. Pre-Brain-Council shouldHandoffToAgent (line ~508) — checks if agent is already active
+  //   2. Conversation state machine (processInboundState) → action-dispatcher (handleCommitted)
+  //   3. Brain Council's Strategist (which knows when to escalate)
 
   // --- TCPA POST-DECISION GATE: Block SMS if quiet hours (Brain Council may have chosen SMS) ---
   if (isSmsQuietHours() && normalizeChannel(aiResponse.channel || channel) === "SMS") {
