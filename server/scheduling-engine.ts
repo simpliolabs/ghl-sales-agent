@@ -341,7 +341,10 @@ function checkCustomerTimeline(
 function calculateSilenceCadence(
   daysSinceLastOutbound: number,
   consecutiveUnanswered: number,
+  score?: number,
 ): { delayHours: number; cadencePosition: number; reason: string } {
+  // Score-based multiplier: high-score leads get faster follow-ups
+  const scoreMultiplier = (score && score >= 70) ? 0.7 : (score && score >= 40) ? 0.85 : 1.0;
   // After 5 consecutive unanswered: cap at 30-day pause (was 90 days — now capped)
   if (consecutiveUnanswered >= 5) {
     return {
@@ -352,19 +355,19 @@ function calculateSilenceCadence(
   }
 
   if (daysSinceLastOutbound <= 1) {
-    return { delayHours: 24, cadencePosition: 1, reason: "Last outreach <1 day ago, no reply — soft follow-up in 24h" };
+    return { delayHours: Math.round(24 * scoreMultiplier), cadencePosition: 1, reason: `Last outreach <1 day ago, no reply — soft follow-up in ${Math.round(24 * scoreMultiplier)}h (score: ${score || 'n/a'})` };
   } else if (daysSinceLastOutbound <= 3) {
-    return { delayHours: 48, cadencePosition: 2, reason: "Last outreach 2-3 days ago, no reply — new angle in 48h" };
+    return { delayHours: Math.round(48 * scoreMultiplier), cadencePosition: 2, reason: `Last outreach 2-3 days ago, no reply — new angle in ${Math.round(48 * scoreMultiplier)}h (score: ${score || 'n/a'})` };
   } else if (daysSinceLastOutbound <= 7) {
-    return { delayHours: 72, cadencePosition: 3, reason: "Last outreach 4-7 days ago, no reply — try different channel in 72h" };
+    return { delayHours: Math.round(72 * scoreMultiplier), cadencePosition: 3, reason: `Last outreach 4-7 days ago, no reply — try different channel in ${Math.round(72 * scoreMultiplier)}h (score: ${score || 'n/a'})` };
   } else if (daysSinceLastOutbound <= 14) {
-    return { delayHours: 168, cadencePosition: 4, reason: "Last outreach 8-14 days ago, no reply — value email in 7 days" };
+    return { delayHours: Math.round(168 * scoreMultiplier), cadencePosition: 4, reason: `Last outreach 8-14 days ago, no reply — value email in ${Math.round(168 * scoreMultiplier / 24)}d (score: ${score || 'n/a'})` };
   } else if (daysSinceLastOutbound <= 30) {
-    return { delayHours: 336, cadencePosition: 4, reason: "Last outreach 15-30 days ago, no reply — fresh SMS angle in 14 days" };
+    return { delayHours: Math.round(336 * scoreMultiplier), cadencePosition: 4, reason: `Last outreach 15-30 days ago, no reply — fresh SMS angle in ${Math.round(336 * scoreMultiplier / 24)}d (score: ${score || 'n/a'})` };
   } else if (daysSinceLastOutbound <= 60) {
-    return { delayHours: 720, cadencePosition: 5, reason: "Last outreach 30-60 days ago — reactivation email in 30 days" };
+    return { delayHours: Math.round(720 * scoreMultiplier), cadencePosition: 5, reason: `Last outreach 30-60 days ago — reactivation email in ${Math.round(720 * scoreMultiplier / 24)}d (score: ${score || 'n/a'})` };
   } else if (daysSinceLastOutbound <= 90) {
-    return { delayHours: 720, cadencePosition: 5, reason: "Last outreach 60-90 days ago — SMS 3 days after reactivation email" };
+    return { delayHours: Math.round(720 * scoreMultiplier), cadencePosition: 5, reason: `Last outreach 60-90 days ago — SMS 3 days after reactivation email (score: ${score || 'n/a'})` };
   } else {
     return { delayHours: Math.min(MAX_FOLLOWUP_DELAY_HOURS, 1440), cadencePosition: 5, reason: `Last outreach 90+ days ago — gentle re-introduction email in ${Math.min(MAX_FOLLOWUP_DELAY_HOURS, 1440) / 24} days (capped)` };
   }
@@ -662,7 +665,7 @@ export async function calculateNextFollowUp(input: SchedulingInput): Promise<Sch
   // PRIORITY 3: Reply Recency Cadence (has conversation, no active reply)
   // ============================================================
   if (hasConversation && !hasActiveConversation) {
-    const cadence = calculateSilenceCadence(daysSinceLastOutbound, consecutiveUnanswered);
+    const cadence = calculateSilenceCadence(daysSinceLastOutbound, consecutiveUnanswered, score);
     const followUpDate = new Date(Date.now() + cadence.delayHours * 60 * 60 * 1000);
     const adjustedDate = pushToNextBusinessHour(followUpDate, selectChannel(
       cadence.cadencePosition,

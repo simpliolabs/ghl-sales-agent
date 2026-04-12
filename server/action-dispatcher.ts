@@ -324,6 +324,17 @@ async function handleFulfilled(ctx: DispatchContext): Promise<DispatchResult> {
     );
   } catch { /* best effort */ }
 
+  // 3. Create multi-step post-delivery sequence (satisfaction → review → upsell)
+  try {
+    const { createPostDeliverySequence } = await import("./db");
+    const channel = ctx.email ? "Email" : "SMS";
+    await createPostDeliverySequence(ctx.leadId, channel);
+    actions.push(`Created post-delivery sequence (3 steps over 21 days via ${channel})`);
+    console.log(`[ActionDispatcher] Lead ${ctx.leadId}: Post-delivery sequence created`);
+  } catch (err: any) {
+    errors.push(`Failed to create post-delivery sequence: ${err?.message}`);
+  }
+
   return { actionsExecuted: actions, errors, skipped: false };
 }
 

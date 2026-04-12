@@ -1,0 +1,1 @@
+ALTER TABLE `post_delivery_sequences` ADD `stepType` varchar(32) DEFAULT 'satisfaction_check' NOT NULL;

@@ -104,6 +104,43 @@ export async function attributeReply(opts: {
     attributedAt: opts.replyTimestamp,
   });
 
+  // --- HALL OF FAME AUTO-PROMOTION ---
+  // Fast reply (< 30 min) or positive sentiment → promote to Hall of Fame
+  try {
+    const shouldPromote = (replyMinutes < 30 && sentiment !== "negative") || sentiment === "positive";
+    if (shouldPromote && audit.finalMessage) {
+      const { promoteToHallOfFame } = await import("./db");
+      const reason = sentiment === "positive" ? "positive_reply" : "fast_reply";
+      await promoteToHallOfFame({
+        auditId: audit.id,
+        leadId: opts.leadId,
+        message: audit.finalMessage,
+        framework: audit.strategyFramework || "unknown",
+        approach: audit.strategyApproach || undefined,
+        channel: audit.channel || undefined,
+        persona: (audit as any).persona || undefined,
+        replyMinutes,
+        replySentiment: sentiment,
+        promotionReason: reason,
+      });
+      console.log(`[Outcome] 🏆 Hall of Fame: audit ${audit.id} promoted (${reason}, ${replyMinutes}min, ${sentiment})`);
+    }
+  } catch (hofErr) {
+    console.error("[Outcome] Hall of Fame promotion error (non-fatal):", hofErr);
+  }
+
+  // --- CHANNEL PERFORMANCE TRACKING ---
+  try {
+    const { upsertChannelPerformance } = await import("./db");
+    await upsertChannelPerformance(opts.leadId, opts.channel, {
+      replied: true,
+      replyMinutes,
+      positiveSentiment: sentiment === "positive",
+    });
+  } catch (cpErr) {
+    console.error("[Outcome] Channel performance update error (non-fatal):", cpErr);
+  }
+
   return { auditId: audit.id, replyMinutes, sentiment };
 }
 

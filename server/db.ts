@@ -1,6 +1,6 @@
-import { eq, desc, asc, gte, and, sql } from "drizzle-orm";
+import { eq, desc, asc, gte, lte, and, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, leads, conversations, aiState, pipelineEvents, agentAssignments, knowledgeFiles, aiTweaks, invites, webhookLogs, brainCouncilAudit, systemSettings } from "../drizzle/schema";
+import { InsertUser, users, leads, conversations, aiState, pipelineEvents, agentAssignments, knowledgeFiles, aiTweaks, invites, webhookLogs, brainCouncilAudit, systemSettings, hallOfFame, channelPerformance, seasonalCampaigns, postDeliverySequences, messageOutcomes } from "../drizzle/schema";
 import type { InsertLead } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { cached, conversationCache, contextCache, generalCache, patternCache } from './cache';
@@ -718,4 +718,319 @@ export async function getBlockedChannels(leadId: number): Promise<string[]> {
     console.error(`[DND-Check] getBlockedChannels error for lead ${leadId}:`, err);
     return [];
   }
+}
+
+// ============================================================
+// HALL OF FAME — Winning messages that got replies / conversions
+// ============================================================
+
+export async function promoteToHallOfFame(data: {
+  auditId: number;
+  leadId: number;
+  message: string;
+  framework: string;
+  approach?: string;
+  channel?: string;
+  segment?: string;
+  persona?: string;
+  replyMinutes?: number;
+  replySentiment?: string;
+  stageAdvanced?: number;
+  converted?: number;
+  pipelineValue?: number;
+  promotionReason: string;
+}) {
+  const db = await getDb();
+  if (!db) return null;
+  // Avoid duplicate promotions for the same audit entry
+  const existing = await db.select({ id: hallOfFame.id })
+    .from(hallOfFame)
+    .where(eq(hallOfFame.auditId, data.auditId))
+    .limit(1);
+  if (existing.length > 0) return existing[0];
+  const result = await db.insert(hallOfFame).values(data);
+  return { id: result[0].insertId };
+}
+
+export async function getHallOfFameExamples(opts: {
+  framework?: string;
+  channel?: string;
+  segment?: string;
+  persona?: string;
+  limit?: number;
+}): Promise<Array<{ message: string; framework: string; channel: string | null; segment: string | null; promotionReason: string }>> {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions: any[] = [];
+  if (opts.framework) conditions.push(eq(hallOfFame.framework, opts.framework));
+  if (opts.channel) conditions.push(eq(hallOfFame.channel, opts.channel));
+  if (opts.segment) conditions.push(eq(hallOfFame.segment, opts.segment));
+  if (opts.persona) conditions.push(eq(hallOfFame.persona, opts.persona));
+  const rows = await db.select({
+    message: hallOfFame.message,
+    framework: hallOfFame.framework,
+    channel: hallOfFame.channel,
+    segment: hallOfFame.segment,
+    promotionReason: hallOfFame.promotionReason,
+  })
+    .from(hallOfFame)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(hallOfFame.createdAt))
+    .limit(opts.limit || 5);
+  return rows;
+}
+
+// ============================================================
+// CHANNEL PERFORMANCE — Per-lead channel success tracking
+// ============================================================
+
+export async function upsertChannelPerformance(leadId: number, channel: string, data: {
+  sent?: boolean;
+  replied?: boolean;
+  replyMinutes?: number;
+  positiveSentiment?: boolean;
+  stageAdvanced?: boolean;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await db.select()
+    .from(channelPerformance)
+    .where(and(eq(channelPerformance.leadId, leadId), eq(channelPerformance.channel, channel)))
+    .limit(1);
+  if (existing.length > 0) {
+    const row = existing[0];
+    const updates: Record<string, any> = {};
+    if (data.sent) {
+      updates.messagesSent = (row.messagesSent || 0) + 1;
+      updates.lastSentAt = new Date();
+    }
+    if (data.replied) {
+      updates.repliesReceived = (row.repliesReceived || 0) + 1;
+      updates.lastReplyAt = new Date();
+      if (data.replyMinutes != null) {
+        const prevTotal = (row.avgReplyMinutes || 0) * (row.repliesReceived || 0);
+        updates.avgReplyMinutes = Math.round((prevTotal + data.replyMinutes) / ((row.repliesReceived || 0) + 1));
+      }
+    }
+    if (data.positiveSentiment) updates.positiveReplies = (row.positiveReplies || 0) + 1;
+    if (data.stageAdvanced) updates.stageAdvances = (row.stageAdvances || 0) + 1;
+    if (Object.keys(updates).length > 0) {
+      await db.update(channelPerformance).set(updates)
+        .where(and(eq(channelPerformance.leadId, leadId), eq(channelPerformance.channel, channel)));
+    }
+  } else {
+    await db.insert(channelPerformance).values({
+      leadId,
+      channel,
+      messagesSent: data.sent ? 1 : 0,
+      repliesReceived: data.replied ? 1 : 0,
+      avgReplyMinutes: data.replyMinutes || null,
+      positiveReplies: data.positiveSentiment ? 1 : 0,
+      stageAdvances: data.stageAdvanced ? 1 : 0,
+      lastSentAt: data.sent ? new Date() : null,
+      lastReplyAt: data.replied ? new Date() : null,
+    });
+  }
+}
+
+export async function getBestChannelForLead(leadId: number): Promise<string | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select({
+    channel: channelPerformance.channel,
+    replies: channelPerformance.repliesReceived,
+    positives: channelPerformance.positiveReplies,
+    sent: channelPerformance.messagesSent,
+    avgReply: channelPerformance.avgReplyMinutes,
+  })
+    .from(channelPerformance)
+    .where(eq(channelPerformance.leadId, leadId));
+  if (rows.length === 0) return null;
+  // Score: 3 * replies + 5 * positives + 2 * (1 if avgReply < 60 min) - 0.5 * sent-without-reply
+  const scored = rows.map(r => ({
+    channel: r.channel,
+    score: 3 * (r.replies || 0) + 5 * (r.positives || 0) + ((r.avgReply && r.avgReply < 60) ? 2 : 0) - 0.5 * Math.max(0, (r.sent || 0) - (r.replies || 0)),
+  }));
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0].score > 0 ? scored[0].channel : null;
+}
+
+// ============================================================
+// POST-DELIVERY SEQUENCES
+// ============================================================
+
+export async function createPostDeliverySequence(leadId: number, channel: string) {
+  const db = await getDb();
+  if (!db) return;
+  // Check if sequence already exists for this lead
+  const existing = await db.select({ id: postDeliverySequences.id })
+    .from(postDeliverySequences)
+    .where(eq(postDeliverySequences.leadId, leadId))
+    .limit(1);
+  if (existing.length > 0) return; // already has a sequence
+
+  const now = Date.now();
+  const STEP_TYPES = ["satisfaction_check", "review_request", "upsell_referral"] as const;
+  const steps = [
+    { step: 1, stepType: STEP_TYPES[0], scheduledAt: new Date(now + 3 * 24 * 60 * 60 * 1000) },  // Day 3
+    { step: 2, stepType: STEP_TYPES[1], scheduledAt: new Date(now + 10 * 24 * 60 * 60 * 1000) }, // Day 10
+    { step: 3, stepType: STEP_TYPES[2], scheduledAt: new Date(now + 21 * 24 * 60 * 60 * 1000) }, // Day 21
+  ];
+  for (const s of steps) {
+    await db.insert(postDeliverySequences).values({
+      leadId,
+      step: s.step,
+      stepType: s.stepType,
+      scheduledAt: s.scheduledAt,
+      channel,
+      status: "pending",
+    });
+  }
+}
+
+export async function getDuePostDeliverySteps(limit = 20): Promise<Array<{
+  id: number;
+  leadId: number;
+  step: number;
+  stepType: string;
+  channel: string | null;
+}>> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    id: postDeliverySequences.id,
+    leadId: postDeliverySequences.leadId,
+    step: postDeliverySequences.step,
+    stepType: postDeliverySequences.stepType,
+    channel: postDeliverySequences.channel,
+  })
+    .from(postDeliverySequences)
+    .where(and(
+      eq(postDeliverySequences.status, "pending"),
+      lte(postDeliverySequences.scheduledAt, new Date()),
+    ))
+    .orderBy(asc(postDeliverySequences.scheduledAt))
+    .limit(limit);
+  return rows;
+}
+
+export async function markPostDeliveryStepSent(id: number, auditId?: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(postDeliverySequences).set({
+    status: "sent",
+    sentAt: new Date(),
+    auditId: auditId || null,
+  }).where(eq(postDeliverySequences.id, id));
+}
+
+export async function markPostDeliveryStepReplied(leadId: number) {
+  const db = await getDb();
+  if (!db) return;
+  // Mark all pending steps as "replied" — lead is active, don't need to nudge
+  await db.update(postDeliverySequences).set({ status: "replied" })
+    .where(and(eq(postDeliverySequences.leadId, leadId), eq(postDeliverySequences.status, "pending")));
+}
+
+// ============================================================
+// SEASONAL CAMPAIGNS
+// ============================================================
+
+export async function getActiveCampaigns(): Promise<Array<{
+  id: number;
+  name: string;
+  angle: string;
+  targetSegments: any;
+  maxLeadsPerDay: number | null;
+  totalSent: number | null;
+}>> {
+  const db = await getDb();
+  if (!db) return [];
+  const now = new Date();
+  const rows = await db.select({
+    id: seasonalCampaigns.id,
+    name: seasonalCampaigns.name,
+    angle: seasonalCampaigns.angle,
+    targetSegments: seasonalCampaigns.targetSegments,
+    maxLeadsPerDay: seasonalCampaigns.maxLeadsPerDay,
+    totalSent: seasonalCampaigns.totalSent,
+  })
+    .from(seasonalCampaigns)
+    .where(and(
+      eq(seasonalCampaigns.status, "active"),
+      lte(seasonalCampaigns.startDate, now),
+      gte(seasonalCampaigns.endDate, now),
+    ));
+  return rows;
+}
+
+export async function incrementCampaignSent(campaignId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(seasonalCampaigns)
+    .set({ totalSent: sql`${seasonalCampaigns.totalSent} + 1` })
+    .where(eq(seasonalCampaigns.id, campaignId));
+}
+
+export async function incrementCampaignReply(campaignId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(seasonalCampaigns)
+    .set({ totalReplies: sql`${seasonalCampaigns.totalReplies} + 1` })
+    .where(eq(seasonalCampaigns.id, campaignId));
+}
+
+// ============================================================
+// HUMAN AGENT SLA — Leads in human takeover that are silent
+// ============================================================
+
+export async function getHumanTakeoverLeadsSilent(silentHours: number): Promise<Array<{
+  id: number;
+  name: string | null;
+  assignedAgent: string | null;
+  lastAgentActivityAt: Date | null;
+  lastMessageAt: Date | null;
+  silentHours: number;
+}>> {
+  const db = await getDb();
+  if (!db) return [];
+  const cutoff = new Date(Date.now() - silentHours * 60 * 60 * 1000);
+  const rows = await db.select({
+    id: leads.id,
+    name: leads.name,
+    assignedAgent: leads.assignedAgent,
+    lastAgentActivityAt: leads.lastAgentActivityAt,
+    lastMessageAt: leads.lastMessageAt,
+    humanTakeover: leads.humanTakeover,
+  })
+    .from(leads)
+    .where(and(
+      eq(leads.humanTakeover, 1),
+      // Either agent hasn't acted since cutoff, or never acted
+    ));
+  // Filter in JS for complex date logic (business hours)
+  const result: Array<{
+    id: number;
+    name: string | null;
+    assignedAgent: string | null;
+    lastAgentActivityAt: Date | null;
+    lastMessageAt: Date | null;
+    silentHours: number;
+  }> = [];
+  for (const r of rows) {
+    const lastActivity = r.lastAgentActivityAt || r.lastMessageAt;
+    if (!lastActivity) continue;
+    const hoursSilent = (Date.now() - new Date(lastActivity).getTime()) / (1000 * 60 * 60);
+    if (hoursSilent >= silentHours) {
+      result.push({
+        id: r.id,
+        name: r.name,
+        assignedAgent: r.assignedAgent,
+        lastAgentActivityAt: r.lastAgentActivityAt,
+        lastMessageAt: r.lastMessageAt,
+        silentHours: Math.round(hoursSilent * 10) / 10,
+      });
+    }
+  }
+  return result;
 }

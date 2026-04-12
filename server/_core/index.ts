@@ -9,6 +9,9 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { createWebhookRouter } from "../webhooks";
 import { recalculateStaleSchedules } from "../scheduling-engine";
+import { runSlaCheck } from "../sla-timer";
+import { processPostDeliverySteps } from "../post-delivery-executor";
+import { processSeasonalCampaigns } from "../seasonal-campaign-executor";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -87,6 +90,75 @@ async function startServer() {
       }
     }, RECALC_INTERVAL);
     console.log(`[Cron] Stale schedule recalculation scheduled every ${RECALC_INTERVAL / 60000} minutes`);
+
+    // --- CRON: Human Agent SLA Timer every 30 minutes ---
+    const SLA_INTERVAL = 30 * 60 * 1000; // 30 minutes
+    setTimeout(async () => {
+      try {
+        const result = await runSlaCheck();
+        console.log(`[SLA/Timer] Initial SLA check: ${result.checked} checked, ${result.alerted} alerted`);
+      } catch (err) {
+        console.error(`[SLA/Timer] Initial SLA check error:`, err);
+      }
+    }, 45_000); // First run 45 seconds after startup
+
+    setInterval(async () => {
+      try {
+        const result = await runSlaCheck();
+        if (result.alerted > 0) {
+          console.log(`[SLA/Timer] SLA check: ${result.checked} checked, ${result.alerted} alerted`);
+        }
+      } catch (err) {
+        console.error(`[SLA/Timer] SLA check error:`, err);
+      }
+    }, SLA_INTERVAL);
+    console.log(`[Cron] Human Agent SLA timer scheduled every ${SLA_INTERVAL / 60000} minutes`);
+
+    // --- CRON: Post-Delivery Sequence Executor every 30 minutes ---
+    const PD_INTERVAL = 30 * 60 * 1000;
+    setTimeout(async () => {
+      try {
+        const result = await processPostDeliverySteps();
+        console.log(`[PostDelivery/Timer] Initial run: ${result.sent} sent, ${result.skipped} skipped, ${result.errors} errors`);
+      } catch (err) {
+        console.error(`[PostDelivery/Timer] Initial run error:`, err);
+      }
+    }, 60_000); // First run 60 seconds after startup
+
+    setInterval(async () => {
+      try {
+        const result = await processPostDeliverySteps();
+        if (result.sent > 0 || result.errors > 0) {
+          console.log(`[PostDelivery/Timer] Cycle: ${result.sent} sent, ${result.skipped} skipped, ${result.errors} errors`);
+        }
+      } catch (err) {
+        console.error(`[PostDelivery/Timer] Cycle error:`, err);
+      }
+    }, PD_INTERVAL);
+    console.log(`[Cron] Post-delivery executor scheduled every ${PD_INTERVAL / 60000} minutes`);
+
+    // --- CRON: Seasonal Campaign Executor every 2 hours ---
+    const SC_INTERVAL = 2 * 60 * 60 * 1000;
+    setTimeout(async () => {
+      try {
+        const result = await processSeasonalCampaigns();
+        console.log(`[SeasonalCampaign/Timer] Initial run: ${result.campaignsProcessed} campaigns, ${result.leadsScheduled} leads scheduled, ${result.errors} errors`);
+      } catch (err) {
+        console.error(`[SeasonalCampaign/Timer] Initial run error:`, err);
+      }
+    }, 90_000); // First run 90 seconds after startup
+
+    setInterval(async () => {
+      try {
+        const result = await processSeasonalCampaigns();
+        if (result.leadsScheduled > 0 || result.errors > 0) {
+          console.log(`[SeasonalCampaign/Timer] Cycle: ${result.campaignsProcessed} campaigns, ${result.leadsScheduled} leads, ${result.errors} errors`);
+        }
+      } catch (err) {
+        console.error(`[SeasonalCampaign/Timer] Cycle error:`, err);
+      }
+    }, SC_INTERVAL);
+    console.log(`[Cron] Seasonal campaign executor scheduled every ${SC_INTERVAL / 60000} minutes`);
   });
 }
 

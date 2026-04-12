@@ -45,6 +45,8 @@ import {
 import type {
   BrainCouncilInput,
   BrainCouncilOutput,
+  QCVerdict,
+  ViolationCategory,
 } from "./brain-types";
 import { assignVariant } from "./ab-testing";
 import { normalizePersona, getPersonaLearningContext } from "./persona-learning";
@@ -756,16 +758,36 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
       console.log(`[SalesManager] Composed: "${composed.message.substring(0, 80)}..." (${composed.message.length} chars)`);
     }
 
-    // BRAIN 4: QC REVIEWER
-    console.log(`[SalesManager] Running QC Reviewer...`);
-    let qc = await runQC(input, context, strategy, composed);
-    console.log(`[SalesManager] QC: score=${qc.score}, approved=${qc.approved}, issues=${qc.issues.length}`);
+    // ============================================================
+    // DETERMINISTIC VIOLATION CHECK — runs BEFORE LLM QC call
+    // Hard rules are deterministic code. They don't need LLM confirmation.
+    // If a hard rule fires, we skip the expensive LLM QC call entirely.
+    // This saves ~2-4 seconds per blocked message and ensures hard rules
+    // are never overridden by an LLM that "thinks" the message is fine.
+    // ============================================================
+    console.log(`[SalesManager] Running deterministic violation checks...`);
+    // For the pre-LLM check, pass a dummy QC verdict (score 0, not approved)
+    // since we haven't run the LLM yet. detectViolations uses qc.score only
+    // for the HORMOZI_ACA missing_framework check, so we set it to 0 (< 60).
+    const dummyQcForPreCheck: QCVerdict = { approved: false, score: 0, issues: [], suggestions: [], revisedMessage: "" };
+    const preViolation = detectViolations(composed, dummyQcForPreCheck, strategy, context, input, research);
 
-    // --- VIOLATION DETECTION (ONE-SHOT GATE — no reformulation loop) ---
-    // The Composer gets ONE shot. QC is a pass/fail gate.
-    // If the message fails, it's blocked. No brain-to-brain feedback.
-    // This forces the prompts to be good enough that the Composer gets it right first time.
-    const violation = detectViolations(composed, qc, strategy, context, input, research);
+    let qc: QCVerdict;
+    let violation: { category: ViolationCategory | null; reason: string };
+
+    if (preViolation.category) {
+      // Hard rule fired — skip LLM QC entirely
+      console.log(`[SalesManager] ⚡ Deterministic violation detected: ${preViolation.category} — skipping LLM QC call`);
+      qc = { approved: false, score: 0, issues: [preViolation.reason], suggestions: [], revisedMessage: "" };
+      violation = preViolation;
+    } else {
+      // No hard rule violation — run LLM QC for quality scoring
+      console.log(`[SalesManager] Running QC Reviewer (LLM)...`);
+      qc = await runQC(input, context, strategy, composed);
+      console.log(`[SalesManager] QC: score=${qc.score}, approved=${qc.approved}, issues=${qc.issues.length}`);
+      // Re-run detectViolations with real QC score (some checks like HORMOZI_ACA use qc.score < 60)
+      violation = detectViolations(composed, qc, strategy, context, input, research);
+    }
 
     // Apply QC revised message if approved with minor edits and no violations
     if (!violation.category && qc.approved && qc.revisedMessage) {

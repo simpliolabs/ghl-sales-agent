@@ -706,3 +706,13 @@
 - [x] Phase 3: Restructure QC — deterministic hard rules first, LLM scoring second
 - [x] Run full test suite and verify all tests pass (662 tests)
 - [x] Push to GitHub and save checkpoint
+
+## Remaining Gap Items — Full Build (April 11, 2026)
+- [x] Hall of Fame winning message examples table (DB schema + Composer injection)
+- [x] Human agent SLA timer (notify owner if human-owned lead silent 4h during biz hours)
+- [x] QC execution order fix (deterministic hard rules BEFORE LLM scoring in code, not just prompt)
+- [x] Channel selection intelligence (track which channel works per lead, shift accordingly)
+- [x] Opportunity scoring enhancement (use in scheduling priority, not just display)
+- [x] Post-delivery follow-up automation (review request + upsell sequence after fulfillment)
+- [x] Seasonal campaign mode (bulk push stale leads with a specific angle for a date range)
+- [x] Closer/Objection Handler routing through Chief Sales Manager (already routed through Chief — verified)

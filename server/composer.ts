@@ -13,6 +13,7 @@ import { getComposerStageBlock } from "./stage-playbook";
 import { getCompactTrainingCorpus, getPersonaGuidance } from "../shared/sales-training";
 import { getViolationAvoidanceRules } from "./learning-loop";
 import { cached, patternCache } from "./cache";
+import { getHallOfFameExamples } from "./db";
 
 const COMPOSER_PROMPT = `You are the COMPOSER brain for Adorb Custom Tees' AI outreach system.
 
@@ -423,6 +424,29 @@ async function getViolationAvoidanceBlock(): Promise<string> {
   }
 }
 
+/**
+ * Get Hall of Fame winning message examples for the Composer to learn from.
+ * Cached for 10 minutes to avoid repeated DB queries.
+ */
+async function getHallOfFameBlock(framework: string, channel: string, segment?: string | null): Promise<string> {
+  try {
+    const examples = await cached(patternCache, `hof:${framework}:${channel}:${segment || "all"}`, async () => {
+      // Try framework+segment match first, then framework-only, then any
+      let results = await getHallOfFameExamples({ framework, segment: segment || undefined, limit: 3 });
+      if (results.length === 0) results = await getHallOfFameExamples({ framework, limit: 3 });
+      if (results.length === 0) results = await getHallOfFameExamples({ channel, limit: 3 });
+      return results;
+    });
+    if (!examples || examples.length === 0) return "";
+    const block = examples.map((ex: any, i: number) =>
+      `${i + 1}. [${ex.framework}/${ex.promotionReason}] "${ex.message.substring(0, 200)}${ex.message.length > 200 ? '...' : ''}"`
+    ).join("\n");
+    return `=== HALL OF FAME — These messages got fast/positive replies. Study their tone and structure. ===\n${block}\nUse these as INSPIRATION for tone and structure, but write a UNIQUE message for this lead.`;
+  } catch {
+    return "";
+  }
+}
+
 export async function runComposer(
   input: BrainCouncilInput,
   context: LeadContext,
@@ -539,6 +563,8 @@ ${(() => {
   if (lead.omnisendSegment) ctx.push(`Segment: ${lead.omnisendSegment}`);
   return ctx.length > 0 ? ctx.join('\n') + '\n\n⚠️ MANDATORY: Your email subject line and opening sentence MUST reference at least one of the above fields. Generic subjects/openers will be REJECTED.' : '(No specific lead context available — use conversation history for context)';
 })()}
+
+${await getHallOfFameBlock(strategy.framework, strategy.channel, lead.omnisendSegment)}
 
 === INCOMING MESSAGE ===
 ${input.incomingMessage}

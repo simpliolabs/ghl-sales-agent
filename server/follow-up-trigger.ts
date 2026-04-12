@@ -221,7 +221,20 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
         const dormancyTier = daysSinceLastActivity >= 180 ? "deep" : daysSinceLastActivity >= 90 ? "long" : daysSinceLastActivity >= 30 ? "moderate" : "active";
 
         // Pass a hint channel to Brain Council — it will decide the actual channel autonomously
-        const hintChannel = normalizeChannel((lead as any).preferredChannel || (lead as any).lastOutboundChannel || "SMS");
+        // Channel Intelligence: check per-lead channel performance data first
+        let hintChannel: string;
+        try {
+          const { getBestChannelForLead } = await import("./db");
+          const bestChannel = await getBestChannelForLead(leadId);
+          if (bestChannel) {
+            hintChannel = normalizeChannel(bestChannel);
+            console.log(`[FollowUp] Lead ${leadId}: Channel intelligence recommends ${hintChannel} (based on reply history)`);
+          } else {
+            hintChannel = normalizeChannel((lead as any).preferredChannel || (lead as any).lastOutboundChannel || "SMS");
+          }
+        } catch {
+          hintChannel = normalizeChannel((lead as any).preferredChannel || (lead as any).lastOutboundChannel || "SMS");
+        }
         if (isDormant) {
           console.log(`[FollowUp] Lead ${leadId} dormant ${Math.round(daysSinceLastActivity)}d (${dormancyTier}) — Brain Council will decide channel`);
         }
@@ -472,6 +485,12 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
           } else {
             console.log(`[FollowUp] ✅ Sent follow-up to lead ${leadId} (${leadName}) via ${actualChannel}`);
           }
+
+          // Track channel performance (sent side)
+          try {
+            const { upsertChannelPerformance } = await import("./db");
+            await upsertChannelPerformance(leadId, actualChannel, { sent: true });
+          } catch { /* best effort */ }
 
           // Estimate order value
           try {

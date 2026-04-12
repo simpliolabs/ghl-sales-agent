@@ -442,3 +442,90 @@ export const dailySnapshots = mysqlTable("daily_snapshots", {
 
 export type DailySnapshot = typeof dailySnapshots.$inferSelect;
 export type InsertDailySnapshot = typeof dailySnapshots.$inferInsert;
+
+// ============================================================
+// HALL OF FAME — Winning messages that got replies / conversions
+// ============================================================
+export const hallOfFame = mysqlTable("hall_of_fame", {
+  id: int("id").autoincrement().primaryKey(),
+  auditId: int("auditId").notNull(), // FK → brain_council_audit.id
+  leadId: int("leadId").notNull(),
+  message: text("message").notNull(),
+  framework: varchar("framework", { length: 64 }).notNull(),
+  approach: varchar("approach", { length: 64 }),
+  channel: varchar("channel", { length: 32 }),
+  segment: varchar("segment", { length: 64 }),
+  persona: varchar("persona", { length: 64 }),
+  replyMinutes: int("replyMinutes"), // how fast the lead replied
+  replySentiment: varchar("replySentiment", { length: 16 }), // positive, neutral
+  stageAdvanced: tinyint("stageAdvanced").default(0),
+  converted: tinyint("converted").default(0),
+  pipelineValue: int("pipelineValue").default(0),
+  // Why it was promoted
+  promotionReason: varchar("promotionReason", { length: 128 }).notNull(), // fast_reply, positive_reply, conversion, stage_advance
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type HallOfFameEntry = typeof hallOfFame.$inferSelect;
+export type InsertHallOfFameEntry = typeof hallOfFame.$inferInsert;
+
+// ============================================================
+// CHANNEL PERFORMANCE — Per-lead channel success tracking
+// ============================================================
+export const channelPerformance = mysqlTable("channel_performance", {
+  id: int("id").autoincrement().primaryKey(),
+  leadId: int("leadId").notNull(),
+  channel: varchar("channel", { length: 32 }).notNull(),
+  messagesSent: int("messagesSent").default(0),
+  repliesReceived: int("repliesReceived").default(0),
+  avgReplyMinutes: int("avgReplyMinutes"), // average reply speed
+  positiveReplies: int("positiveReplies").default(0),
+  stageAdvances: int("stageAdvances").default(0),
+  lastSentAt: timestamp("lastSentAt"),
+  lastReplyAt: timestamp("lastReplyAt"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ChannelPerformanceEntry = typeof channelPerformance.$inferSelect;
+export type InsertChannelPerformanceEntry = typeof channelPerformance.$inferInsert;
+
+// ============================================================
+// SEASONAL CAMPAIGNS — Admin-triggered bulk push campaigns
+// ============================================================
+export const seasonalCampaigns = mysqlTable("seasonal_campaigns", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  angle: text("angle").notNull(), // the messaging angle for this campaign
+  targetSegments: json("targetSegments"), // array of segment strings, or ["all"]
+  startDate: timestamp("startDate").notNull(),
+  endDate: timestamp("endDate").notNull(),
+  maxLeadsPerDay: int("maxLeadsPerDay").default(50),
+  totalSent: int("totalSent").default(0),
+  totalReplies: int("totalReplies").default(0),
+  status: varchar("status", { length: 16 }).default("draft").notNull(), // draft, active, paused, completed
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type SeasonalCampaign = typeof seasonalCampaigns.$inferSelect;
+export type InsertSeasonalCampaign = typeof seasonalCampaigns.$inferInsert;
+
+// ============================================================
+// POST-DELIVERY SEQUENCES — Multi-step follow-up after fulfillment
+// ============================================================
+export const postDeliverySequences = mysqlTable("post_delivery_sequences", {
+  id: int("id").autoincrement().primaryKey(),
+  leadId: int("leadId").notNull(),
+  step: int("step").notNull().default(1), // 1=satisfaction, 2=review request, 3=upsell
+  stepType: varchar("stepType", { length: 32 }).default("satisfaction_check").notNull(), // satisfaction_check, review_request, upsell_referral
+  scheduledAt: timestamp("scheduledAt").notNull(),
+  sentAt: timestamp("sentAt"),
+  status: varchar("status", { length: 16 }).default("pending").notNull(), // pending, sent, skipped, replied
+  channel: varchar("channel", { length: 32 }),
+  auditId: int("auditId"), // FK → brain_council_audit.id (when sent)
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type PostDeliverySequence = typeof postDeliverySequences.$inferSelect;
+export type InsertPostDeliverySequence = typeof postDeliverySequences.$inferInsert;
