@@ -16,7 +16,7 @@ import type {
   LeadContext,
   ViolationCategory,
 } from "./brain-types";
-import { BRAND } from "../shared/brand-assets";
+import { BRAND, getSignatureBlock } from "../shared/brand-assets";
 import { PRICING_MATRIX, ESCALATION_RULES } from "../shared/sales-training";
 
 // ============================================================
@@ -853,8 +853,10 @@ export function buildSafeFallback(
   context: LeadContext,
   input: BrainCouncilInput
 ): string {
-  const name = context.lead.name?.split(" ")[0] || "there";
   const agentName = context.lead.assignedAgent || "Abby";
+  const name = sanitizeName(context.lead.name);
+  const isEmail = (input.channel || context.lead.preferredChannel || "").toLowerCase() === "email";
+  const isTransferred = context.lead.source === "transferred_contact";
 
   const productField = input.formData?.find(f =>
     f.label.toLowerCase().includes("product") || f.label.toLowerCase().includes("interested")
@@ -863,13 +865,45 @@ export function buildSafeFallback(
     f.label.toLowerCase().includes("bulk printing") || f.label.toLowerCase().includes("purpose")
   );
 
+  let body: string;
   if (productField || purposeField) {
     const product = productField?.value?.toLowerCase() || "custom apparel";
     const purpose = purposeField?.value?.toLowerCase() || "your project";
-    return `Hi ${name}, ${agentName} here from Adorb Custom Tees! Thanks for reaching out about ${product} for ${purpose}. We'd love to help — do you have a design ready or would you like our team to help?`;
+    if (isTransferred) {
+      body = `Hi ${name}, ${agentName} here from Adorb Custom Printing! We specialize in ${product} and would love to help with ${purpose}. Do you have a design ready or would you like our team to create one for you?`;
+    } else {
+      body = `Hi ${name}, ${agentName} here from Adorb Custom Tees! Got your inquiry about ${product} for ${purpose}. We'd love to help — do you have a design ready or would you like our team to help?`;
+    }
+  } else if (isTransferred) {
+    body = `Hi ${name}, ${agentName} here from Adorb Custom Printing! We do custom T-shirts, hoodies, hats, mugs, and more — all with no minimums. What kind of custom apparel project are you working on?`;
+  } else {
+    body = `Hi ${name}, ${agentName} here from Adorb Custom Tees! Got your inquiry — what kind of custom apparel project can we help you with?`;
   }
 
-  return `Hi ${name}, ${agentName} here from Adorb Custom Tees! Thanks for reaching out. What kind of custom apparel project can we help you with?`;
+  // Email: add paragraph breaks + mandatory signature
+  if (isEmail) {
+    return body + "\n\n" + getSignatureBlock(agentName);
+  }
+  return body;
+}
+
+/**
+ * Validate and sanitize lead name for use in messages.
+ * Rejects company abbreviations (all-caps 2-4 chars), numeric strings,
+ * single characters, and known non-name patterns.
+ */
+function sanitizeName(raw: string | null | undefined): string {
+  if (!raw) return "there";
+  const firstName = raw.split(" ")[0].trim();
+  if (!firstName || firstName.length < 2) return "there";
+  // All-caps abbreviation (CBT, LLC, INC, etc.)
+  if (firstName.length <= 5 && firstName === firstName.toUpperCase() && /^[A-Z]+$/.test(firstName)) return "there";
+  // Numeric or mostly numeric
+  if (/^\d+$/.test(firstName)) return "there";
+  // Known non-name patterns
+  const nonNames = ["test", "admin", "info", "contact", "sales", "support", "hello", "n/a", "na", "none", "unknown"];
+  if (nonNames.includes(firstName.toLowerCase())) return "there";
+  return firstName;
 }
 
 // ============================================================

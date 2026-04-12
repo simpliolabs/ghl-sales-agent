@@ -1047,7 +1047,7 @@ describe("buildSafeFallback — warm lead suppression", () => {
     const input = makeInput({ formData: [] });
     const result = buildSafeFallback(context, input);
     expect(result).toContain("Jane");
-    expect(result).toContain("What kind of custom apparel");
+    expect(result).toContain("custom apparel");
   });
 });
 

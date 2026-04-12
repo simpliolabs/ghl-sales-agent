@@ -765,3 +765,10 @@
 
 ## Channel-Switch Wording Fix (Apr 12 - Round 9)
 - [x] BUG: Composer produces "from the transferred contact" instead of natural channel reference like "your Facebook inquiry" — fixed: brain-context.ts now validates originalInboundChannel against known channel names (FB, IG, SMS, Email, WhatsApp, GMB), composer.ts only injects channel-switch block when origChannel maps to a human-readable label. Transferred contacts (1,554 leads) no longer trigger nonsensical channel references.
+
+## Foundational Email Issues (Apr 12 - Round 10)
+- [x] BUG: Email to "CBT" uses company abbreviation as name — added sanitizeName() that rejects all-caps abbreviations (CBT, LLC), numerics, single chars, and known non-names
+- [x] BUG: Email missing signature block — buildSafeFallback now appends getSignatureBlock() for Email channel
+- [x] BUG: "Thanks for reaching out" used for transferred contacts — now uses context-aware opening ("We do custom T-shirts..." for transferred, "Got your inquiry" for organic)
+- [x] BUG: Generic/short email with no personalization — transferred contacts get Adorb-branded intro with product list and no-minimums pitch
+- [x] Investigate: QC correctly blocked the Composer output (score 0, email_formatting). The issue was the circuit-breaker fallback (buildSafeFallback) which bypasses QC — fixed at source so fallback output is always properly formatted
