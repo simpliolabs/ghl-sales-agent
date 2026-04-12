@@ -28,6 +28,7 @@ import {
   sendMessageWithRetry,
   extractFormData,
   parseFormDataFromMessageBody,
+  extractContactFieldsFromFormData,
   formatEmailHtml,
   buildSendOpts,
   buildContextSubject,
@@ -244,11 +245,12 @@ async function sendDelayedFirstContact(
     console.log(`[Webhook] Delayed first-contact firing for lead ${leadId} (${FIRST_CONTACT_DELAY_MS / 1000}s after webhook)`);
 
     // Re-read lead from DB to get latest state (agent assignment, etc.)
-    const lead = await getLeadById(leadId);
-    if (!lead) {
+    const leadOrNull = await getLeadById(leadId);
+    if (!leadOrNull) {
       console.log(`[Webhook] Lead ${leadId} not found for delayed first-contact — skipping`);
       return;
     }
+    let lead = leadOrNull;
 
     // --- HUMAN TAKEOVER RE-CHECK ---
     // The message_handler may have set humanTakeover=1 during the 45s delay
@@ -370,6 +372,28 @@ async function sendDelayedFirstContact(
     // Also log the raw payload keys for debugging
     if (formFields.length === 0) {
       console.log(`[Webhook] Raw payload keys for lead ${leadId}: ${Object.keys(payload).join(", ")}`);
+    }
+
+    // --- PERSIST FORM CONTACT FIELDS TO LEAD ---
+    // Extract email, phone, name, businessName from form data and update the lead record
+    // BEFORE the Brain Council runs. This ensures the composer prompt sees "already on file"
+    // instead of triggering the "ask for contact details" directive.
+    if (formFields.length > 0) {
+      const formContactFields = extractContactFieldsFromFormData(formFields);
+      if (Object.keys(formContactFields).length > 0) {
+        // Only update fields that are currently missing on the lead
+        const missingUpdates: Record<string, string> = {};
+        if (formContactFields.email && !lead.email) missingUpdates.email = formContactFields.email;
+        if (formContactFields.phone && !lead.phone) missingUpdates.phone = formContactFields.phone;
+        if (formContactFields.name && !lead.name) missingUpdates.name = formContactFields.name;
+        if (formContactFields.businessName && !lead.businessName) missingUpdates.businessName = formContactFields.businessName;
+
+        if (Object.keys(missingUpdates).length > 0) {
+          await updateLeadFields(leadId, missingUpdates);
+          lead = { ...lead, ...missingUpdates } as typeof lead;
+          console.log(`[Webhook] ✅ Persisted form contact fields to lead ${leadId}: ${Object.entries(missingUpdates).map(([k, v]) => `${k}=${v}`).join(", ")}`);
+        }
+      }
     }
 
     // --- DETECT CHANNEL (multi-layer) ---

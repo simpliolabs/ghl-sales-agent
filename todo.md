@@ -789,3 +789,9 @@
 - [x] Move appointment creation to run BEFORE message send (in handleContactWebhook, not sendDelayedFirstContact)
 - [x] Ensure appointment is created even when Brain Council blocks, rate limit hits, or message fails
 - [x] Tests for appointment creation on all code paths (verified via code review — appointment now fires in handleContactWebhook before delayed first-contact)
+
+## BUG: AI asks for phone/email when already provided in form data
+- [x] Root cause: Form data is parsed but email/phone are NOT persisted to lead.email/lead.phone before Brain Council runs
+- [x] Fix webhook-contact.ts: After form data extraction, extract email/phone from formFields and updateLeadFields before calling Brain Council
+- [x] Fix webhook-message.ts: FB FORM DATA block now also extracts and persists email/phone/name from parsed form data
+- [x] Add extractContactFieldsFromFormData() helper to webhook-helpers.ts for reuse (8/8 tests passing)

@@ -185,6 +185,33 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
           console.log(`[Webhook/Msg] Extracted businessName from FB form: "${companyMatch[1].trim()}"`);
         }
       }
+      // Extract email if present and not already on lead
+      if (!lead!.email) {
+        const emailMatch = effectiveMessageBody.match(/Email\s*:\s*([\w.+-]+@[\w.-]+\.[a-zA-Z]{2,})/i);
+        if (emailMatch) {
+          formUpdates.email = emailMatch[1].trim();
+          lead = { ...lead!, email: emailMatch[1].trim() } as typeof lead;
+          console.log(`[Webhook/Msg] Extracted email from FB form: "${emailMatch[1].trim()}"`);
+        }
+      }
+      // Extract phone if present and not already on lead
+      if (!lead!.phone) {
+        const phoneMatch = effectiveMessageBody.match(/Phone\s*(?:number)?\s*:\s*([\d()\s.+-]{7,})/i);
+        if (phoneMatch) {
+          formUpdates.phone = phoneMatch[1].trim();
+          lead = { ...lead!, phone: phoneMatch[1].trim() } as typeof lead;
+          console.log(`[Webhook/Msg] Extracted phone from FB form: "${phoneMatch[1].trim()}"`);
+        }
+      }
+      // Extract full name if present and not already on lead
+      if (!lead!.name) {
+        const nameMatch = effectiveMessageBody.match(/Full\s*name\s*:\s*(.+)/i);
+        if (nameMatch) {
+          formUpdates.name = nameMatch[1].trim();
+          lead = { ...lead!, name: nameMatch[1].trim() } as typeof lead;
+          console.log(`[Webhook/Msg] Extracted name from FB form: "${nameMatch[1].trim()}"`);
+        }
+      }
       // Extract product type if present
       const productMatch = effectiveMessageBody.match(/(?:What type of products|product[s]?)\s*(?:are you interested in)?\s*[?:]\s*(.+)/i);
       if (productMatch) {

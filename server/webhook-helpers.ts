@@ -531,6 +531,41 @@ export function parseFormDataFromMessageBody(messageBody: string): Array<{ label
   return fields;
 }
 
+// --- FORM DATA → LEAD FIELD EXTRACTION ---
+/**
+ * Extracts canonical lead contact fields (email, phone, name, businessName) from parsed form data.
+ * Used to persist form-submitted contact info to the lead record BEFORE the Brain Council runs,
+ * so the composer prompt correctly sees "already on file" instead of triggering "ask for contact details".
+ */
+export function extractContactFieldsFromFormData(formFields: Array<{ label: string; value: string }>): Record<string, string> {
+  const updates: Record<string, string> = {};
+  for (const field of formFields) {
+    const label = field.label.toLowerCase().trim();
+    const value = field.value.trim();
+    if (!value) continue;
+
+    // Email detection
+    if (label === "email" || label === "email address" || label === "e-mail") {
+      if (value.includes("@")) updates.email = value;
+    }
+    // Phone detection
+    else if (label === "phone" || label === "phone number" || label === "phone #" || label === "mobile" || label === "cell") {
+      // Basic phone validation: must have at least 7 digits
+      const digits = value.replace(/\D/g, "");
+      if (digits.length >= 7) updates.phone = value;
+    }
+    // Name detection
+    else if (label === "full name" || label === "name") {
+      updates.name = value;
+    }
+    // Business name detection
+    else if (label === "company" || label === "company name" || label === "business" || label === "business name" || label === "organization") {
+      updates.businessName = value;
+    }
+  }
+  return updates;
+}
+
 // --- CHANNEL NORMALIZATION ---
 export function normalizeChannel(raw: unknown): string {
   const lower = String(raw || "SMS").toLowerCase().trim();
