@@ -27,6 +27,21 @@ vi.mock("./ghl", () => ({
   getOpportunitiesByContact: vi.fn().mockResolvedValue([]),
 }));
 
+vi.mock("./agent-notifications", () => ({
+  escalateNotification: vi.fn().mockResolvedValue({
+    actions: ["Updated appointment to: Close deal", "Updated task to: Close deal", "Added escalation note to GHL"],
+    errors: [],
+    appointmentId: "appt_123",
+    taskId: "task_123",
+  }),
+  createHeadsUpNotification: vi.fn().mockResolvedValue({
+    actions: ["Created heads-up appointment", "Created heads-up task", "Added heads-up note to GHL"],
+    errors: [],
+    appointmentId: "appt_123",
+    taskId: "task_123",
+  }),
+}));
+
 vi.mock("./channel-fallback", () => ({
   handleChannelDnc: vi.fn().mockResolvedValue({
     action: "escalated",
@@ -133,6 +148,9 @@ function makeCtx(overrides: Partial<DispatchContext> = {}): DispatchContext {
     ghlOpportunityId: "opp_123",
     ghlPipelineId: "OpojlMx3cTa0ts0e2pMc",
     channel: "SMS",
+    pipelineStage: null,
+    existingAppointmentId: "appt_existing",
+    existingTaskId: "task_existing",
     ...overrides,
   };
 }
@@ -156,9 +174,9 @@ describe("Action Dispatcher", () => {
       expect(result.actionsExecuted).toHaveLength(0);
     });
 
-    it("dispatches committed \u2192 creates sales follow-up task for agent (NOT designer)", async () => {
+    it("dispatches committed \u2192 escalates existing appointment/task via agent-notifications", async () => {
       const { dispatchStateActions } = await import("./action-dispatcher");
-      const { createTask } = await import("./ghl");
+      const { escalateNotification } = await import("./agent-notifications");
 
       const result = await dispatchStateActions(
         makeTransition("interested", "committed", { intent: "thank_you_close", closingSignal: true }),
@@ -167,26 +185,36 @@ describe("Action Dispatcher", () => {
 
       expect(result.skipped).toBe(false);
       expect(result.actionsExecuted.length).toBeGreaterThan(0);
-      expect(result.actionsExecuted.some(a => a.includes("sales follow-up task"))).toBe(true);
-      expect(createTask).toHaveBeenCalledWith("contact_123", expect.objectContaining({
-        title: expect.stringContaining("Close deal"),
-      }));
-      // C\u00e9sar should NOT be assigned at committed state (only at Paid-Proof-Needed)
-      const taskCalls = (createTask as any).mock.calls;
-      const committedTaskCall = taskCalls.find((c: any) => c[1]?.title?.includes("Close deal"));
-      expect(committedTaskCall[1].assignedTo).not.toBe("C\u00e9sar V\u00e1squez");
+      // Verify escalateNotification was called with "committed" type
+      expect(escalateNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          leadId: 1,
+          ghlContactId: "contact_123",
+          existingAppointmentId: "appt_existing",
+          existingTaskId: "task_existing",
+        }),
+        "committed",
+        expect.stringContaining("committed"),
+        expect.objectContaining({ intent: "thank_you_close" }),
+      );
     });
 
-    it("dispatches committed \u2192 adds GHL note", async () => {
+    it("dispatches committed \u2192 escalates notification (which adds note internally)", async () => {
       const { dispatchStateActions } = await import("./action-dispatcher");
-      const { addNote } = await import("./ghl");
+      const { escalateNotification } = await import("./agent-notifications");
 
       await dispatchStateActions(
         makeTransition("interested", "committed"),
         makeCtx(),
       );
 
-      expect(addNote).toHaveBeenCalledWith("contact_123", expect.stringContaining("COMMITTED"));
+      // Note is now added inside escalateNotification (mocked), not directly via addNote
+      expect(escalateNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ ghlContactId: "contact_123" }),
+        "committed",
+        expect.any(String),
+        expect.any(Object),
+      );
     });
 
     it("dispatches committed → schedules follow-up", async () => {
@@ -203,8 +231,9 @@ describe("Action Dispatcher", () => {
       }));
     });
 
-    it("dispatches interested → creates quote task for price_inquiry", async () => {
+    it("dispatches interested \u2192 adds note only (no new tasks — heads-up already exists)", async () => {
       const { dispatchStateActions } = await import("./action-dispatcher");
+      const { addNote } = await import("./ghl");
       const { createTask } = await import("./ghl");
 
       const result = await dispatchStateActions(
@@ -213,13 +242,11 @@ describe("Action Dispatcher", () => {
       );
 
       expect(result.skipped).toBe(false);
-      expect(createTask).toHaveBeenCalledWith("contact_123", expect.objectContaining({
-        title: expect.stringContaining("quote"),
-        assignedTo: "Abby Bouwer",
-      }));
-    });
-
-    it("dispatches interested → skips if coming from committed (already past interested)", async () => {
+      // No new tasks created — heads-up was created on first contact
+      expect(createTask).not.toHaveBeenCalled();
+      // But a note should be added
+      expect(addNote).toHaveBeenCalledWith("contact_123", expect.stringContaining("INTERESTED"));
+    });    it("dispatches interested → skips if coming from committed (already past interested)", async () => {
       const { dispatchStateActions } = await import("./action-dispatcher");
       const { createTask } = await import("./ghl");
 
@@ -293,9 +320,10 @@ describe("Action Dispatcher", () => {
       }));
     });
 
-    it("dispatches human_active → sets humanTakeover=1", async () => {
+    it("dispatches human_active \u2192 sets humanTakeover=1 and escalates notification", async () => {
       const { dispatchStateActions } = await import("./action-dispatcher");
       const { updateLeadFields } = await import("./db");
+      const { escalateNotification } = await import("./agent-notifications");
 
       const result = await dispatchStateActions(
         makeTransition("exploring", "human_active", undefined, "Agent sent message"),
@@ -306,6 +334,15 @@ describe("Action Dispatcher", () => {
       expect(updateLeadFields).toHaveBeenCalledWith(1, expect.objectContaining({
         humanTakeover: 1,
       }));
+      // Verify escalateNotification was called with "human_handoff" type
+      expect(escalateNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          leadId: 1,
+          ghlContactId: "contact_123",
+        }),
+        "human_handoff",
+        "Agent sent message",
+      );
     });
 
     it("dispatches objecting → adds GHL note only (no pipeline action)", async () => {
@@ -362,6 +399,8 @@ describe("Action Dispatcher", () => {
         pipelineValue: 1200,
         ghlOpportunityId: "opp_42",
         ghlPipelineId: "OpojlMx3cTa0ts0e2pMc",
+        appointmentId: "appt_42",
+        ghlTaskId: "task_42",
       };
 
       const ctx = buildDispatchContext(lead, "Email");

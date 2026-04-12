@@ -81,6 +81,7 @@ export const leads = mysqlTable("leads", {
   nextAppointmentAt: timestamp("nextAppointmentAt"),
   appointmentStatus: varchar("appointmentStatus", { length: 32 }), // scheduled, confirmed, showed, no_show, cancelled
   appointmentId: varchar("appointmentId", { length: 128 }),
+  ghlTaskId: varchar("ghlTaskId", { length: 128 }),
   // Agent notes (from GHL note events — latest agent note for context)
   lastAgentNote: text("lastAgentNote"),
   lastAgentNoteAt: timestamp("lastAgentNoteAt"),

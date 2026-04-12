@@ -754,3 +754,11 @@
 ## Bug Investigation (Apr 12 - Round 7)
 - [x] BUG: AI stopped responding to John Dugger's Facebook reply "Two sided and 20ish" at 12:01 PM — root cause: redundant second shouldHandoffToAgent LLM call (line 678) overrode Brain Council decision, set humanTakeover=1 prematurely. Fix: removed rogue post-Brain-Council handoff check, reset lead state. Handoff now handled by pre-BC check + conversation state machine + action dispatcher.
 - [x] BUG: Duplicate appointment + AI silenced again for John Dugger — root cause: GHL appointment activity (type 31) misidentified as human agent message by both SEND-GATE (ghl.ts) and GHL history scan (webhook-message.ts). Fix: added numeric GHL system type IDs (0, 28-40) to both filters. Reset lead state.
+
+## Appointment/Task/Note Restructure (Apr 12 - Round 8)
+- [x] Audit all appointment/task/note creation points across codebase
+- [x] Add GHL appointment ID + task ID tracking columns to leads table (ghlTaskId added, appointmentId already existed)
+- [x] Phase 1: On first contact — create ONE appointment (next biz hour, 10min) + task + internal note as agent heads-up (createHeadsUpNotification in agent-notifications.ts)
+- [x] Phase 2: On handoff — UPDATE existing appointment/task/note to reflect live quote status (escalateNotification in agent-notifications.ts)
+- [x] Remove all other scattered appointment/task creation points (webhook-contact.ts, webhook-message.ts, action-dispatcher.ts all rewired)
+- [x] Tests, compile check, push, checkpoint (671 tests passing, 0 TS errors)

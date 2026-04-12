@@ -22,7 +22,7 @@ import { researchLead } from "./lead-researcher";
 import { pushContactToOmnisend } from "./omnisend";
 import { runBrainCouncil } from "./brain-council-orchestrator";
 import { calculateNextFollowUp, checkRateLimits } from "./scheduling-engine";
-import { sendMessage, updateContactCustomField, createTask, addNote, fetchGhlConversationHistory, getContact, updateContactAssignment, AGENT_GHL_USER_IDS } from "./ghl";
+import { sendMessage, updateContactCustomField, addNote, fetchGhlConversationHistory, getContact, updateContactAssignment, AGENT_GHL_USER_IDS } from "./ghl";
 import { detectConfusion, handleConfusionReply, postSendValidation } from "./auto-correction";
 import { attributeReply } from "./outcome-engine";
 import { notifyOwner } from "./_core/notification";
@@ -509,15 +509,15 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
 
   const handoffDecision = await shouldHandoffToAgent(historyStr, lastAgentHoursAgo);
   if (handoffDecision.handoff && !handoffDecision.resumeAI) {
-    if (lead!.assignedAgent) {
-      try {
-        await createTask(contactId, {
-          title: `💬 New message from ${lead!.name || "lead"} — you're managing this conversation`,
-          body: `${lead!.name || "Lead"} replied: "${effectiveMessageBody.substring(0, 200)}"\n\nReason AI is not responding: ${handoffDecision.reason}`,
-          assignedTo: lead!.assignedAgent,
-        });
-      } catch { /* best effort */ }
-    }
+    // Add a note only — the heads-up appointment/task already exist from first contact.
+    // No new tasks/appointments created here (two-phase model: agent-notifications.ts).
+    try {
+      await addNote(contactId,
+        `🤖 AI: Human agent active — new message from ${lead!.name || "lead"}\n` +
+        `Message: "${effectiveMessageBody.substring(0, 200)}"\n` +
+        `Reason AI is not responding: ${handoffDecision.reason}`
+      );
+    } catch { /* best effort */ }
     res.json({ success: true, action: "handed_off_to_agent" });
     return;
   }

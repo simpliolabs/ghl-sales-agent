@@ -622,3 +622,46 @@ export async function getNotes(contactId: string) {
   const { data } = await ghlClient.get(`/contacts/${contactId}/notes`);
   return data.notes || [];
 }
+
+// --- Update existing GHL entities (for two-phase appointment/task model) ---
+
+/** Update an existing GHL calendar appointment */
+export async function updateAppointment(appointmentId: string, opts: {
+  title?: string;
+  description?: string;
+  startTime?: string;
+  endTime?: string;
+  appointmentStatus?: string;
+  assignedUserId?: string;
+}) {
+  try {
+    const { data } = await ghlClient.put(`/calendars/events/appointments/${appointmentId}`, {
+      ...opts,
+    });
+    console.log(`[GHL] Appointment updated: ${appointmentId} → ${opts.title || "(title unchanged)"}`);
+    return data;
+  } catch (err: any) {
+    console.error(`[GHL] updateAppointment failed for ${appointmentId}:`, err?.response?.data || err?.message);
+    return null;
+  }
+}
+
+/** Update an existing GHL task */
+export async function updateTask(contactId: string, taskId: string, opts: {
+  title?: string;
+  body?: string;
+  dueDate?: string;
+  assignedTo?: string;
+  completed?: boolean;
+}) {
+  try {
+    const { data } = await ghlClient.put(`/contacts/${contactId}/tasks/${taskId}`, {
+      ...opts,
+    });
+    console.log(`[GHL] Task updated: ${taskId} → ${opts.title || "(title unchanged)"}`);
+    return data;
+  } catch (err: any) {
+    console.error(`[GHL] updateTask failed for ${taskId}:`, err?.response?.data || err?.message);
+    return null;
+  }
+}
