@@ -12,8 +12,9 @@
  * - 24 hours silent → handled by lead-disposition.ts (auto-release)
  */
 
-import { getHumanTakeoverLeadsSilent } from "./db";
+import { getHumanTakeoverLeadsSilent, updateLeadFields } from "./db";
 import { notifyOwner } from "./_core/notification";
+import { recordError } from "./error-memory";
 
 // Track which leads we've already alerted about (avoid spam)
 const alertedLeads = new Map<number, { lastAlertAt: number; tier: "yellow" | "orange" }>();
@@ -92,11 +93,47 @@ export async function runSlaCheck(): Promise<{ checked: number; alerted: number 
         orangeAlerts.push(`• ${lead.name || `Lead #${lead.id}`} — ${bizHours}h silent (agent: ${lead.assignedAgent || "unassigned"})`);
         alertedLeads.set(lead.id, { lastAlertAt: Date.now(), tier: "orange" });
         stats.alerted++;
+        // Tie into scheduling: set nextFollowUpAt so it shows in GHL leads next outreach
+        try {
+          const nextFollowUp = new Date(Date.now() + 30 * 60 * 1000); // 30 min from now
+          await updateLeadFields(lead.id, {
+            nextFollowUpAt: nextFollowUp,
+            overrideReason: `SLA BREACH (8h): Human agent silent ${bizHours}h. Needs immediate attention.`,
+            overrideBy: "sla-timer",
+            overrideAt: new Date(),
+          });
+        } catch { /* best effort */ }
+        // Record into error-memory for self-healing
+        try {
+          await recordError({
+            errorType: "sla_breach",
+            errorMessage: `Human agent SLA breach (8h) for lead ${lead.id} (${lead.name || "unknown"})`,
+            context: `leadId=${lead.id} bizHours=${bizHours} agent=${lead.assignedAgent || "unassigned"} tier=orange`,
+          });
+        } catch { /* best effort */ }
       } else if (bizHours >= 4 && !existing) {
         // First yellow alert
         yellowAlerts.push(`• ${lead.name || `Lead #${lead.id}`} — ${bizHours}h silent (agent: ${lead.assignedAgent || "unassigned"})`);
         alertedLeads.set(lead.id, { lastAlertAt: Date.now(), tier: "yellow" });
         stats.alerted++;
+        // Tie into scheduling: set nextFollowUpAt for visibility in GHL
+        try {
+          const nextFollowUp = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2h from now
+          await updateLeadFields(lead.id, {
+            nextFollowUpAt: nextFollowUp,
+            overrideReason: `SLA WARNING (4h): Human agent silent ${bizHours}h. Follow-up needed.`,
+            overrideBy: "sla-timer",
+            overrideAt: new Date(),
+          });
+        } catch { /* best effort */ }
+        // Record into error-memory for self-healing
+        try {
+          await recordError({
+            errorType: "sla_breach",
+            errorMessage: `Human agent SLA warning (4h) for lead ${lead.id} (${lead.name || "unknown"})`,
+            context: `leadId=${lead.id} bizHours=${bizHours} agent=${lead.assignedAgent || "unassigned"} tier=yellow`,
+          });
+        } catch { /* best effort */ }
       }
     }
 

@@ -96,12 +96,27 @@ export async function processPostDeliverySteps(): Promise<{ processed: number; s
           stats.skipped++;
           continue;
         }
+        // Email threading: look up prior email thread for reply threading
+        let emailThreadId: string | null = null;
+        let priorEmailSubject: string | null = null;
+        if (channel === "Email") {
+          const { getLastEmailThreadInfo } = await import("./db");
+          const threadInfo = await getLastEmailThreadInfo(step.leadId);
+          emailThreadId = threadInfo?.threadId || null;
+          priorEmailSubject = threadInfo?.subject || null;
+          if (emailThreadId) console.log(`[PostDelivery] Threading email for lead ${step.leadId} (threadId: ${emailThreadId})`);
+        }
+        let emailSubject = aiResponse.subject || buildContextSubject({ name: lead.name, businessName: (lead as any).businessName }, aiResponse.fromName);
+        if (emailThreadId && priorEmailSubject) {
+          emailSubject = priorEmailSubject.startsWith("Re:") ? priorEmailSubject : `Re: ${priorEmailSubject}`;
+        }
         const msgOpts = channel === "Email"
           ? {
               type: "Email" as const,
-              subject: aiResponse.subject || buildContextSubject({ name: lead.name, businessName: (lead as any).businessName }, aiResponse.fromName),
+              subject: emailSubject,
               html: formatEmailHtml(aiResponse.message),
               fromName: aiResponse.fromName,
+              ...(emailThreadId ? { threadId: emailThreadId, replyMessageId: emailThreadId } : {}),
             }
           : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
 
@@ -135,11 +150,29 @@ export async function processPostDeliverySteps(): Promise<{ processed: number; s
           await skipPostDeliveryStep(step.id); // mark as skipped on failure
           console.error(`[PostDelivery] ❌ Failed to send ${step.stepType} to lead ${step.leadId}: ${sendResult.error}`);
           stats.errors++;
+          // Self-healing: record send failure into error-memory
+          try {
+            const { recordError } = await import("./error-memory");
+            await recordError({
+              errorType: "post_delivery_error",
+              errorMessage: `Post-delivery ${step.stepType} send failed for lead ${step.leadId}: ${sendResult.error}`,
+              context: `leadId=${step.leadId} stepType=${step.stepType} channel=${channel} error=${sendResult.error}`,
+            });
+          } catch { /* best effort */ }
         }
       } catch (err) {
         console.error(`[PostDelivery] Error processing step ${step.id}:`, err);
         await skipPostDeliveryStep(step.id).catch(() => {});
         stats.errors++;
+        // Self-healing: record processing error into error-memory
+        try {
+          const { recordError } = await import("./error-memory");
+          await recordError({
+            errorType: "post_delivery_error",
+            errorMessage: `Post-delivery step ${step.id} processing error: ${err instanceof Error ? err.message : String(err)}`,
+            context: `stepId=${step.id} leadId=${step.leadId} stepType=${step.stepType}`,
+          });
+        } catch { /* best effort */ }
       }
     }
   } catch (err) {

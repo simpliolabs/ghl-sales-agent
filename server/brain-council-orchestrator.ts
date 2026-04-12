@@ -759,6 +759,79 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
     }
 
     // ============================================================
+    // POST-COMPOSE EMAIL FORMATTING ENFORCEMENT (SOURCE-LEVEL)
+    // If the Composer returned an email as one long paragraph without
+    // proper line breaks or signature, fix it structurally here.
+    // This runs BEFORE QC so the QC reviewer sees a properly formatted email.
+    // ============================================================
+    if (strategy.channel === "Email" && composed.message) {
+      const msg = composed.message;
+      const hasNewlines = msg.includes("\n");
+      const hasSignature = msg.includes("---") || msg.includes("Adorb Custom Printing");
+      
+      if (!hasNewlines && msg.length > 80) {
+        // Email is one long paragraph — structurally break it up
+        console.log(`[SalesManager] EMAIL FORMAT FIX: Composer returned email without line breaks — restructuring`);
+        // Self-learning: record this formatting failure so the system learns to avoid it
+        try {
+          const { recordViolationLearning } = await import("./learning-loop");
+          await recordViolationLearning({
+            violationCategory: "email_formatting",
+            violationReason: "Composer returned email as single paragraph without line breaks",
+            leadId: context.lead.id,
+            channel: "Email",
+            framework: strategy.framework,
+            approach: strategy.approach,
+            persona: context.lead.segment || undefined,
+            qcScore: 0,
+            reformulationAttempts: 0,
+          });
+        } catch { /* best effort */ }
+        // Split on sentence boundaries and add paragraph breaks
+        const sentences = msg.match(/[^.!?]+[.!?]+/g) || [msg];
+        const lines: string[] = [];
+        let currentGroup = "";
+        for (const sentence of sentences) {
+          const trimmed = sentence.trim();
+          if (!trimmed) continue;
+          // Start a new paragraph every 1-2 sentences (Hormozi style)
+          if (currentGroup && (currentGroup.split(/\s+/).length > 12 || lines.length === 0)) {
+            lines.push(currentGroup.trim());
+            currentGroup = trimmed;
+          } else if (!currentGroup) {
+            currentGroup = trimmed;
+          } else {
+            currentGroup += " " + trimmed;
+          }
+        }
+        if (currentGroup) lines.push(currentGroup.trim());
+        composed.message = lines.join("\n\n");
+      }
+      
+      if (!hasSignature) {
+        // Email is missing signature — add it
+        console.log(`[SalesManager] EMAIL FORMAT FIX: Composer returned email without signature — adding`);
+        // Self-learning: record missing signature pattern
+        try {
+          const { recordViolationLearning } = await import("./learning-loop");
+          await recordViolationLearning({
+            violationCategory: "email_formatting",
+            violationReason: "Composer returned email without signature block",
+            leadId: context.lead.id,
+            channel: "Email",
+            framework: strategy.framework,
+            approach: strategy.approach,
+            persona: context.lead.segment || undefined,
+            qcScore: 0,
+            reformulationAttempts: 0,
+          });
+        } catch { /* best effort */ }
+        const agentFirst = (composed.fromName || context.lead.assignedAgent || "Abby").split(" ")[0];
+        composed.message = composed.message.trimEnd() + `\n\n---\nBest,\n${agentFirst} | Adorb Custom Printing\n(954) 932-8543\nprint@adorbcustomtees.com\nadorbcustomtees.com\n⭐ 4.9 Stars · 867+ Verified Reviews\nSee our reviews: https://adorbcustomtees.com/pages/reviews`;
+      }
+    }
+
+    // ============================================================
     // DETERMINISTIC VIOLATION CHECK — runs BEFORE LLM QC call
     // Hard rules are deterministic code. They don't need LLM confirmation.
     // If a hard rule fires, we skip the expensive LLM QC call entirely.

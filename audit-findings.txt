@@ -1,0 +1,30 @@
+DASHBOARD AUDIT FINDINGS — What's connected vs missing
+=======================================================
+
+EXISTING DASHBOARD PAGES (sidebar nav in DashboardLayout.tsx):
+- Dashboard (Home.tsx) — KPIs, system health, supervisor card
+- Hot Leads, Pipeline, All Leads, Lead Detail
+- AI Performance — learning insights, framework perf, channel perf (analytics only)
+- Brain Council Log (AuditLog.tsx)
+- Handoff Queue
+- Self-Learning — A/B experiments, persona matrix, trends, overview
+- Webhook Logs
+- Knowledge Base
+- Settings — AI tweaker, GHL sync, team/invites
+
+NEWLY BUILT BACKEND FEATURES (gap items) — NONE have admin UX:
+1. Hall of Fame (hall_of_fame table) — NO admin page to view/curate winning messages
+2. SLA Timer (sla-timer.ts) — NO dashboard card showing SLA status/alerts
+3. Channel Intelligence (channel_performance table) — NO admin view of per-lead channel data
+4. Post-Delivery Sequences (post_delivery_sequences table) — NO admin view of sequence status
+5. Seasonal Campaigns (seasonal_campaigns table) — NO admin CRUD to create/manage campaigns
+6. Error Memory / Self-Healing (error-memory.ts) — NO dashboard exposure at all
+
+SELF-LEARNING TIES:
+- Self-Learning page has: A/B experiments, persona matrix, trends, framework perf
+- MISSING: Hall of Fame tab, channel intelligence tab, error memory/self-healing tab
+- MISSING: Post-delivery sequence outcomes feeding back into learning
+
+ANSWER TO USER'S QUESTIONS:
+1. "All ties to self-learning/self-healing in dashboard?" — NO, the new features are backend-only
+2. "Was any admin UX changed?" — NO, zero frontend changes were made in the gap items build

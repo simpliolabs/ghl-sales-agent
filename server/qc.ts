@@ -398,6 +398,24 @@ export function detectViolations(
     }
   }
 
+  // 5b. EMAIL FORMATTING VIOLATION — deterministic hard-reject for emails without proper formatting
+  // This catches any email that somehow bypassed the orchestrator's post-compose formatter.
+  if (strategy.channel === "Email" && composed.message) {
+    const emailMsg = composed.message;
+    const emailHasNewlines = emailMsg.includes("\n");
+    const emailHasSignature = emailMsg.includes("---") && (emailMsg.includes("Adorb Custom Printing") || emailMsg.includes("adorbcustomtees.com"));
+    
+    // Hard-reject: email is one long paragraph (no newlines, over 100 chars)
+    if (!emailHasNewlines && emailMsg.length > 100) {
+      return { category: "email_formatting" as ViolationCategory, reason: `Email message is one long paragraph with no line breaks (${emailMsg.length} chars). Emails MUST use short punchy lines with blank lines between them. Each thought on its own line.` };
+    }
+    
+    // Hard-reject: email missing signature block
+    if (!emailHasSignature && emailMsg.length > 50) {
+      return { category: "email_formatting" as ViolationCategory, reason: `Email message is missing the mandatory signature block (--- / Adorb Custom Printing / phone / email / website / reviews). Every email MUST end with the full signature.` };
+    }
+  }
+
   // 6. SAFETY
   const safetyPatterns = ["guarantee", "money back", "100% free", "no cost ever", "unlimited"];
   if (safetyPatterns.some(p => msg.includes(p))) {

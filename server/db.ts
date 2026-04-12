@@ -132,30 +132,38 @@ export async function getLastEmailThreadId(leadId: number): Promise<string | nul
   return info?.threadId || null;
 }
 
-/** Get the last outbound email's thread ID and subject for reply threading */
+/** Get the last email's thread ID and subject for reply threading.
+ *  Checks BOTH outbound and inbound emails — if the lead replied to our email,
+ *  their inbound reply carries the threadId we need to continue the thread. */
 export async function getLastEmailThreadInfo(leadId: number): Promise<{ threadId: string; subject: string | null } | null> {
   const db = await getDb();
   if (!db) return null;
+  // Check the most recent email in EITHER direction that has an emailMessageId
   const rows = await db.select({
     ghlMessageId: conversations.ghlMessageId,
     emailMessageId: conversations.emailMessageId,
     messageBody: conversations.messageBody,
+    direction: conversations.direction,
   })
     .from(conversations)
-    .where(and(eq(conversations.leadId, leadId), eq(conversations.channel, "Email"), eq(conversations.direction, "outbound")))
+    .where(and(eq(conversations.leadId, leadId), eq(conversations.channel, "Email")))
     .orderBy(desc(conversations.timestamp))
-    .limit(1);
+    .limit(5);
   if (!rows.length) return null;
-  const threadId = rows[0].emailMessageId || rows[0].ghlMessageId || null;
-  if (!threadId) return null;
-  // Extract subject from message body if it starts with "Subject: ..."
-  let subject: string | null = null;
-  const body = rows[0].messageBody || "";
-  const subjectMatch = body.match(/^Subject:\s*(.+?)\n/i);
-  if (subjectMatch) {
-    subject = subjectMatch[1].trim();
+  // Find the first row with a usable threadId (prefer emailMessageId, fallback to ghlMessageId)
+  for (const row of rows) {
+    const threadId = row.emailMessageId || row.ghlMessageId || null;
+    if (!threadId) continue;
+    // Extract subject from message body if it starts with "Subject: ..."
+    let subject: string | null = null;
+    const body = row.messageBody || "";
+    const subjectMatch = body.match(/^Subject:\s*(.+?)\n/i);
+    if (subjectMatch) {
+      subject = subjectMatch[1].trim();
+    }
+    return { threadId, subject };
   }
-  return { threadId, subject };
+  return null;
 }
 
 // --- Dedup: count recent AI outbound messages within a time window ---

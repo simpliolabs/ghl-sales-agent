@@ -492,7 +492,7 @@ describe("context_free_subject violation", () => {
     // Message body references form data (to avoid form_data_ignored firing first)
     // but subject line is generic
     const composed = makeComposed({
-      message: "Hi John, about those T-Shirts for your Church event — we can help!",
+      message: "Hi John, about those T-Shirts for your Church event \u2014 we can help!\n\nWe specialize in bulk custom printing and would love to assist.\n\n---\nBest,\nAbby | Adorb Custom Printing\n(954) 932-8543\nprint@adorbcustomtees.com",
       subject: "Quick update",
     });
 

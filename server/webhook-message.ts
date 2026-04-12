@@ -205,12 +205,15 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   // (Brain Council, QC, send channel) uses the corrected value, not the raw webhook value.
   channel = correctedChannel;
 
-  // Store the message
+  // Store the message — capture emailMessageId for threading
+  // GHL may provide emailMessageId directly, or we use messageId as fallback for emails
+  const inboundEmailMsgId = (payload.emailMessageId as string) || (channel === "Email" ? (payload.messageId as string) : undefined);
   await addConversation({
     leadId: lead!.id, channel: correctedChannel,
     direction: direction === "outbound" ? "outbound" : "inbound",
     messageBody: effectiveMessageBody, senderType: direction === "outbound" ? "human" : "lead",
     ghlMessageId: payload.messageId as string,
+    emailMessageId: inboundEmailMsgId || undefined,
   });
 
   await updateLeadFields(lead!.id, { lastMessageAt: new Date() });

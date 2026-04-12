@@ -716,3 +716,10 @@
 - [x] Post-delivery follow-up automation (review request + upsell sequence after fulfillment)
 - [x] Seasonal campaign mode (bulk push stale leads with a specific angle for a date range)
 - [x] Closer/Objection Handler routing through Chief Sales Manager (already routed through Chief — verified)
+
+## Source-Level Fixes (Apr 12 2026)
+- [x] EMAIL FORMATTING: Add hard instruction in Composer system prompt requiring proper HTML email formatting (paragraphs, line breaks, signature) — not plain text
+- [x] EMAIL THREADING: Follow-up emails must be sent as replies to previous email thread — hardened emailMessageId capture in all send paths, inbound storage, fallback branches, post-delivery executor, and getLastEmailThreadInfo now checks both directions
+- [x] SLA TIMER: Tie SLA timer into existing lead next-outreach scheduling + error-memory (updates nextFollowUpAt, overrideReason, overrideBy on SLA breach)
+- [x] SELF-LEARNING TIE-IN: Hall of Fame + Channel Intelligence already in outcome-engine; email formatting violations recorded to learning-loop; post-delivery/seasonal errors feed error-memory
+- [x] SELF-HEALING TIE-IN: All new features (SLA, post-delivery, seasonal, email formatting, follow-up send failures) feed into error-memory with known fixes seeded

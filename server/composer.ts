@@ -587,7 +587,7 @@ ${strategy.approach === "acknowledge_info" ? "\n⚠️ CRITICAL: The lead shared
         schema: {
           type: "object",
           properties: {
-            message: { type: "string", description: "The actual message to send" },
+            message: { type: "string", description: "The actual message to send. For EMAIL channel: MUST use \\n (newline) between each line/paragraph. Each thought on its own line. MUST end with signature block: \\n---\\nBest,\\n[AgentName] | Adorb Custom Printing\\n(954) 932-8543\\nprint@adorbcustomtees.com\\nadorbcustomtees.com\\n⭐ 4.9 Stars · 867+ Verified Reviews\\nSee our reviews: https://adorbcustomtees.com/pages/reviews. NEVER output email as one long paragraph." },
             fromName: { type: "string", description: "The sender name to display" },
             subject: { type: "string", description: "Email subject line (empty string if not email)" },
             internalNotes: { type: "string", description: "Notes for the team about this message" },

@@ -29,6 +29,11 @@ export type ErrorType =
   | "channel_mismatch"
   | "webhook_parse"
   | "db_error"
+  | "sla_breach"
+  | "email_formatting"
+  | "email_threading"
+  | "campaign_error"
+  | "post_delivery_error"
   | "send_failure"
   | "state_invalid"
   | "rate_limit"
@@ -330,6 +335,48 @@ export async function seedKnownErrors(): Promise<number> {
       rootCause: "Too many concurrent LLM calls",
       knownFix: "Queue LLM calls with 500ms spacing. Retry after 30 seconds.",
       prevention: "Implement LLM call queue with concurrency limit of 3.",
+    },
+    {
+      errorType: "sla_breach",
+      errorMessage: "Human agent SLA breach",
+      rootCause: "Human-owned lead has no agent activity within SLA window (4h/8h business hours)",
+      knownFix: "Notify owner immediately. If 8h+ breach, set nextFollowUpAt to 30min for urgent visibility. Consider auto-releasing back to AI if pattern persists.",
+      prevention: "Monitor agent response times. Set up escalation tiers. Consider auto-release after 24h.",
+    },
+    {
+      errorType: "email_formatting",
+      errorMessage: "Composer returned email without line breaks",
+      rootCause: "LLM Composer generated email as single paragraph without proper formatting",
+      knownFix: "Post-compose enforcement restructures the email with paragraph breaks. Learning loop records the pattern to train the Composer to avoid it.",
+      prevention: "Composer prompt includes explicit formatting instructions. Deterministic QC gate rejects unformatted emails.",
+    },
+    {
+      errorType: "email_formatting",
+      errorMessage: "Composer returned email without signature block",
+      rootCause: "LLM Composer omitted the required signature block from the email",
+      knownFix: "Post-compose enforcement appends the standard signature. Learning loop records the pattern.",
+      prevention: "Composer prompt requires signature block. QC deterministic check validates presence.",
+    },
+    {
+      errorType: "email_threading",
+      errorMessage: "Email sent without thread ID",
+      rootCause: "No prior emailMessageId found in conversation history for this lead",
+      knownFix: "Ensure emailMessageId is captured from both inbound and outbound emails. Check all send paths including fallback branches.",
+      prevention: "Store emailMessageId on every email conversation record. getLastEmailThreadInfo checks both directions.",
+    },
+    {
+      errorType: "campaign_error",
+      errorMessage: "Seasonal campaign scheduling failed",
+      rootCause: "Error scheduling stale leads for seasonal campaign outreach",
+      knownFix: "Check lead data integrity (ghlContactId, email/phone). Skip invalid leads and continue campaign.",
+      prevention: "Validate lead data before campaign scheduling. Add data quality checks.",
+    },
+    {
+      errorType: "post_delivery_error",
+      errorMessage: "Post-delivery step send failed",
+      rootCause: "Failed to send post-delivery sequence step (satisfaction/review/upsell) to customer",
+      knownFix: "Check contact info validity. Try alternate channel. Skip step if all channels fail.",
+      prevention: "Validate contact info before creating post-delivery sequence. Use channel intelligence for best channel.",
     },
   ];
 

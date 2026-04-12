@@ -542,6 +542,15 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
 
           // Transient or unknown — reschedule 1 hour and count as error
           stats.errors++;
+          // Self-healing: record all send failures into error-memory
+          try {
+            const { recordError } = await import("./error-memory");
+            await recordError({
+              errorType: "send_failure",
+              errorMessage: `Follow-up send failed for lead ${leadId}: ${sendResult.error}`,
+              context: `leadId=${leadId} channel=${channel} errType=${errType} correction=${correction}`,
+            });
+          } catch { /* best effort */ }
         }
 
         // Clear admin override fields after the override has been consumed (follow-up fired)

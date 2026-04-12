@@ -1,0 +1,50 @@
+SOURCE ANALYSIS — Email Formatting + Threading Issues
+=====================================================
+
+ISSUE 1: Jeffrey Goodson email has NO formatting, NO signature
+--------------------------------------------------------------
+ROOT CAUSE: The Composer prompt (lines 135-179) has EXTENSIVE email formatting rules including:
+- Short punchy lines with blank lines between them
+- Mandatory signature block
+- Example of correct vs wrong format
+
+The QC prompt (check 12, lines 143-155) also checks for:
+- Short punchy lines, signature block, reviews link
+
+BUT: The LLM is returning the message as a JSON string field. When the LLM writes
+the "message" field, it outputs a FLAT string with no real newlines — just one long
+paragraph. The formatEmailHtml function (webhook-helpers.ts line 605) converts
+\n\n to <p> tags and \n to <br> — but if the LLM doesn't include actual newlines
+in the JSON string, the formatter has nothing to work with.
+
+THE REAL SOURCE FIX:
+1. The Composer JSON schema description for "message" field needs to EXPLICITLY say
+   "Use \\n for line breaks between paragraphs. Each thought on its own line."
+2. Add a DETERMINISTIC email formatting check in detectViolations() that catches
+   emails without newlines or without signature block BEFORE the LLM QC call.
+3. The QC revisedMessage should also be checked for formatting.
+
+ISSUE 2: Harriet Bonaparte 2nd email is NOT a reply to previous email
+---------------------------------------------------------------------
+ROOT CAUSE ANALYSIS:
+- follow-up-trigger.ts (line 452-468) DOES look up threadId via getLastEmailThreadInfo()
+- webhook-message.ts (line 744-758) DOES look up threadId for inbound responses
+- ghl.ts (line 273-277) DOES pass threadId/replyMessageId to GHL API
+
+BUT: The threading depends on emailMessageId being stored in the conversations table.
+- addConversation stores emailMessageId (line 477 in follow-up-trigger.ts)
+- getLastEmailThreadInfo queries for it (db.ts line 136-156)
+
+POSSIBLE FAILURE POINTS:
+1. GHL API may not return emailMessageId on send — if it returns undefined, we store nothing
+2. sendMessageWithRetry fallback branches may lose emailMessageId (webhook-helpers.ts)
+3. If the FIRST email to a lead didn't get an emailMessageId stored, ALL subsequent
+   emails will be standalone because getLastEmailThreadInfo returns null
+
+THE REAL SOURCE FIX:
+1. In ghl.ts sendMessage, ensure we ALWAYS capture and return emailMessageId from GHL response
+2. In sendMessageWithRetry, ensure ALL fallback branches preserve emailMessageId
+3. Add a fallback: if no emailMessageId, use ghlMessageId as threadId
+4. For the Composer: when channel=Email and there's a prior email, the subject should
+   ALWAYS be "Re: <prior subject>" — enforce this in the orchestrator, not just hope
+   the Composer does it.

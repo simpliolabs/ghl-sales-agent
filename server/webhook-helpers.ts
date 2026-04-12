@@ -184,8 +184,8 @@ export async function sendMessageWithRetry(
         await updateLeadFields(lead.id, { ghlContactId: resolved.resolvedId });
         console.log(`[SendRetry] Resolved to ${resolved.resolvedId}, retrying send...`);
         try {
-          await sendMessage(resolved.resolvedId, opts);
-          return { success: true, resolvedContactId: resolved.resolvedId, correctionTaken: "resolved_contact_id" };
+          const retryResult = await sendMessage(resolved.resolvedId, opts);
+          return { success: true, resolvedContactId: resolved.resolvedId, correctionTaken: "resolved_contact_id", emailMessageId: (retryResult as any)?.emailMessageId };
         } catch (retryErr: unknown) {
           const retryClassified = classifyGhlSendError(retryErr);
           console.error(`[SendRetry] Retry also failed (${retryClassified.type}):`, retryClassified.message);
@@ -201,8 +201,8 @@ export async function sendMessageWithRetry(
         console.log(`[SendRetry] Missing phone for lead ${lead.id} — attempting Email fallback`);
         try {
           const fbSubject = (opts as any)._contextSubject || "Adorb Custom Tees";
-          await sendMessage(contactId, { type: "Email", subject: fbSubject, html: opts.message || "", message: opts.message });
-          return { success: true, resolvedContactId: contactId, correctionTaken: "fallback_to_email" };
+          const fbResult = await sendMessage(contactId, { type: "Email", subject: fbSubject, html: opts.message || "", message: opts.message });
+          return { success: true, resolvedContactId: contactId, correctionTaken: "fallback_to_email", emailMessageId: (fbResult as any)?.emailMessageId };
         } catch (fbErr: unknown) {
           const fbClassified = classifyGhlSendError(fbErr);
           console.error(`[SendRetry] Email fallback also failed (${fbClassified.type}):`, fbClassified.message);
@@ -223,8 +223,8 @@ export async function sendMessageWithRetry(
       if (lead.phone) {
         console.log(`[SendRetry] ${label} for lead ${lead.id} — attempting SMS fallback`);
         try {
-          await sendMessage(contactId, { type: "SMS", message: opts.message || "" });
-          return { success: true, resolvedContactId: contactId, correctionTaken: "fallback_to_sms" };
+          const smsResult = await sendMessage(contactId, { type: "SMS", message: opts.message || "" });
+          return { success: true, resolvedContactId: contactId, correctionTaken: "fallback_to_sms", emailMessageId: (smsResult as any)?.emailMessageId };
         } catch (fbErr: unknown) {
           const fbClassified = classifyGhlSendError(fbErr);
           console.error(`[SendRetry] SMS fallback also failed (${fbClassified.type}):`, fbClassified.message);
@@ -244,8 +244,8 @@ export async function sendMessageWithRetry(
       if (lead.email) {
         try {
           const cbSubject = (opts as any)._contextSubject || "Adorb Custom Tees";
-          await sendMessage(contactId, { type: "Email", subject: cbSubject, html: opts.message || "", message: opts.message });
-          return { success: true, resolvedContactId: contactId, correctionTaken: "carrier_block_fallback_to_email" };
+          const cbResult = await sendMessage(contactId, { type: "Email", subject: cbSubject, html: opts.message || "", message: opts.message });
+          return { success: true, resolvedContactId: contactId, correctionTaken: "carrier_block_fallback_to_email", emailMessageId: (cbResult as any)?.emailMessageId };
         } catch (fbErr: unknown) {
           const fbClassified = classifyGhlSendError(fbErr);
           console.error(`[SendRetry] Email fallback after carrier block also failed:`, fbClassified.message);

@@ -88,6 +88,15 @@ export async function processSeasonalCampaigns(): Promise<{ campaignsProcessed: 
           } catch (err) {
             console.error(`[SeasonalCampaign] Error scheduling lead ${lead.id}:`, err);
             stats.errors++;
+            // Self-healing: record into error-memory
+            try {
+              const { recordError } = await import("./error-memory");
+              await recordError({
+                errorType: "campaign_error",
+                errorMessage: `Seasonal campaign scheduling failed for lead ${lead.id}: ${err instanceof Error ? err.message : String(err)}`,
+                context: `campaignId=${campaign.id} campaignName=${campaign.name} leadId=${lead.id}`,
+              });
+            } catch { /* best effort */ }
           }
         }
 
@@ -107,6 +116,15 @@ export async function processSeasonalCampaigns(): Promise<{ campaignsProcessed: 
       } catch (err) {
         console.error(`[SeasonalCampaign] Error processing campaign ${campaign.id}:`, err);
         stats.errors++;
+        // Self-healing: record campaign-level error
+        try {
+          const { recordError } = await import("./error-memory");
+          await recordError({
+            errorType: "campaign_error",
+            errorMessage: `Seasonal campaign ${campaign.id} processing error: ${err instanceof Error ? err.message : String(err)}`,
+            context: `campaignId=${campaign.id} campaignName=${campaign.name}`,
+          });
+        } catch { /* best effort */ }
       }
     }
   } catch (err) {
