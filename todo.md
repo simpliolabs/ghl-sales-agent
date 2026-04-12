@@ -739,10 +739,10 @@
 - [x] FIX: pipelineValue push — now pushed at interested + committed states via auto-created opportunity (no more silent skip)
 
 ## Transferred Contact Internal Enrichment (Apr 12)
-- [ ] Pull all transferred contacts' custom fields from GHL into portal DB
-- [ ] Pull all transferred contacts' conversation history from GHL into portal DB
-- [ ] Tag all transferred contacts with source marker (transferred_contact) in portal DB
-- [ ] Store signup source / how they found us for each transferred contact
-- [ ] Schedule all transferred contacts for re-engagement activation timeline
-- [ ] Pull external online references (Researcher brain) for transferred contacts
-- [ ] Trigger Omnisend sync for all transferred contacts with email addresses
+- [x] Pull all transferred contacts' custom fields from GHL into portal DB
+- [x] Pull all transferred contacts' attribution + opportunity history from GHL into portal DB
+- [x] Tag all transferred contacts with source marker (transferred_contact) in portal DB
+- [x] Store signup source / how they found us (attribution: Facebook, social media, etc.) in researchData.transferredContact
+- [x] Schedule all transferred contacts for re-engagement activation timeline (staggered M-F 9-5 ET)
+- [x] Pull external online references — lastResearchSummary cleared so Researcher brain auto-picks up on next lookback cycle
+- [x] Trigger Omnisend sync for all transferred contacts with email addresses (pushed during enrichment)
