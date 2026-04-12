@@ -730,3 +730,10 @@
 - [x] BUG: Weekend/after-hours scheduling — both scheduling-engine.ts and cadence-engine.ts now enforce Mon-Fri 9am-5pm ET only (Saturday removed, end hour changed from 6/7pm to 5pm)
 - [x] BUG: AI says "someone will reach out later today" at 10pm — Composer now receives current time context + temporal language rules; QC has deterministic temporal promise gate that hard-rejects same-day promises outside M-F 9-5 ET
 - [x] BUG: No handoff task/appointment created when human takeover triggers — handleHumanActive now creates GHL task with next-biz-hours due date, assigns to agent, and sends owner notification
+
+## Source-Level Fixes Round 3 (Apr 12)
+- [x] FIX: Added createOpportunity to ghl.ts + auto-create at interested/committed/human_active state transitions
+- [x] FIX: handleCommitted rewritten — sales follow-up task for AGENT (not César) + appointment + conversation summary + auto-create opportunity + push pipeline value
+- [x] FIX: webhook-pipeline Paid-Proof-Needed — full César automation: task + appointment + notification + conversation summary in notes
+- [x] FIX: handleHumanActive — conversation summary in task + note + appointment + auto-create opportunity if missing
+- [x] FIX: pipelineValue push — now pushed at interested + committed states via auto-created opportunity (no more silent skip)

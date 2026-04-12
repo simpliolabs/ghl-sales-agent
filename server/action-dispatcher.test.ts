@@ -156,7 +156,7 @@ describe("Action Dispatcher", () => {
       expect(result.actionsExecuted).toHaveLength(0);
     });
 
-    it("dispatches committed → creates mockup task for designer", async () => {
+    it("dispatches committed \u2192 creates sales follow-up task for agent (NOT designer)", async () => {
       const { dispatchStateActions } = await import("./action-dispatcher");
       const { createTask } = await import("./ghl");
 
@@ -167,14 +167,17 @@ describe("Action Dispatcher", () => {
 
       expect(result.skipped).toBe(false);
       expect(result.actionsExecuted.length).toBeGreaterThan(0);
-      expect(result.actionsExecuted.some(a => a.includes("mockup task"))).toBe(true);
+      expect(result.actionsExecuted.some(a => a.includes("sales follow-up task"))).toBe(true);
       expect(createTask).toHaveBeenCalledWith("contact_123", expect.objectContaining({
-        title: expect.stringContaining("Build mockup"),
-        assignedTo: "César Vásquez",
+        title: expect.stringContaining("Close deal"),
       }));
+      // C\u00e9sar should NOT be assigned at committed state (only at Paid-Proof-Needed)
+      const taskCalls = (createTask as any).mock.calls;
+      const committedTaskCall = taskCalls.find((c: any) => c[1]?.title?.includes("Close deal"));
+      expect(committedTaskCall[1].assignedTo).not.toBe("C\u00e9sar V\u00e1squez");
     });
 
-    it("dispatches committed → adds GHL note", async () => {
+    it("dispatches committed \u2192 adds GHL note", async () => {
       const { dispatchStateActions } = await import("./action-dispatcher");
       const { addNote } = await import("./ghl");
 

@@ -5,7 +5,7 @@
  * It replaces scattered pipeline update calls across 6+ files.
  *
  * State → Action mapping:
- *   committed     → Create mockup task for designer + move pipeline to "Paid - Proof Needed"
+ *   committed     → Create sales follow-up task for agent + appointment + move to Qualified + auto-create opportunity
  *   dnc_channel   → Block channel + escalate to next (via channel-fallback.ts)
  *   dnc_all       → Move to Not Qualified
  *   fulfilled     → Schedule post-delivery follow-up
@@ -20,7 +20,7 @@
  *   - Does NOT send customer messages (that's the Brain Council's job)
  */
 
-import { updateLeadFields, addConversation, getLeadById } from "./db";
+import { updateLeadFields, addConversation, getLeadById, getConversationHistory } from "./db";
 import { createTask, addNote, updateOpportunityStage, getOpportunitiesByContact } from "./ghl";
 import { handleChannelDnc, allChannelsExhausted, detectDncChannel } from "./channel-fallback";
 import { calculateNextFollowUp } from "./scheduling-engine";
@@ -58,67 +58,147 @@ export interface DispatchResult {
 
 /**
  * Handle transition TO "committed" state.
- * Paulette's case: customer confirmed details → create mockup task + notify team.
+ * Customer expressed commitment ("sounds good", "let's do it") — this is a SALES
+ * commitment, NOT a payment confirmation. The designer (César) task only happens
+ * when the pipeline reaches "Paid - Proof Needed" (handled by webhook-pipeline.ts).
  *
  * Actions:
- * 1. Create a GHL task for the designer to build the mockup
- * 2. Add a GHL note documenting the commitment
- * 3. Schedule a follow-up for proof delivery
+ * 1. Auto-create GHL opportunity if one doesn't exist
+ * 2. Create a sales follow-up task for the ASSIGNED AGENT (not designer)
+ * 3. Add a GHL note with conversation summary
+ * 4. Create an appointment for the agent to follow up
+ * 5. Move pipeline to Qualified stage
+ * 6. Schedule follow-up
  */
 async function handleCommitted(ctx: DispatchContext, intent: IntentResult): Promise<DispatchResult> {
   const actions: string[] = [];
   const errors: string[] = [];
   const leadLabel = ctx.leadName || ctx.businessName || "Lead";
+  const agent = ctx.assignedAgent || SALES_AGENTS[0];
 
-  // 1. Create mockup/design task for the designer
+  // 0. Auto-create GHL opportunity if missing
+  let opportunityId = ctx.ghlOpportunityId;
+  let pipelineId = ctx.ghlPipelineId;
+  if (!opportunityId) {
+    try {
+      const { createOpportunity } = await import("./ghl");
+      const { GHL_PIPELINES, CONTACTED_STAGE_IDS } = await import("../shared/ghl-stages");
+      const defaultPipeline = pipelineId || GHL_PIPELINES.BULK_PRINTING;
+      const defaultStage = CONTACTED_STAGE_IDS[defaultPipeline] || Object.values(CONTACTED_STAGE_IDS)[0];
+      const opp = await createOpportunity({
+        contactId: ctx.ghlContactId,
+        name: `${leadLabel} — AI Committed`,
+        pipelineId: defaultPipeline,
+        stageId: defaultStage,
+        monetaryValue: ctx.pipelineValue || undefined,
+      });
+      opportunityId = opp.id;
+      pipelineId = opp.pipelineId;
+      await updateLeadFields(ctx.leadId, {
+        ghlOpportunityId: opp.id,
+        ghlPipelineId: opp.pipelineId,
+      });
+      actions.push(`Auto-created GHL opportunity: ${opp.id}`);
+      console.log(`[ActionDispatcher] Lead ${ctx.leadId}: Auto-created opportunity ${opp.id}`);
+    } catch (err: any) {
+      errors.push(`Failed to auto-create opportunity: ${err?.message}`);
+      console.error(`[ActionDispatcher] Lead ${ctx.leadId}: Failed to create opportunity:`, err);
+    }
+  }
+
+  // 1. Build conversation summary for the agent
+  let conversationSummary = "";
+  try {
+    const history = await getConversationHistory(ctx.leadId, 20);
+    if (history.length > 0) {
+      const recent = history.slice(0, 10).reverse();
+      conversationSummary = recent.map((m: any) => {
+        const who = m.direction === "inbound" ? (ctx.leadName || "Customer") : "AI (Abby)";
+        const time = m.timestamp ? new Date(m.timestamp).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+        return `[${time}] ${who}: ${(m.messageBody || "").slice(0, 200)}`;
+      }).join("\n");
+    }
+  } catch { /* best effort */ }
+
+  // 2. Create sales follow-up task for the ASSIGNED AGENT (NOT the designer)
   try {
     await createTask(ctx.ghlContactId, {
-      title: `🎨 Build mockup for ${leadLabel} — Customer confirmed details`,
+      title: `📋 Close deal with ${leadLabel} — Customer is committed`,
       body: [
-        `Customer has confirmed their order details and is ready to proceed.`,
+        `Customer has expressed commitment and is ready to move forward.`,
         ``,
         `Business: ${ctx.businessName || "N/A"}`,
         `Contact: ${ctx.leadName || "N/A"}`,
-        `Email: ${ctx.email || "N/A"}`,
+        `Phone: ${ctx.phone || "N/A"} | Email: ${ctx.email || "N/A"}`,
         `Estimated Value: $${ctx.pipelineValue || "TBD"}`,
         ``,
-        `Check the conversation history and contact notes for:`,
-        `- Product type, quantity, sizes`,
-        `- Design details (text, logos, colors)`,
-        `- Timeline/event date`,
+        `Next steps:`,
+        `- Review conversation below and confirm order details`,
+        `- Collect payment or send invoice`,
+        `- Once paid, move pipeline to "Paid - Proof Needed" (this triggers the design team)`,
         ``,
         `Intent: ${intent.intent} (${intent.confidence}% confidence)`,
         `Reason: ${intent.reasoning}`,
+        ...(conversationSummary ? [``, `--- Recent Conversation ---`, conversationSummary] : []),
       ].join("\n"),
-      assignedTo: DESIGNER,
+      assignedTo: agent,
     });
-    actions.push(`Created mockup task for ${DESIGNER}`);
-    console.log(`[ActionDispatcher] Lead ${ctx.leadId}: Created mockup task for ${DESIGNER}`);
+    actions.push(`Created sales follow-up task for ${agent}`);
+    console.log(`[ActionDispatcher] Lead ${ctx.leadId}: Created sales task for ${agent}`);
   } catch (err: any) {
-    errors.push(`Failed to create mockup task: ${err?.message}`);
-    console.error(`[ActionDispatcher] Lead ${ctx.leadId}: Failed to create mockup task:`, err);
+    errors.push(`Failed to create sales task: ${err?.message}`);
+    console.error(`[ActionDispatcher] Lead ${ctx.leadId}: Failed to create sales task:`, err);
   }
 
-  // 2. Add GHL note (using Stage Playbook note template)
+  // 3. Add GHL note with full context
   try {
     const playbook = getStagePlaybook(ctx.pipelineStage || "Qualified");
     const noteText = playbook?.noteTemplate || getStageNote(ctx.pipelineStage);
     await addNote(ctx.ghlContactId,
       `🤖 AI State Machine: Customer COMMITTED\n` +
-      `Stage: ${ctx.pipelineStage || "Unknown"} → ${playbook?.nextStage || "Next"}\n` +
+      `Stage: ${ctx.pipelineStage || "Unknown"} → Qualified\n` +
       `Intent: ${intent.intent} — "${intent.reasoning}"\n` +
-      `Action: Mockup task created for ${DESIGNER}.\n` +
+      `Action: Sales follow-up task created for ${agent}.\n` +
+      `Next: Agent to close deal and collect payment. Design team activates ONLY after payment (Paid - Proof Needed stage).\n` +
       `Stage Note: ${noteText}`
     );
     actions.push("Added commitment note to GHL");
   } catch { /* best effort */ }
 
-  // 3. Move pipeline to Qualified stage (customer confirmed → they're qualified)
-  if (ctx.ghlOpportunityId && ctx.ghlPipelineId) {
-    const qualifiedStageId = getQualifiedStageId(ctx.ghlPipelineId);
+  // 4. Create appointment for the agent to follow up during next business hours
+  try {
+    const { createAppointment, getNextBusinessHoursSlot, AGENT_CALENDAR_IDS, AGENT_GHL_USER_IDS } = await import("./ghl");
+    const slot = getNextBusinessHoursSlot();
+    const calendarId = AGENT_CALENDAR_IDS[agent] || AGENT_CALENDAR_IDS["Abby Bouwer"];
+    const userId = AGENT_GHL_USER_IDS[agent];
+    const endTime = new Date(slot.start.getTime() + 30 * 60 * 1000); // 30 min appointment
+    await createAppointment({
+      calendarId,
+      contactId: ctx.ghlContactId,
+      title: `📞 Follow up with ${leadLabel} — Close deal`,
+      description: [
+        `Customer committed via AI conversation.`,
+        `Intent: ${intent.intent} — ${intent.reasoning}`,
+        `Value: $${ctx.pipelineValue || "TBD"}`,
+        ``,
+        `Review conversation and close the deal.`,
+        ...(conversationSummary ? [``, `--- Conversation Summary ---`, conversationSummary] : []),
+      ].join("\n"),
+      startTime: slot.start.toISOString(),
+      endTime: endTime.toISOString(),
+      assignedUserId: userId,
+    });
+    actions.push(`Created appointment for ${agent} at ${slot.start.toISOString()}`);
+  } catch (err: any) {
+    errors.push(`Failed to create appointment: ${err?.message}`);
+  }
+
+  // 5. Move pipeline to Qualified stage
+  if (opportunityId && pipelineId) {
+    const qualifiedStageId = getQualifiedStageId(pipelineId);
     if (qualifiedStageId) {
       try {
-        await updateOpportunityStage(ctx.ghlOpportunityId, qualifiedStageId);
+        await updateOpportunityStage(opportunityId, qualifiedStageId);
         actions.push(`Moved pipeline to Qualified stage`);
         console.log(`[ActionDispatcher] Lead ${ctx.leadId}: Moved to Qualified (${qualifiedStageId})`);
       } catch (err: any) {
@@ -127,7 +207,18 @@ async function handleCommitted(ctx: DispatchContext, intent: IntentResult): Prom
     }
   }
 
-  // 4. Schedule follow-up for proof delivery (check in 2 days if no proof sent)
+  // 6. Push pipeline value to GHL opportunity if we have one
+  if (opportunityId && ctx.pipelineValue) {
+    try {
+      const { updateOpportunityValue } = await import("./ghl");
+      await updateOpportunityValue(opportunityId, ctx.pipelineValue);
+      actions.push(`Pushed pipeline value $${ctx.pipelineValue} to GHL opportunity`);
+    } catch (err: any) {
+      errors.push(`Failed to push pipeline value: ${err?.message}`);
+    }
+  }
+
+  // 7. Schedule follow-up
   try {
     const schedule = await calculateNextFollowUp({
       leadId: ctx.leadId,
@@ -160,18 +251,55 @@ async function handleInterested(ctx: DispatchContext, intent: IntentResult): Pro
   const leadLabel = ctx.leadName || ctx.businessName || "Lead";
   const agent = ctx.assignedAgent || SALES_AGENTS[0];
 
-  // Only create quote task for price inquiries or design requests with value
+  // 0. Auto-create GHL opportunity if missing — interested leads deserve a pipeline entry
+  let opportunityId = ctx.ghlOpportunityId;
+  if (!opportunityId) {
+    try {
+      const { createOpportunity } = await import("./ghl");
+      const { GHL_PIPELINES, CONTACTED_STAGE_IDS } = await import("../shared/ghl-stages");
+      const defaultPipeline = ctx.ghlPipelineId || GHL_PIPELINES.BULK_PRINTING;
+      const defaultStage = CONTACTED_STAGE_IDS[defaultPipeline] || Object.values(CONTACTED_STAGE_IDS)[0];
+      const opp = await createOpportunity({
+        contactId: ctx.ghlContactId,
+        name: `${leadLabel} \u2014 ${intent.intent}`,
+        pipelineId: defaultPipeline,
+        stageId: defaultStage,
+        monetaryValue: ctx.pipelineValue || undefined,
+      });
+      opportunityId = opp.id;
+      await updateLeadFields(ctx.leadId, {
+        ghlOpportunityId: opp.id,
+        ghlPipelineId: opp.pipelineId,
+      });
+      actions.push(`Auto-created GHL opportunity: ${opp.id}`);
+    } catch (err: any) {
+      errors.push(`Failed to auto-create opportunity: ${err?.message}`);
+    }
+  }
+
+  // 1. Push pipeline value to GHL opportunity
+  if (opportunityId && ctx.pipelineValue) {
+    try {
+      const { updateOpportunityValue } = await import("./ghl");
+      await updateOpportunityValue(opportunityId, ctx.pipelineValue);
+      actions.push(`Pushed pipeline value $${ctx.pipelineValue} to GHL`);
+    } catch (err: any) {
+      errors.push(`Failed to push pipeline value: ${err?.message}`);
+    }
+  }
+
+  // 2. Create quote task for price inquiries or design requests
   if (intent.intent === "price_inquiry" || intent.intent === "design_request") {
     try {
-      const estValue = ctx.pipelineValue ? ` — Est. $${ctx.pipelineValue}` : "";
+      const estValue = ctx.pipelineValue ? ` \u2014 Est. $${ctx.pipelineValue}` : "";
       await createTask(ctx.ghlContactId, {
-        title: `📋 Review & quote for ${leadLabel}${estValue}`,
+        title: `\ud83d\udccb Review & quote for ${leadLabel}${estValue}`,
         body: [
           `Customer is showing strong interest (${intent.intent}).`,
           ``,
           `Business: ${ctx.businessName || "N/A"}`,
           `Contact: ${ctx.leadName || "N/A"}`,
-          `Email: ${ctx.email || "N/A"}`,
+          `Phone: ${ctx.phone || "N/A"} | Email: ${ctx.email || "N/A"}`,
           ``,
           `Review the conversation and prepare a quote if needed.`,
           `Intent: ${intent.reasoning}`,
@@ -184,11 +312,13 @@ async function handleInterested(ctx: DispatchContext, intent: IntentResult): Pro
     }
   }
 
-  // Add note
+  // 3. Add note
   try {
     await addNote(ctx.ghlContactId,
-      `🤖 AI State Machine: Lead moved to INTERESTED\n` +
-      `Intent: ${intent.intent} — "${intent.reasoning}"`
+      `\ud83e\udd16 AI State Machine: Lead moved to INTERESTED\n` +
+      `Intent: ${intent.intent} \u2014 "${intent.reasoning}"` +
+      (opportunityId ? `\nOpportunity: ${opportunityId}` : "") +
+      (ctx.pipelineValue ? `\nEstimated Value: $${ctx.pipelineValue}` : "")
     );
     actions.push("Added interest note to GHL");
   } catch { /* best effort */ }
@@ -345,6 +475,8 @@ async function handleFulfilled(ctx: DispatchContext): Promise<DispatchResult> {
 async function handleHumanActive(ctx: DispatchContext, reason: string): Promise<DispatchResult> {
   const actions: string[] = [];
   const errors: string[] = [];
+  const leadLabel = ctx.leadName || ctx.businessName || `Lead #${ctx.leadId}`;
+  const agent = ctx.assignedAgent || SALES_AGENTS[0];
 
   try {
     await updateLeadFields(ctx.leadId, {
@@ -356,54 +488,122 @@ async function handleHumanActive(ctx: DispatchContext, reason: string): Promise<
     errors.push(`Failed to set humanTakeover: ${err?.message}`);
   }
 
-  // Add GHL note
+  // Build conversation summary for the agent
+  let conversationSummary = "";
+  try {
+    const history = await getConversationHistory(ctx.leadId, 20);
+    if (history.length > 0) {
+      const recent = history.slice(0, 10).reverse();
+      conversationSummary = recent.map((m: any) => {
+        const who = m.direction === "inbound" ? (ctx.leadName || "Customer") : "AI (Abby)";
+        const time = m.timestamp ? new Date(m.timestamp).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+        return `[${time}] ${who}: ${(m.messageBody || "").slice(0, 200)}`;
+      }).join("\n");
+    }
+  } catch { /* best effort */ }
+
+  // Add GHL note with conversation summary
   try {
     await addNote(ctx.ghlContactId,
-      `\ud83e\udd16 AI State Machine: HUMAN ACTIVE\n` +
-      `Reason: ${reason}\n` +
-      `AI will stand down until agent activity expires (2hr window).\n` +
-      `A task has been created for the assigned agent to follow up.`
+      [
+        `\ud83e\udd16 AI State Machine: HUMAN ACTIVE`,
+        `Reason: ${reason}`,
+        `Assigned to: ${agent}`,
+        `AI will stand down until agent activity expires (2hr window).`,
+        `A task and appointment have been created for the assigned agent.`,
+        ...(conversationSummary ? [``, `--- Recent Conversation ---`, conversationSummary] : []),
+      ].join("\n")
     );
   } catch { /* best effort */ }
 
-  // CREATE TASK for assigned agent to call during next business hours slot
+  // CREATE TASK for assigned agent with full conversation context
   try {
     const { getNextBusinessHoursSlot } = await import("./ghl");
     const slot = getNextBusinessHoursSlot();
-    const agentName = ctx.assignedAgent || "Team";
-    const leadLabel = ctx.leadName || ctx.businessName || `Lead #${ctx.leadId}`;
 
     await createTask(ctx.ghlContactId, {
-      title: `\ud83d\udcde Call ${leadLabel} — Human Handoff Required`,
+      title: `\ud83d\udcde Call ${leadLabel} \u2014 Human Handoff Required`,
       body: [
         `Reason for handoff: ${reason}`,
         `Lead: ${leadLabel}${ctx.businessName ? ` (${ctx.businessName})` : ""}`,
         `Phone: ${ctx.phone || "N/A"} | Email: ${ctx.email || "N/A"}`,
+        `Estimated Value: $${ctx.pipelineValue || "TBD"}`,
         ``,
-        `The AI has stepped back from this conversation. Please review the conversation`,
-        `history and reach out to the lead during business hours (M-F 9am-5pm ET).`,
+        `The AI has stepped back from this conversation. Please review the`,
+        `conversation summary below and reach out during business hours (M-F 9am-5pm ET).`,
         ``,
         `After your interaction, the AI will auto-resume if no agent activity is detected for 2 hours.`,
+        ...(conversationSummary ? [``, `--- Recent Conversation ---`, conversationSummary] : []),
       ].join("\n"),
       dueDate: slot.start.toISOString(),
-      assignedTo: ctx.assignedAgent || undefined,
+      assignedTo: agent,
     });
-    actions.push(`Created handoff task for ${agentName} due ${slot.start.toISOString()}`);
+    actions.push(`Created handoff task for ${agent} due ${slot.start.toISOString()}`);
   } catch (err: any) {
     errors.push(`Failed to create handoff task: ${err?.message}`);
+  }
+
+  // CREATE APPOINTMENT for the agent to follow up
+  try {
+    const { createAppointment, getNextBusinessHoursSlot, AGENT_CALENDAR_IDS, AGENT_GHL_USER_IDS } = await import("./ghl");
+    const slot = getNextBusinessHoursSlot();
+    const calendarId = AGENT_CALENDAR_IDS[agent] || AGENT_CALENDAR_IDS["Abby Bouwer"];
+    const userId = AGENT_GHL_USER_IDS[agent];
+    const endTime = new Date(slot.start.getTime() + 30 * 60 * 1000);
+    await createAppointment({
+      calendarId,
+      contactId: ctx.ghlContactId,
+      title: `\ud83d\udcde Follow up with ${leadLabel} \u2014 Handoff`,
+      description: [
+        `Human handoff from AI.`,
+        `Reason: ${reason}`,
+        `Value: $${ctx.pipelineValue || "TBD"}`,
+        ...(conversationSummary ? [``, `--- Conversation ---`, conversationSummary] : []),
+      ].join("\n"),
+      startTime: slot.start.toISOString(),
+      endTime: endTime.toISOString(),
+      assignedUserId: userId,
+    });
+    actions.push(`Created appointment for ${agent} at ${slot.start.toISOString()}`);
+  } catch (err: any) {
+    errors.push(`Failed to create appointment: ${err?.message}`);
+  }
+
+  // Auto-create GHL opportunity if missing
+  if (!ctx.ghlOpportunityId) {
+    try {
+      const { createOpportunity } = await import("./ghl");
+      const { GHL_PIPELINES, CONTACTED_STAGE_IDS } = await import("../shared/ghl-stages");
+      const defaultPipeline = ctx.ghlPipelineId || GHL_PIPELINES.BULK_PRINTING;
+      const defaultStage = CONTACTED_STAGE_IDS[defaultPipeline] || Object.values(CONTACTED_STAGE_IDS)[0];
+      const opp = await createOpportunity({
+        contactId: ctx.ghlContactId,
+        name: `${leadLabel} \u2014 Human Handoff`,
+        pipelineId: defaultPipeline,
+        stageId: defaultStage,
+        monetaryValue: ctx.pipelineValue || undefined,
+      });
+      await updateLeadFields(ctx.leadId, {
+        ghlOpportunityId: opp.id,
+        ghlPipelineId: opp.pipelineId,
+      });
+      actions.push(`Auto-created GHL opportunity: ${opp.id}`);
+    } catch (err: any) {
+      errors.push(`Failed to auto-create opportunity: ${err?.message}`);
+    }
   }
 
   // Notify owner about the handoff
   try {
     const { notifyOwner } = await import("./_core/notification");
-    const leadLabel = ctx.leadName || ctx.businessName || `Lead #${ctx.leadId}`;
     await notifyOwner({
       title: `\ud83d\udcde Human Handoff: ${leadLabel}`,
       content: [
         `Lead: ${leadLabel}${ctx.businessName ? ` (${ctx.businessName})` : ""}`,
         `Reason: ${reason}`,
-        `Assigned to: ${ctx.assignedAgent || "Unassigned"}`,
-        `AI has stepped back. A task has been created in GHL.`,
+        `Assigned to: ${agent}`,
+        `AI has stepped back. Task + appointment created in GHL.`,
+        ...(conversationSummary ? [``, `--- Summary ---`, conversationSummary.slice(0, 500)] : []),
       ].join("\n"),
     });
     actions.push("Sent owner notification");

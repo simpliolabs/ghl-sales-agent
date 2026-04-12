@@ -5,7 +5,8 @@
 import { Response } from "express";
 import { getLeadByGhlContactId, addPipelineEvent, getPipelineEvents, updateLeadFields, addConversation, addAgentAssignment, getAgentWorkload, isAiOffline } from "./db";
 import { calculateNextFollowUp } from "./scheduling-engine";
-import { createTask, addNote } from "./ghl";
+import { createTask, addNote, createAppointment, getNextBusinessHoursSlot, AGENT_CALENDAR_IDS, AGENT_GHL_USER_IDS } from "./ghl";
+import { getConversationHistory } from "./db";
 import { attributeStageAdvance } from "./outcome-engine";
 import { buildJourneyFromLead, recordConversationOutcome } from "./learning-loop";
 import {
@@ -81,13 +82,79 @@ export async function handleStageAutomation(
     }
 
     case STAGES.PAID_PROOF_NEEDED: {
+      // Build conversation summary for the designer
+      let designSummary = "";
+      try {
+        const history = await getConversationHistory(lead.id, 20);
+        if (history.length > 0) {
+          const recent = history.slice(0, 10).reverse();
+          designSummary = recent.map((m: any) => {
+            const who = m.direction === "inbound" ? (lead.name || "Customer") : "AI (Abby)";
+            const time = m.timestamp ? new Date(m.timestamp).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+            return `[${time}] ${who}: ${(m.messageBody || "").slice(0, 200)}`;
+          }).join("\n");
+        }
+      } catch { /* best effort */ }
+
+      // 1. Create design task for César
       try {
         await createTask(contactId, {
           title: `🎨 Create design proof for ${leadLabel}`,
-          body: `Payment received. Create the design proof based on the order details.\n\nBusiness: ${lead.businessName || "N/A"}\nOrder Value: $${lead.pipelineValue || "N/A"}\n\nCheck the contact notes for product details, quantities, and design preferences.`,
+          body: [
+            `Payment received. Create the design proof based on the order details.`,
+            ``,
+            `Business: ${lead.businessName || "N/A"}`,
+            `Contact: ${lead.name || "N/A"} | Email: ${lead.email || "N/A"}`,
+            `Order Value: $${lead.pipelineValue || "N/A"}`,
+            ``,
+            `Check the contact notes and conversation below for product details,`,
+            `quantities, sizes, and design preferences.`,
+            ...(designSummary ? [``, `--- Recent Conversation ---`, designSummary] : []),
+          ].join("\n"),
           assignedTo: DESIGNER,
         });
-        await addNote(contactId, `🤖 Payment received. Design proof assigned to ${DESIGNER}.`);
+      } catch { /* best effort */ }
+
+      // 2. Create appointment for César to work on the proof
+      try {
+        const slot = getNextBusinessHoursSlot();
+        const cesarCalendar = AGENT_CALENDAR_IDS["Abby Bouwer"]; // Use default calendar
+        const cesarUserId = AGENT_GHL_USER_IDS[DESIGNER];
+        const endTime = new Date(slot.start.getTime() + 60 * 60 * 1000); // 1hr for design work
+        await createAppointment({
+          calendarId: cesarCalendar,
+          contactId,
+          title: `🎨 Design proof for ${leadLabel}`,
+          description: [
+            `Payment received. Create mockup/proof.`,
+            `Order Value: $${lead.pipelineValue || "N/A"}`,
+            ...(designSummary ? [``, `--- Order Details from Conversation ---`, designSummary] : []),
+          ].join("\n"),
+          startTime: slot.start.toISOString(),
+          endTime: endTime.toISOString(),
+          assignedUserId: cesarUserId,
+        });
+      } catch { /* best effort */ }
+
+      // 3. Add detailed note
+      try {
+        await addNote(contactId,
+          [
+            `🤖 Payment received. Design proof assigned to ${DESIGNER}.`,
+            `Task and appointment created for ${DESIGNER}.`,
+            `Order Value: $${lead.pipelineValue || "N/A"}`,
+            ...(designSummary ? [``, `--- Conversation Summary ---`, designSummary] : []),
+          ].join("\n")
+        );
+      } catch { /* best effort */ }
+
+      // 4. Notify owner
+      try {
+        const { notifyOwner } = await import("./_core/notification");
+        await notifyOwner({
+          title: `💰 Payment received: ${leadLabel}`,
+          content: `${leadLabel} has paid. Order value: $${lead.pipelineValue || "N/A"}. Design proof assigned to ${DESIGNER}.`,
+        });
       } catch { /* best effort */ }
       break;
     }

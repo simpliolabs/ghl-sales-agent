@@ -534,6 +534,32 @@ export async function updateOpportunityValue(opportunityId: string, monetaryValu
   return data;
 }
 
+/**
+ * Create a new opportunity in GHL for a contact.
+ * Returns the created opportunity's id, pipelineId, and stageId.
+ */
+export async function createOpportunity(opts: {
+  contactId: string;
+  name: string;
+  pipelineId: string;
+  stageId: string;
+  monetaryValue?: number;
+  assignedTo?: string;
+}): Promise<{ id: string; pipelineId: string; pipelineStageId: string }> {
+  const { data } = await ghlClient.post(`/opportunities/`, {
+    pipelineId: opts.pipelineId,
+    locationId: ENV.ghlLocationId,
+    name: opts.name,
+    pipelineStageId: opts.stageId,
+    contactId: opts.contactId,
+    status: "open",
+    ...(opts.monetaryValue ? { monetaryValue: opts.monetaryValue } : {}),
+    ...(opts.assignedTo ? { assignedTo: opts.assignedTo } : {}),
+  });
+  const opp = data.opportunity || data;
+  return { id: opp.id, pipelineId: opp.pipelineId, pipelineStageId: opp.pipelineStageId || opts.stageId };
+}
+
 export async function getPipelines() {
   const { data } = await ghlClient.get("/opportunities/pipelines", {
     params: { locationId: ENV.ghlLocationId },
