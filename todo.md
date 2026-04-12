@@ -737,3 +737,12 @@
 - [x] FIX: webhook-pipeline Paid-Proof-Needed — full César automation: task + appointment + notification + conversation summary in notes
 - [x] FIX: handleHumanActive — conversation summary in task + note + appointment + auto-create opportunity if missing
 - [x] FIX: pipelineValue push — now pushed at interested + committed states via auto-created opportunity (no more silent skip)
+
+## Transferred Contact Internal Enrichment (Apr 12)
+- [ ] Pull all transferred contacts' custom fields from GHL into portal DB
+- [ ] Pull all transferred contacts' conversation history from GHL into portal DB
+- [ ] Tag all transferred contacts with source marker (transferred_contact) in portal DB
+- [ ] Store signup source / how they found us for each transferred contact
+- [ ] Schedule all transferred contacts for re-engagement activation timeline
+- [ ] Pull external online references (Researcher brain) for transferred contacts
+- [ ] Trigger Omnisend sync for all transferred contacts with email addresses
