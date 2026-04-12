@@ -378,6 +378,56 @@ export async function seedKnownErrors(): Promise<number> {
       knownFix: "Check contact info validity. Try alternate channel. Skip step if all channels fail.",
       prevention: "Validate contact info before creating post-delivery sequence. Use channel intelligence for best channel.",
     },
+    // --- INFRASTRUCTURE FIX PATTERNS (Apr 12, 2026) ---
+    // These record core architecture fixes so the error-memory system can detect recurrence.
+    {
+      errorType: "db_error",
+      errorMessage: "Duplicate lead created for same ghlContactId",
+      context: "race_condition:concurrent_webhooks",
+      rootCause: "SELECT-then-INSERT in upsertLead() without UNIQUE index on ghlContactId. ContactCreate and InboundMessage webhooks fire concurrently for same contact.",
+      knownFix: "Atomic INSERT...ON DUPLICATE KEY UPDATE in upsertLead(). UNIQUE index on ghlContactId. Contact-level mutex in webhook router.",
+      prevention: "Never use SELECT-then-INSERT for upsert patterns. Always use atomic DB operations. Add mutex for concurrent webhook processing of same entity.",
+    },
+    {
+      errorType: "state_invalid",
+      errorMessage: "Missing appointment/task for lead with inbound reply",
+      context: "infrastructure:appointment_creation_gap",
+      rootCause: "Appointment creation only existed in handleContactWebhook (new contacts). Existing leads sending inbound replies had no appointment/task creation path.",
+      knownFix: "Added createHeadsUpNotification call in webhook-message.ts for inbound replies when lead has no appointment/task.",
+      prevention: "Every inbound message path must check for and create missing appointments/tasks. Two-phase notification model must cover both new contacts and existing lead re-engagement.",
+    },
+    {
+      errorType: "state_invalid",
+      errorMessage: "Infinite follow-up loop: lead re-queued every 2 minutes after QC block",
+      context: "infrastructure:follow_up_loop",
+      rootCause: "Blocked messages in follow-up trigger rescheduled via calculateNextFollowUp which returned short intervals. consecutiveRejects didn't reach circuit breaker threshold (5).",
+      knownFix: "Added consecutive block backoff in follow-up-trigger.ts: >=3 blocks defer 24h, >=2 blocks defer 4h.",
+      prevention: "Any blocked/failed message path must implement exponential backoff. Never reschedule a blocked lead for less than 1 hour.",
+    },
+    {
+      errorType: "llm_hallucination",
+      errorMessage: "AI asks for email/phone already provided in form data",
+      context: "infrastructure:form_data_not_persisted",
+      rootCause: "Form data was parsed but email/phone were NOT persisted to lead.email/lead.phone before Brain Council ran. Composer saw null fields and asked for contact info.",
+      knownFix: "Extract email/phone from form data and persist to lead BEFORE calling Brain Council. Added extractContactFieldsFromFormData() helper.",
+      prevention: "Always persist all known contact data to the lead record before any AI processing. Form data extraction must include email, phone, and name fields.",
+    },
+    {
+      errorType: "state_invalid",
+      errorMessage: "No acknowledgement sent for genuine inbound reply when Brain Council blocked",
+      context: "infrastructure:missing_quick_ack",
+      rootCause: "When Brain Council was blocked for a genuine inbound reply (QC block, safety violation), the system returned brain_aborted silently with no customer-visible acknowledgement.",
+      knownFix: "Added context-aware quick-ack in webhook-message.ts: sends brief acknowledgement when Brain Council blocks a genuine inbound reply.",
+      prevention: "Every inbound message must produce either a full AI response OR a quick acknowledgement. Never leave an inbound reply completely unacknowledged.",
+    },
+    {
+      errorType: "channel_mismatch",
+      errorMessage: "Migrated contact reached via SMS/FB instead of email-only",
+      context: "infrastructure:migrated_contact_channel",
+      rootCause: "Transferred contacts (source='transferred_contact') hadn't opted in to new system but were being contacted via all channels.",
+      knownFix: "Added enforceMigratedChannel() that forces email-only for migrated leads. Re-engagement detection unlocks all channels when lead replies.",
+      prevention: "Always check lead source/origin before selecting outbound channel. Migrated/imported contacts should default to least-intrusive channel until they re-engage.",
+    },
   ];
 
   let seeded = 0;

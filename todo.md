@@ -807,3 +807,23 @@
 - [x] Add re-engagement detection in webhook-message.ts (inbound from migrated → set reactivatedFromMigration=1)
 - [x] Seasonal campaign executor doesn't send directly — uses follow-up trigger (already patched)
 - [x] Write tests for isMigratedEmailOnly and enforceMigratedChannel (15/15 passed)
+
+## BUG: Missing acknowledgement + assignment/appointment for inbound replies (Sarah Weiss)
+- [x] Sarah Weiss replied "Please reach out tomorrow" at 5:20 PM — AI did not acknowledge or confirm follow-up
+- [x] Root cause: Brain Council composed reply but QC blocked it (safety_violation on Sunday), then fallback was suppressed (2+ prior outbound), and no ack was sent
+- [x] No agent assignment or appointment/task created in GHL — root cause: appointment creation only existed in handleContactWebhook (new contacts), not for existing leads' inbound replies
+- [x] Fix: Added createHeadsUpNotification call in webhook-message.ts for inbound replies when lead has no appointment/task
+- [x] Fix: Added context-aware quick-ack in webhook-message.ts when Brain Council blocks a genuine inbound reply ("Got it — we'll follow up with you then!")
+- [x] Quick-ack skips DNC/stop messages, pre-flight aborts (already responded, offline, locked), and humanTakeover leads
+
+## BUG: Infinite follow-up loop for Sarah Weiss (lead 120001)
+- [x] Follow-up trigger runs every 2 min, Brain Council composes, QC blocks, but lead stays in queue — no backoff
+- [x] Root cause: blocked messages rescheduled via calculateNextFollowUp which returned short intervals, and consecutiveRejects wasn't high enough to trip circuit breaker (threshold=5)
+- [x] Fix: Added consecutive block backoff in follow-up-trigger.ts: >=3 blocks → defer 24h, >=2 blocks → defer 4h
+- [x] Fix: Quick-ack now sends immediate acknowledgement for inbound replies when Brain Council blocks
+- [x] Fix: Appointment/task now created on inbound reply for leads missing them
+
+## AUDIT: Self-learning/healing system capturing core fixes
+- [x] Audited: error-memory has 56 errors (mostly LLM hallucinations), learnings has 50 patterns (15 promoted to prompt)
+- [x] Finding: Self-learning only captures message-level QC patterns, NOT infrastructure bugs (race conditions, missing appointments, infinite loops)
+- [x] Added 6 infrastructure fix patterns to error-memory seedKnownErrors (duplicate leads, missing appointments, infinite loops, form data gaps, missing ack, migrated channel)

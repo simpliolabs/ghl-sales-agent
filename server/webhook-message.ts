@@ -256,6 +256,35 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     console.log(`[Webhook/Msg] ✅ Migrated lead ${lead.id} (${lead.name || "Unknown"}) RE-ENGAGED via inbound ${channel} message — all channels now unlocked`);
   }
 
+  // --- INBOUND REPLY: Create appointment/task if missing ---
+  // If a lead sends an inbound message but has NO appointment or task yet,
+  // create one immediately. This covers transferred contacts, leads where
+  // first-contact notification failed, and any other gap.
+  if (direction === "inbound" && lead && lead.ghlContactId && (!lead.appointmentId || !lead.ghlTaskId)) {
+    try {
+      const { createHeadsUpNotification } = await import("./agent-notifications");
+      const notifCtx = {
+        leadId: lead.id,
+        ghlContactId: lead.ghlContactId!,
+        leadName: lead.name,
+        businessName: lead.businessName,
+        email: lead.email,
+        phone: lead.phone,
+        assignedAgent: lead.assignedAgent,
+        pipelineValue: lead.pipelineValue,
+        channel,
+        existingAppointmentId: lead.appointmentId || null,
+        existingTaskId: lead.ghlTaskId || null,
+      };
+      const notifResult = await createHeadsUpNotification(notifCtx, `Inbound reply: "${effectiveMessageBody.substring(0, 60)}"`);
+      if (notifResult.actions.length > 0) {
+        console.log(`[Webhook/Msg] \u2705 Created missing appointment/task for lead ${lead.id} on inbound reply: ${notifResult.actions.join(", ")}`);
+      }
+    } catch (notifErr) {
+      console.error(`[Webhook/Msg] Failed to create appointment/task for lead ${lead.id} on inbound reply (non-fatal):`, notifErr);
+    }
+  }
+
   // --- PHASE A: CONVERSATION STATE MACHINE (observation mode) ---
   // Classifies intent and computes state transition for every inbound message.
   // State is persisted to DB but does NOT yet drive routing decisions.
@@ -642,7 +671,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
 
   // --- AI RESPONSE via BRAIN COUNCIL ---
   // ALL send/no-send decisions (offline, lock, humanTakeover, dedup) are made INSIDE runBrainCouncil.
-  let aiResponse;
+  let aiResponse: any;
   try {
     aiResponse = await runBrainCouncil({ leadId: lead!.id, incomingMessage: effectiveMessageBody, channel, externalHistory: historyStr, isInboundReply: !!isGenuineInbound });
   } catch (brainErr) {
@@ -710,6 +739,46 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   // --- PRE-FLIGHT ABORT: Brain decided not to send (offline, locked, already responded, humanTakeover) ---
   if (aiResponse.blocked) {
     console.log(`[Webhook] Brain ABORTED for lead ${lead!.id}: ${aiResponse.blockReason}`);
+
+    // --- QUICK ACK for genuine inbound replies ---
+    // When a lead actively messages us but the Brain Council can't compose a proper reply
+    // (QC block, safety violation, etc.), send a brief acknowledgement so the lead isn't ignored.
+    // Skip if humanTakeover is active (agent will handle) or if the block is a pre-flight abort
+    // like "already responded" or "offline" (those are expected silences).
+    const PRE_FLIGHT_SKIP_PATTERNS = ["already responded", "offline", "locked", "humanTakeover", "human_takeover", "circuit_breaker"];
+    const isPreFlightAbort = PRE_FLIGHT_SKIP_PATTERNS.some(p => (aiResponse.blockReason || "").toLowerCase().includes(p));
+    if (isGenuineInbound && !lead!.humanTakeover && !isPreFlightAbort) {
+      try {
+        // Generate a context-aware quick ack based on what the lead said
+        const msgLower = effectiveMessageBody.toLowerCase();
+        let quickAck = "Got it — thanks for reaching out! We'll get back to you shortly.";
+        if (msgLower.includes("tomorrow") || msgLower.includes("later") || msgLower.includes("next week") || msgLower.includes("call me") || msgLower.includes("reach out")) {
+          quickAck = "Got it — we'll follow up with you then! Talk soon.";
+        } else if (msgLower.includes("not interested") || msgLower.includes("no thanks") || msgLower.includes("stop") || msgLower.includes("remove")) {
+          // Don't ack DNC/stop messages — let the DNC handler deal with it
+          quickAck = "";
+        } else if (msgLower.includes("price") || msgLower.includes("quote") || msgLower.includes("cost") || msgLower.includes("how much")) {
+          quickAck = "Great question! Let me put together some pricing info for you — I'll follow up shortly.";
+        }
+
+        if (quickAck) {
+          const ackChannel = enforceMigratedChannel(lead!, normalizeChannel(aiResponse.channel || channel));
+          const ackOpts: Parameters<typeof sendMessage>[1] = ackChannel === "Email"
+            ? { type: "Email", subject: `Re: Your inquiry`, html: formatEmailHtml(quickAck), fromName: aiResponse.fromName || lead!.assignedAgent || "Adorb Custom Tees" }
+            : { type: ackChannel as "SMS" | "WhatsApp" | "FB" | "IG", message: quickAck };
+          const ackResult = await sendMessageWithRetry(resolvedContactId, ackOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
+          if (ackResult.success) {
+            await addConversation({ leadId: lead!.id, channel: ackChannel, direction: "outbound", messageBody: `[QUICK-ACK] ${quickAck}`, senderType: "ai", senderName: aiResponse.fromName || lead!.assignedAgent || undefined });
+            console.log(`[Webhook/Msg] \u2705 Quick-ack sent to lead ${lead!.id} after Brain Council block: "${quickAck}"`);
+          } else {
+            console.warn(`[Webhook/Msg] Quick-ack send FAILED for lead ${lead!.id}: ${ackResult.error}`);
+          }
+        }
+      } catch (ackErr) {
+        console.error(`[Webhook/Msg] Quick-ack error for lead ${lead!.id} (non-fatal):`, ackErr);
+      }
+    }
+
     res.json({ success: true, action: "brain_aborted", reason: aiResponse.blockReason });
     return;
   }

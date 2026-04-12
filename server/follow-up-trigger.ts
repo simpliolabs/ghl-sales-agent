@@ -408,8 +408,29 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
           } else {
             stats.skipped++;
           }
-          const reschedule = await calculateNextFollowUp({ leadId, triggerEvent: "ai_response" });
-          await updateLeadFields(leadId, { nextFollowUpAt: reschedule.nextFollowUpAt });
+
+          // --- CONSECUTIVE BLOCK BACKOFF ---
+          // If QC keeps blocking messages for this lead, push the next follow-up
+          // out exponentially instead of retrying every 2 minutes.
+          const currentAiStateForBlock = await getAiState(leadId);
+          const consecutiveRejects = (currentAiStateForBlock as any)?.consecutiveRejects || 0;
+          if (consecutiveRejects >= 3) {
+            // 3+ consecutive blocks: push out 24 hours
+            const backoffMs = 24 * 60 * 60 * 1000;
+            const backoffDate = new Date(Date.now() + backoffMs);
+            console.log(`[FollowUp] ⏸️ BLOCK BACKOFF for lead ${leadId}: ${consecutiveRejects} consecutive rejects — deferring 24h to ${backoffDate.toISOString()}`);
+            await updateLeadFields(leadId, { nextFollowUpAt: backoffDate });
+          } else if (consecutiveRejects >= 2) {
+            // 2 consecutive blocks: push out 4 hours
+            const backoffMs = 4 * 60 * 60 * 1000;
+            const backoffDate = new Date(Date.now() + backoffMs);
+            console.log(`[FollowUp] ⏸️ BLOCK BACKOFF for lead ${leadId}: ${consecutiveRejects} consecutive rejects — deferring 4h to ${backoffDate.toISOString()}`);
+            await updateLeadFields(leadId, { nextFollowUpAt: backoffDate });
+          } else {
+            // First block: use normal scheduling
+            const reschedule = await calculateNextFollowUp({ leadId, triggerEvent: "ai_response" });
+            await updateLeadFields(leadId, { nextFollowUpAt: reschedule.nextFollowUpAt });
+          }
           continue;
         }
 
