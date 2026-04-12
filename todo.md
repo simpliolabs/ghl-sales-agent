@@ -795,3 +795,15 @@
 - [x] Fix webhook-contact.ts: After form data extraction, extract email/phone from formFields and updateLeadFields before calling Brain Council
 - [x] Fix webhook-message.ts: FB FORM DATA block now also extracts and persists email/phone/name from parsed form data
 - [x] Add extractContactFieldsFromFormData() helper to webhook-helpers.ts for reuse (8/8 tests passing)
+
+## FEATURE: Email-only outreach for migrated contacts
+- [x] Identify how migrated contacts are tagged/sourced in the system → source='transferred_contact' (1,554 leads)
+- [x] Add `isMigratedEmailOnly()` and `enforceMigratedChannel()` helpers to webhook-helpers.ts
+- [x] Add `reactivatedFromMigration` flag to leads schema + DB migration
+- [x] Wire enforcement into webhook-contact.ts (first contact + fallback)
+- [x] Wire enforcement into webhook-message.ts (reply to inbound)
+- [x] Wire enforcement into follow-up-trigger.ts (scheduled follow-ups)
+- [x] Wire enforcement into lookback-engine.ts (dormancy re-engagement)
+- [x] Add re-engagement detection in webhook-message.ts (inbound from migrated → set reactivatedFromMigration=1)
+- [x] Seasonal campaign executor doesn't send directly — uses follow-up trigger (already patched)
+- [x] Write tests for isMigratedEmailOnly and enforceMigratedChannel (15/15 passed)

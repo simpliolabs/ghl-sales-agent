@@ -5,6 +5,46 @@
 import { getContact, searchContacts, sendMessage, updateContactCustomField } from "./ghl";
 import { updateLeadFields } from "./db";
 
+// --- MIGRATED LEAD CHANNEL RESTRICTION ---
+// Contacts migrated from the old GHL account (source='transferred_contact') should
+// ONLY be reached via Email until they re-engage by sending an inbound message.
+// Once they reply, they become active leads and all channels are unlocked.
+
+/** Source value used for contacts imported from the previous GHL account */
+export const MIGRATED_SOURCE = "transferred_contact";
+
+/**
+ * Returns true if the lead is a migrated contact that hasn't re-engaged yet.
+ * Migrated leads are email-only until they send an inbound message.
+ * A lead is considered "reactivated" if:
+ *  - convState is anything other than 'new_lead' (they've progressed), OR
+ *  - lastMessageAt is set (they've had message activity indicating engagement)
+ *  - reactivatedFromMigration flag is set (explicit re-engagement marker)
+ */
+export function isMigratedEmailOnly(lead: { source?: string | null; convState?: string | null; lastMessageAt?: Date | null; reactivatedFromMigration?: number | null }): boolean {
+  if (lead.source !== MIGRATED_SOURCE) return false;
+  // Already reactivated via explicit inbound re-engagement
+  if (lead.reactivatedFromMigration === 1) return false;
+  // Has progressed beyond new_lead state (engaged in conversation)
+  if (lead.convState && lead.convState !== "new_lead") return false;
+  return true;
+}
+
+/**
+ * Enforces email-only channel for migrated leads.
+ * Returns 'Email' if the lead is migrated and not yet reactivated,
+ * otherwise returns the original channel unchanged.
+ */
+export function enforceMigratedChannel(lead: { source?: string | null; convState?: string | null; lastMessageAt?: Date | null; reactivatedFromMigration?: number | null }, requestedChannel: string): string {
+  if (isMigratedEmailOnly(lead)) {
+    if (requestedChannel !== "Email") {
+      console.log(`[MigratedLead] Channel forced Email (was ${requestedChannel}) for migrated lead — email-only until re-engagement`);
+    }
+    return "Email";
+  }
+  return requestedChannel;
+}
+
 // --- GHL SEND ERROR CLASSIFICATION ---
 // Classifies GHL API error responses into actionable categories so callers
 // can take the right corrective action instead of just logging and moving on.

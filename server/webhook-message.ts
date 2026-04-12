@@ -37,6 +37,8 @@ import {
   MAX_LLM_RETRIES,
   formatEmailHtml,
   buildContextSubject,
+  enforceMigratedChannel,
+  MIGRATED_SOURCE,
 } from "./webhook-helpers";
 import { processInboundState, type ConversationState } from "./conversation-state";
 import { dispatchStateActions, buildDispatchContext } from "./action-dispatcher";
@@ -244,6 +246,15 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   });
 
   await updateLeadFields(lead!.id, { lastMessageAt: new Date() });
+
+  // --- MIGRATED LEAD RE-ENGAGEMENT DETECTION ---
+  // If a migrated contact (source='transferred_contact') sends an inbound message,
+  // mark them as reactivated so all channels are unlocked for future outreach.
+  if (direction === "inbound" && lead && lead.source === MIGRATED_SOURCE && lead.reactivatedFromMigration !== 1) {
+    await updateLeadFields(lead.id, { reactivatedFromMigration: 1 });
+    (lead as any).reactivatedFromMigration = 1;
+    console.log(`[Webhook/Msg] ✅ Migrated lead ${lead.id} (${lead.name || "Unknown"}) RE-ENGAGED via inbound ${channel} message — all channels now unlocked`);
+  }
 
   // --- PHASE A: CONVERSATION STATE MACHINE (observation mode) ---
   // Classifies intent and computes state transition for every inbound message.
@@ -731,7 +742,9 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   // --- NORMAL AI RESPONSE ---
   // Use Brain Council's channel recommendation if available, otherwise fall back to inbound channel.
   // This prevents FB→SMS mismatch when normalizeChannel can't detect the inbound type.
-  const sendChannel = normalizeChannel(aiResponse.channel || channel);
+  let sendChannel = normalizeChannel(aiResponse.channel || channel);
+  // MIGRATED LEAD RESTRICTION: Force email-only for transferred contacts until they re-engage
+  sendChannel = enforceMigratedChannel(lead!, sendChannel);
   if (sendChannel !== channel) {
     console.log(`[Webhook/Msg] Channel adjusted for lead ${lead!.id}: inbound=${channel} → send=${sendChannel} (Brain Council recommended: ${aiResponse.channel})`);
   }

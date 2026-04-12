@@ -29,6 +29,7 @@ import {
 import { runResearcher, emptyResearch } from "./researcher";
 import { buildLeadContext } from "./brain-context";
 import { calculateNextFollowUp } from "./scheduling-engine";
+import { enforceMigratedChannel } from "./webhook-helpers";
 import { leads, aiState } from "../drizzle/schema";
 import { eq, isNull, and, or, lte, sql, isNotNull } from "drizzle-orm";
 
@@ -366,7 +367,9 @@ export async function runLookback(options?: {
           await updateLeadFields(leadId, { nextFollowUpAt: newFollowUp });
         }
         // Update preferred channel based on analysis
-        await updateLeadFields(leadId, { preferredChannel: analysis.recommendedChannel });
+        // MIGRATED LEAD RESTRICTION: Force email-only for transferred contacts until they re-engage
+        const enforcedChannel = enforceMigratedChannel(lead as any, analysis.recommendedChannel);
+        await updateLeadFields(leadId, { preferredChannel: enforcedChannel });
       }
 
       // 4. Store key context in AI state for the Brain Council to use

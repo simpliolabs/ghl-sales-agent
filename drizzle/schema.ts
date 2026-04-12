@@ -85,6 +85,9 @@ export const leads = mysqlTable("leads", {
   // Agent notes (from GHL note events — latest agent note for context)
   lastAgentNote: text("lastAgentNote"),
   lastAgentNoteAt: timestamp("lastAgentNoteAt"),
+  // Migrated contact reactivation flag
+  // 0 = still email-only (migrated, not yet re-engaged), 1 = reactivated (inbound message received)
+  reactivatedFromMigration: tinyint("reactivatedFromMigration").default(0),
   // Conversation State Machine (Phase A)
   convState: varchar("convState", { length: 20 }).default("new_lead"),
   convStateUpdatedAt: bigint("convStateUpdatedAt", { mode: "number" }),
