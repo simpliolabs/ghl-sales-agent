@@ -167,14 +167,23 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     }
   }
 
+  // --- FB FORM DATA DETECTION ---
+  // Detect if this inbound message is actually Facebook form data (not a real reply).
+  // Form data contains structured fields like "Full name:", "Company name:", "Phone number:", "Email:".
+  // This flag is used downstream to prevent treating form data as a genuine reply.
+  const _lower = effectiveMessageBody.toLowerCase();
+  const isFormDataMessage = direction === "inbound" && (
+    (_lower.includes("full name:") || _lower.includes("company name:")) &&
+    (_lower.includes("phone number:") || _lower.includes("email:") || _lower.includes("what type of products"))
+  );
+
   // --- FB FORM DATA CHANNEL CORRECTION ---
   // If the message body looks like FB lead form data but channel resolved to SMS,
   // correct the channel to FB and update the lead's preferredChannel.
   let correctedChannel = channel;
   if (direction === "inbound" && channel === "SMS") {
-    const lower = effectiveMessageBody.toLowerCase();
-    const looksLikeFbForm = (lower.includes("full name:") || lower.includes("company name:")) &&
-      (lower.includes("phone number:") || lower.includes("email:"));
+    const lower = _lower;
+    const looksLikeFbForm = isFormDataMessage;
     if (looksLikeFbForm) {
       correctedChannel = "FB";
       const formUpdates: Record<string, unknown> = { preferredChannel: "FB" };
@@ -609,7 +618,10 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   // to genuine inbound messages. When a lead actively messages us, we MUST respond.
   // The dedup guard only applies when the SAME inbound message triggers multiple webhooks
   // (GHL sometimes fires duplicate webhooks for the same message).
-  const isGenuineInbound = direction === "inbound" && effectiveMessageBody && effectiveMessageBody.trim().length > 0;
+  // CRITICAL: Form data messages are NOT genuine inbound replies — they are structured
+  // Facebook form submissions that arrive as a separate webhook. If we already sent a
+  // first-contact message, the form data should NOT trigger another Brain Council reply.
+  const isGenuineInbound = direction === "inbound" && effectiveMessageBody && effectiveMessageBody.trim().length > 0 && !isFormDataMessage;
   const recentAiMsgCount = await getRecentAiOutboundCount(lead!.id, 5);
   if (recentAiMsgCount > 0 && !isGenuineInbound) {
     // Only skip for non-inbound triggers (e.g., system events, duplicate webhooks)

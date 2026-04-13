@@ -827,3 +827,10 @@
 - [x] Audited: error-memory has 56 errors (mostly LLM hallucinations), learnings has 50 patterns (15 promoted to prompt)
 - [x] Finding: Self-learning only captures message-level QC patterns, NOT infrastructure bugs (race conditions, missing appointments, infinite loops)
 - [x] Added 6 infrastructure fix patterns to error-memory seedKnownErrors (duplicate leads, missing appointments, infinite loops, form data gaps, missing ack, migrated channel)
+
+## BUG: Duplicate message sent to John R Martinez (7:46 PM + 7:54 PM)
+- [x] Root cause: FB form data message arrived 5 min after first-contact. Dedup guard treated form data as "genuine inbound" and bypassed the 5-min cooldown
+- [x] Contact-level mutex can't help — webhooks arrived 5 min apart (mutex only serializes concurrent requests)
+- [x] Fix: Added `isFormDataMessage` flag that detects structured FB form data (Full name/Company name + Phone/Email/Products)
+- [x] Fix: Modified `isGenuineInbound` to exclude form data messages — form data now triggers dedup cooldown if AI already sent within 5 min
+- [x] Form data still stored in conversation history and lead fields still enriched — just no duplicate Brain Council reply
