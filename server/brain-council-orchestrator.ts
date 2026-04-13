@@ -581,6 +581,32 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
     }
 
     // ============================================================
+    // PROGRAMMATIC HORMOZI_INDIRECT GUARD
+    // HORMOZI_INDIRECT produces referral-ask copy ("Do you know anyone who needs...")
+    // which is ONLY appropriate for warm follow-up outreach — NEVER for first contact
+    // or responsive approaches (when the lead asked a question or shared information).
+    //
+    // Root cause of Darnicia Calvin bug: Strategist chose HORMOZI_INDIRECT for a
+    // first-contact inquiry response, producing "Random thought: do you know anyone
+    // needing custom tees?" instead of answering her actual inquiry.
+    //
+    // Fix: hard programmatic override — responsive approaches always use DIRECT_RESPONSE,
+    // first_contact uses HORMOZI_ACA (the correct warm-intro framework).
+    // ============================================================
+    const RESPONSIVE_APPROACHES = new Set(["answer_question", "provide_quote", "acknowledge_info", "confirm_details"]);
+    if (strategy.framework === 'HORMOZI_INDIRECT') {
+      if (strategy.approach === 'first_contact' || strategy.approach === 'new_pitch') {
+        console.log(`[SalesManager] 🚨 HORMOZI_INDIRECT GUARD: first_contact/new_pitch cannot use referral-ask framework. Overriding → HORMOZI_ACA.`);
+        (strategy as any).framework = 'HORMOZI_ACA';
+        (strategy as any).reasoning = `[HORMOZI_INDIRECT GUARD: first_contact must use HORMOZI_ACA, not referral-ask] ${strategy.reasoning}`;
+      } else if (RESPONSIVE_APPROACHES.has(strategy.approach)) {
+        console.log(`[SalesManager] 🚨 HORMOZI_INDIRECT GUARD: responsive approach '${strategy.approach}' cannot use referral-ask framework. Overriding → DIRECT_RESPONSE.`);
+        (strategy as any).framework = 'DIRECT_RESPONSE';
+        (strategy as any).reasoning = `[HORMOZI_INDIRECT GUARD: responsive approach must use DIRECT_RESPONSE, not referral-ask] ${strategy.reasoning}`;
+      }
+    }
+
+    // ============================================================
     // GRACEFUL EXIT GUARD — Block sending and retire the lead
     // If the Strategist determines the lead is declining/not interested,
     // do NOT send a goodbye message. Just silently retire the lead.

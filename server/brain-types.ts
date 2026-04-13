@@ -135,7 +135,7 @@ export interface BrainCouncilOutput {
   persona?: string;       // Normalized persona (church, corporate, etc.)
 }
 
-export type ViolationCategory = "irrelevant_research" | "form_data_ignored" | "wrong_business" | "generic_opener" | "missing_framework" | "safety_violation" | "unanswered_question" | "info_not_acknowledged" | "repeated_question" | "repeated_opener" | "ignored_request" | "channel_mismatch" | "unverified_claim" | "context_free_subject" | "passive_reactivation" | "email_formatting" | "channel_switch_unacknowledged";
+export type ViolationCategory = "irrelevant_research" | "form_data_ignored" | "wrong_business" | "generic_opener" | "missing_framework" | "safety_violation" | "unanswered_question" | "info_not_acknowledged" | "repeated_question" | "repeated_opener" | "ignored_request" | "channel_mismatch" | "unverified_claim" | "context_free_subject" | "passive_reactivation" | "email_formatting" | "channel_switch_unacknowledged" | "referral_ask_in_inquiry";
 
 export type LeadContext = {
   lead: any;

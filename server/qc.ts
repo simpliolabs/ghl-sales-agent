@@ -406,7 +406,41 @@ export function detectViolations(
     }
   }
 
-  // 5b. EMAIL FORMATTING VIOLATION — deterministic hard-reject for emails without proper formatting
+  // 5b. REFERRAL-ASK IN INQUIRY/FIRST-CONTACT — HORMOZI_INDIRECT referral-ask copy
+  // ("Do you know anyone who needs...", "Random thought —", "Just a thought —") is
+  // ONLY valid for warm outreach follow-ups. It is NEVER appropriate when:
+  //   a) The lead has an active inquiry (approach = answer_question / provide_quote / acknowledge_info / confirm_details)
+  //   b) This is first contact (approach = first_contact / new_pitch)
+  //
+  // Root cause of Darnicia Calvin bug: Strategist chose HORMOZI_INDIRECT for an inquiry
+  // response, producing "Random thought: do you know anyone needing custom tees?"
+  // instead of answering her actual question about The Beyond Project order.
+  //
+  // The orchestrator guards this programmatically, but this is a second safety net.
+  // PRIORITY: runs BEFORE email_formatting so this more-fundamental violation is caught first.
+  {
+    const REFERRAL_ASK_PATTERNS_EARLY = [
+      /do you know anyone (who |that )?(needs|wants|is looking for|might need|could use)/i,
+      /know anyone (who |that )?(needs|wants|is looking for|might need|could use)/i,
+      /random thought[\s\-—:]/i,
+      /just a thought[\s\-—:]/i,
+      /plot twist[\s\-—:]/i,
+      /honest question[\s\-—:]/i,
+      /between us[\s\-—:]/i,
+    ];
+    const INQUIRY_APPROACHES_EARLY = new Set(["answer_question", "provide_quote", "acknowledge_info", "confirm_details", "first_contact", "new_pitch"]);
+    if (INQUIRY_APPROACHES_EARLY.has(strategy.approach)) {
+      const referralMatch = REFERRAL_ASK_PATTERNS_EARLY.find(p => p.test(composed.message));
+      if (referralMatch) {
+        return {
+          category: "referral_ask_in_inquiry" as ViolationCategory,
+          reason: `Message uses referral-ask / pattern-interrupt language ("${composed.message.match(referralMatch)?.[0]}") for a ${strategy.approach} approach. Referral-ask copy is ONLY valid for warm outreach follow-ups — NEVER for first-contact or inquiry-response situations. The lead has an active inquiry that must be answered directly.`
+        };
+      }
+    }
+  }
+
+  // 5c. EMAIL FORMATTING VIOLATION — deterministic hard-reject for emails without proper formatting
   // This catches any email that somehow bypassed the orchestrator's post-compose formatter.
   if (strategy.channel === "Email" && composed.message) {
     const emailMsg = composed.message;

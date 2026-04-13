@@ -725,6 +725,7 @@
 - [x] SELF-HEALING TIE-IN: All new features (SLA, post-delivery, seasonal, email formatting, follow-up send failures) feed into error-memory with known fixes seeded
 
 ## Source-Level Bugs (Apr 12 2026 - Round 2)
+- [x] BUG: Darnicia Calvin received referral-ask email ("Random thought: do you know anyone needing custom tees?") instead of inquiry response — ROOT CAUSE: Strategist chose HORMOZI_INDIRECT for first_contact/responsive approach. FIXED: (1) Programmatic guard in orchestrator: HORMOZI_INDIRECT overridden to HORMOZI_ACA for first_contact/new_pitch, DIRECT_RESPONSE for responsive approaches. (2) Deterministic QC check 5b: referral_ask_in_inquiry violation blocks referral-ask patterns in inquiry/first-contact contexts. (3) New ViolationCategory type. 7 new tests, 705 total passing.
 - [x] BUG: Leads showing past-date nextFollowUpAt — capDate now has floor that bumps any past date to now+1h+jitter
 - [x] BUG: AI repeats same opener "AWESOME MATT!" — added phrase-level repetition detection in QC detectViolations (catches ALL CAPS + exclamation patterns across 2+ prior messages)
 - [x] BUG: Weekend/after-hours scheduling — both scheduling-engine.ts and cadence-engine.ts now enforce Mon-Fri 9am-5pm ET only (Saturday removed, end hour changed from 6/7pm to 5pm)

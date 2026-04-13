@@ -1173,3 +1173,103 @@ describe("detectViolations — channel_switch_unacknowledged", () => {
     expect(result.category).not.toBe("channel_switch_unacknowledged");
   });
 });
+
+// ============================================================
+// REFERRAL-ASK IN INQUIRY / FIRST-CONTACT (Darnicia Calvin bug regression)
+// Root cause: Strategist chose HORMOZI_INDIRECT for a first-contact inquiry,
+// producing "Random thought: do you know anyone needing custom tees?" instead
+// of answering the lead's actual question about The Beyond Project order.
+// ============================================================
+describe("detectViolations — referral_ask_in_inquiry", () => {
+  it("blocks 'do you know anyone' in first_contact approach", () => {
+    const context = makeContext({
+      lead: { name: "Darnicia Calvin", businessName: "The Beyond Project", assignedAgent: "Abby" },
+    });
+    const composed = makeComposed({
+      message: "Hey Darnicia,\n\nRandom thought — do you know anyone who needs custom tees for their next event?\n\nWe do everything from 1 piece to 10,000+.\n\nAbby | Adorb Custom Printing",
+      subject: "Quick thought",
+    });
+    const strategy = makeStrategy({ approach: "first_contact", framework: "HORMOZI_INDIRECT", channel: "Email" });
+    const result = detectViolations(composed, makeQC(), strategy, context, makeInput({ incomingMessage: "Hi I need shirts for The Beyond Project" }), makeResearch());
+    expect(result.category).toBe("referral_ask_in_inquiry");
+    // The regex matches the first pattern found in the message ("do you know anyone who needs" fires before "Random thought")
+    expect(result.reason).toContain("referral-ask");
+  });
+
+  it("blocks 'do you know anyone' in answer_question approach", () => {
+    const context = makeContext({
+      lead: { name: "Darnicia Calvin", businessName: "The Beyond Project", assignedAgent: "Abby" },
+    });
+    const composed = makeComposed({
+      message: "Hey Darnicia, do you know anyone who might need custom tees for their business?",
+    });
+    const strategy = makeStrategy({ approach: "answer_question", framework: "HORMOZI_INDIRECT", channel: "SMS" });
+    const result = detectViolations(composed, makeQC(), strategy, context, makeInput({ incomingMessage: "How much for 50 shirts?" }), makeResearch());
+    expect(result.category).toBe("referral_ask_in_inquiry");
+  });
+
+  it("blocks 'do you know anyone' in provide_quote approach", () => {
+    const context = makeContext({
+      lead: { name: "Darnicia Calvin", businessName: "The Beyond Project", assignedAgent: "Abby" },
+    });
+    const composed = makeComposed({
+      message: "Do you know anyone that needs custom printing for their team?",
+    });
+    const strategy = makeStrategy({ approach: "provide_quote", framework: "HORMOZI_INDIRECT", channel: "SMS" });
+    const result = detectViolations(composed, makeQC(), strategy, context, makeInput({ incomingMessage: "Can you quote 100 hoodies?" }), makeResearch());
+    expect(result.category).toBe("referral_ask_in_inquiry");
+  });
+
+  it("blocks 'just a thought' pattern-interrupt in acknowledge_info approach", () => {
+    const context = makeContext({
+      lead: { name: "Darnicia Calvin", businessName: "The Beyond Project", assignedAgent: "Abby" },
+    });
+    const composed = makeComposed({
+      message: "Just a thought — do you know anyone looking for custom shirts for their church?",
+    });
+    const strategy = makeStrategy({ approach: "acknowledge_info", framework: "HORMOZI_INDIRECT", channel: "SMS" });
+    const result = detectViolations(composed, makeQC(), strategy, context, makeInput({ incomingMessage: "We need 50 shirts for our church event" }), makeResearch());
+    expect(result.category).toBe("referral_ask_in_inquiry");
+  });
+
+  it("blocks 'Random thought' opener in new_pitch approach", () => {
+    const context = makeContext({
+      lead: { name: "Test Lead", businessName: "Test Biz", assignedAgent: "Chris" },
+    });
+    const composed = makeComposed({
+      message: "Random thought: do you know anyone who could use custom tees for their next event?",
+    });
+    const strategy = makeStrategy({ approach: "new_pitch", framework: "HORMOZI_INDIRECT", channel: "SMS" });
+    const result = detectViolations(composed, makeQC(), strategy, context, makeInput(), makeResearch());
+    expect(result.category).toBe("referral_ask_in_inquiry");
+  });
+
+  it("allows 'do you know anyone' in follow_up approach (valid warm outreach)", () => {
+    const context = makeContext({
+      lead: { name: "Test Lead", businessName: "Test Biz", assignedAgent: "Chris" },
+      priorOutbound: [{ messageBody: "Hey Test, Abby here from Adorb!", senderType: "ai" }],
+    });
+    const composed = makeComposed({
+      message: "Hey Test — do you know anyone who needs custom tees for their next event? We just did 200 for a local church and they loved them.",
+    });
+    const strategy = makeStrategy({ approach: "follow_up", framework: "HORMOZI_INDIRECT", channel: "SMS" });
+    const result = detectViolations(composed, makeQC(), strategy, context, makeInput({ incomingMessage: "" }), makeResearch());
+    expect(result.category).not.toBe("referral_ask_in_inquiry");
+  });
+
+  it("allows 'Random thought' in follow_up approach (valid pattern interrupt for cold lead)", () => {
+    const context = makeContext({
+      lead: { name: "Test Lead", businessName: "Test Biz", assignedAgent: "Chris" },
+      priorOutbound: [
+        { messageBody: "Hey Test, Abby here from Adorb!", senderType: "ai" },
+        { messageBody: "Just checking in on your shirt order", senderType: "ai" },
+      ],
+    });
+    const composed = makeComposed({
+      message: "Random thought — do you know anyone who needs custom shirts for a reunion or event? We just did 300 for a family reunion and they went crazy for them.",
+    });
+    const strategy = makeStrategy({ approach: "follow_up", framework: "HORMOZI_INDIRECT", channel: "SMS" });
+    const result = detectViolations(composed, makeQC(), strategy, context, makeInput({ incomingMessage: "" }), makeResearch());
+    expect(result.category).not.toBe("referral_ask_in_inquiry");
+  });
+});
