@@ -12,6 +12,7 @@ import { recalculateStaleSchedules } from "../scheduling-engine";
 import { runSlaCheck } from "../sla-timer";
 import { processPostDeliverySteps } from "../post-delivery-executor";
 import { processSeasonalCampaigns } from "../seasonal-campaign-executor";
+import { warmSlotPointersFromCalendar } from "../ghl";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -66,6 +67,16 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+
+    // --- STARTUP: Warm slot pointers from GHL calendar (prevent double-booking after restart) ---
+    setTimeout(async () => {
+      try {
+        await warmSlotPointersFromCalendar();
+        console.log(`[SlotQueue] Slot pointers warmed from GHL calendar`);
+      } catch (err) {
+        console.error(`[SlotQueue] Failed to warm slot pointers:`, err);
+      }
+    }, 10_000); // 10 seconds after startup
 
     // --- CRON: Recalculate stale schedules every hour ---
     // Handles: score decay, seasonal campaign eligibility, past-due follow-ups

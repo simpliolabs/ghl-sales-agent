@@ -111,7 +111,7 @@ export async function createHeadsUpNotification(
   // 1. Create appointment (10-min slot at next business hours)
   if (!appointmentId) {
     try {
-      const slot = getNextBusinessHoursSlot();
+      const slot = getNextBusinessHoursSlot(new Date(), agent);
       const calendarId = AGENT_CALENDAR_IDS[agent] || AGENT_CALENDAR_IDS["Abby Bouwer"];
       const userId = AGENT_GHL_USER_IDS[agent];
       const endTime = new Date(slot.start.getTime() + 10 * 60 * 1000); // 10-min appointment
@@ -153,7 +153,7 @@ export async function createHeadsUpNotification(
   // 2. Create task
   if (!taskId) {
     try {
-      const slot = getNextBusinessHoursSlot();
+      const slot = getNextBusinessHoursSlot(new Date(), agent);
       const result = await createTask(ctx.ghlContactId, {
         title: `📋 New inquiry: ${leadLabel}`,
         body: [
@@ -251,7 +251,7 @@ export async function escalateNotification(
   if (appointmentId) {
     // UPDATE existing appointment
     try {
-      const slot = getNextBusinessHoursSlot();
+      const slot = getNextBusinessHoursSlot(new Date(), agent);
       const endTime = new Date(slot.start.getTime() + 10 * 60 * 1000);
       await updateAppointment(appointmentId, {
         title: `${titleEmoji} ${titleAction}: ${leadLabel}`,
@@ -280,7 +280,7 @@ export async function escalateNotification(
   } else {
     // FALLBACK: Create new appointment if none exists
     try {
-      const slot = getNextBusinessHoursSlot();
+      const slot = getNextBusinessHoursSlot(new Date(), agent);
       const calendarId = AGENT_CALENDAR_IDS[agent] || AGENT_CALENDAR_IDS["Abby Bouwer"];
       const userId = AGENT_GHL_USER_IDS[agent];
       const endTime = new Date(slot.start.getTime() + 10 * 60 * 1000);
@@ -334,7 +334,7 @@ export async function escalateNotification(
   } else {
     // FALLBACK: Create new task if none exists
     try {
-      const slot = getNextBusinessHoursSlot();
+      const slot = getNextBusinessHoursSlot(new Date(), agent);
       const result = await createTask(ctx.ghlContactId, {
         title: `${titleEmoji} ${titleAction}: ${leadLabel}`,
         body: [

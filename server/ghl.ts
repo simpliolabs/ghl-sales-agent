@@ -391,11 +391,23 @@ export const AGENT_CALENDAR_IDS: Record<string, string> = {
 };
 
 /**
- * Compute the next available business-hours slot (Mon-Fri 9am-5pm ET).
- * If current time is within business hours, returns the next whole 10-min mark.
- * Otherwise returns 9:00 AM on the next business day.
+ * Per-agent slot pointer — tracks the last booked slot end time per agent.
+ * This prevents clustering when multiple appointments are created in the same minute.
+ * Key: agent name (or "default"), Value: last booked end time (epoch ms)
  */
-export function getNextBusinessHoursSlot(fromDate: Date = new Date()): { start: Date; end: Date } {
+const agentSlotPointers: Map<string, number> = new Map();
+
+/**
+ * Compute the next available business-hours slot (Mon-Fri 9am-5pm ET).
+ * STATEFUL: tracks the last booked slot per agent to ensure sequential 10-min spacing.
+ * Never returns a slot before 9:00 AM ET. Never stacks slots on top of each other.
+ * @param fromDate - reference time (defaults to now)
+ * @param agentKey - agent name for per-agent slot tracking (defaults to "default")
+ */
+export function getNextBusinessHoursSlot(
+  fromDate: Date = new Date(),
+  agentKey: string = "default",
+): { start: Date; end: Date } {
   // Work in ET (America/New_York)
   const etFormatter = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
@@ -465,8 +477,96 @@ export function getNextBusinessHoursSlot(fromDate: Date = new Date()): { start: 
     }
   }
 
+  // SLOT POINTER: If the agent already has a booked slot pointer that is AFTER
+  // the computed start, advance start to the next 10-min mark after the pointer.
+  // This prevents clustering when multiple appointments are created in rapid succession.
+  const pointerMs = agentSlotPointers.get(agentKey) || 0;
+  if (pointerMs > start.getTime()) {
+    // Use the pointer as the new start (already aligned to 10-min boundary)
+    start = new Date(pointerMs);
+    // Ensure it's still within business hours (9am-5pm ET)
+    const pParts = etFormatter.formatToParts(start);
+    const pHour = parseInt(pParts.find(p => p.type === "hour")?.value || "0", 10);
+    const pMin = parseInt(pParts.find(p => p.type === "minute")?.value || "0", 10);
+    if (pHour >= 17) {
+      // Pointer is at or past end of business day (5 PM) — advance to next business day at 9 AM
+      const dPtr = new Date(start);
+      do { dPtr.setDate(dPtr.getDate() + 1); } while (dPtr.getDay() === 0 || dPtr.getDay() === 6);
+      const etPtr = new Date(dPtr.toLocaleString("en-US", { timeZone: "America/New_York" }));
+      const offsetPtr = dPtr.getTime() - etPtr.getTime();
+      const targetPtr = new Date(dPtr);
+      targetPtr.setHours(9, 0, 0, 0);
+      start = new Date(targetPtr.getTime() + offsetPtr);
+    }
+  }
+
   const end = new Date(start.getTime() + 10 * 60_000); // 10-minute slot
+
+  // Advance the per-agent pointer to the end of this slot
+  agentSlotPointers.set(agentKey, end.getTime());
+  console.log(`[SlotQueue] Agent '${agentKey}' booked slot: ${start.toISOString()} → ${end.toISOString()}`);
+
   return { start, end };
+}
+
+/** Reset the per-agent slot pointer (for testing or manual override) */
+export function resetAgentSlotPointer(agentKey: string = "default"): void {
+  agentSlotPointers.delete(agentKey);
+}
+
+/**
+ * Fetch existing GHL calendar events for a given calendar within a time window.
+ * Used to warm the slot pointer on server startup so we don't double-book.
+ */
+export async function getCalendarEvents(
+  calendarId: string,
+  startTime: string, // ISO 8601
+  endTime: string,   // ISO 8601
+): Promise<Array<{ startTime: string; endTime: string; id: string }>> {
+  try {
+    const { data } = await ghlClient.get(`/calendars/events`, {
+      params: { calendarId, locationId: ENV.ghlLocationId, startTime, endTime },
+    });
+    return (data?.events || []) as Array<{ startTime: string; endTime: string; id: string }>;
+  } catch (err: any) {
+    console.error(`[GHL] getCalendarEvents failed:`, err?.response?.data || err?.message);
+    return [];
+  }
+}
+
+/**
+ * Warm the per-agent slot pointer by fetching today's existing appointments from GHL.
+ * Call this once on server startup to avoid double-booking after a restart.
+ */
+export async function warmSlotPointersFromCalendar(): Promise<void> {
+  const now = new Date();
+  // Fetch events for today + next 2 business days
+  const windowStart = new Date(now);
+  windowStart.setHours(0, 0, 0, 0);
+  const windowEnd = new Date(now);
+  windowEnd.setDate(windowEnd.getDate() + 3);
+
+  for (const [agentName, calendarId] of Object.entries(AGENT_CALENDAR_IDS)) {
+    try {
+      const events = await getCalendarEvents(
+        calendarId,
+        windowStart.toISOString(),
+        windowEnd.toISOString(),
+      );
+      if (events.length === 0) continue;
+      // Find the latest end time among all booked events
+      const latestEndMs = Math.max(
+        ...events.map(e => new Date(e.endTime).getTime()),
+      );
+      const currentPointer = agentSlotPointers.get(agentName) || 0;
+      if (latestEndMs > currentPointer) {
+        agentSlotPointers.set(agentName, latestEndMs);
+        console.log(`[SlotQueue] Warmed pointer for '${agentName}': ${new Date(latestEndMs).toISOString()} (${events.length} existing events)`);
+      }
+    } catch (err: any) {
+      console.error(`[SlotQueue] Failed to warm pointer for '${agentName}':`, err?.message);
+    }
+  }
 }
 
 /** Create a GHL calendar appointment */

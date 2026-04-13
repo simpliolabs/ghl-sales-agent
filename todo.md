@@ -862,3 +862,12 @@
 ## Osmond Gilmore Issues (Apr 13 2026) — FIXED
 - [x] BUG: Price range too wide ($10-28) — FIXED: Added QUANTITY UNKNOWN RULE and MIXED PRODUCT RULE to Composer pricing section. When quantity unknown, use 24-47 qty tier as reference. When multiple products mentioned, give SEPARATE estimates per product, never blend ranges.
 - [x] BUG: Facebook lead contacted via SMS instead of FB channel — FIXED: Lookback Engine now checks lead.source when no conversation history exists. If source contains 'facebook'/'fb'/'lead_form', sets preferredChannel=FB. Same for Instagram→IG.
+
+## GHL Appointment Scheduling Bug (Apr 13 2026) — FIXED
+- [x] BUG: Appointments created in dense clusters (all at 8 AM, stacked on top of each other) — ROOT CAUSE: getNextBusinessHoursSlot() was stateless; bulk batch creation returned same slot for every call
+- [x] FIX: Per-agent slot pointer (agentSlotPointers Map) tracks last booked end time per agent key
+- [x] FIX: Sequential calls advance pointer by 10 min each time — 9:00→9:10→9:20... no overlap
+- [x] FIX: Pointer wraps to next business day at 5 PM ET (not 4:50 PM)
+- [x] FIX: warmSlotPointersFromCalendar() fetches existing GHL events on startup to prevent double-booking after restart
+- [x] FIX: All 5 agent-notifications.ts calls now pass agent key for per-agent isolation
+- [x] 6 new tests (ghl-slot.test.ts), 711 total passing

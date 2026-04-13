@@ -1,11 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { getNextBusinessHoursSlot } from "./ghl";
+import { getNextBusinessHoursSlot, resetAgentSlotPointer } from "./ghl";
 
 // ============================================================
 // getNextBusinessHoursSlot tests
 // ============================================================
 
 describe("getNextBusinessHoursSlot", () => {
+  beforeEach(() => {
+    // Reset the default agent slot pointer before each test to prevent cross-test contamination
+    resetAgentSlotPointer("default");
+  });
+
   it("returns a slot within business hours (Mon-Fri 9-5 ET)", () => {
     const { start, end } = getNextBusinessHoursSlot();
     expect(start).toBeInstanceOf(Date);
