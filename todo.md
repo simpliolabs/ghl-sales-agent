@@ -881,3 +881,7 @@
 - [x] BUG: Composer appends "No design needed yet for a ballpark quote!" AFTER already giving the ballpark quote — FIXED: Added explicit rule to Composer: NEVER append this phrase after already giving a price estimate in the same message.
 - [x] BUG: 'Thank you' after ballpark quote should NOT trigger committed state — FIXED: Intent classifier now explicitly states 'Thank you' after receiving a ballpark quote = general_chat (closingSignal=FALSE). Only 'Thank you' after CONFIRMED specific order details (qty, design, date) = thank_you_close.
 - [x] BUG: 'hired someone else' triggered agent appointment instead of lost/not-qualified — FIXED: Added competitor_won intent type. Keyword fallback detects 'hired someone', 'already ordered', 'went with another vendor' etc. conversation-state maps competitor_won → dnc_all (Not Qualified, all outreach stops). JSON schema enum updated. Fallback keywords added.
+
+## Owner Notification Spam (Apr 13 2026)
+- [ ] BUG: Owner receiving multiple emails for same lead/event (e.g., "New Contact: Test Lead" fired 4+ times at 1:53 PM) — needs deduplication/batching so only 1 email per lead per event type
+- [ ] BUG: Appointment creation for new contacts — "Heads-up appointment + task created in GHL" message in notification — clarify if new contact appointments should still be created

@@ -43,6 +43,8 @@ export interface AgentNotificationContext {
   assignedAgent: string | null;
   pipelineValue: number | null;
   channel: string;
+  /** Current pipeline stage — used to block appointment creation for lost/disqualified leads */
+  pipelineStage?: string | null;
   /** Existing GHL appointment ID (null if none created yet) */
   existingAppointmentId: string | null;
   /** Existing GHL task ID (null if none created yet) */
@@ -54,6 +56,14 @@ export interface NotificationResult {
   errors: string[];
   appointmentId: string | null;
   taskId: string | null;
+}
+
+// Stages where we must NEVER create new appointments or tasks.
+// GHL may send mixed-case values (e.g. "Lost"), so always compare lowercase.
+const LOST_STAGES = new Set(["not_qualified", "lost", "dnc", "competitor_won"]);
+
+function isLostStage(stage: string | null | undefined): boolean {
+  return !!stage && LOST_STAGES.has(stage.toLowerCase());
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -88,6 +98,7 @@ async function buildConversationSummary(leadId: number, leadName: string | null)
  * Saves the IDs to the leads table.
  *
  * IDEMPOTENT: If appointment/task already exist, skips creation.
+ * GUARD: Never creates appointments for lost/disqualified leads.
  */
 export async function createHeadsUpNotification(
   ctx: AgentNotificationContext,
@@ -104,6 +115,14 @@ export async function createHeadsUpNotification(
   if (appointmentId && taskId) {
     console.log(`[AgentNotify] Lead ${ctx.leadId}: Heads-up already exists (appt=${appointmentId}, task=${taskId}) — skipping`);
     return { actions: ["Heads-up already exists — skipped"], errors: [], appointmentId, taskId };
+  }
+
+  // GUARD: Never create appointments for lost/disqualified leads.
+  // This prevents spurious appointments when a lost lead sends a final reply
+  // (e.g., "All done", "Thanks") after being marked Lost/Not Qualified.
+  if (isLostStage(ctx.pipelineStage)) {
+    console.log(`[AgentNotify] Lead ${ctx.leadId}: Skipping heads-up — lead is in lost/disqualified stage (${ctx.pipelineStage})`);
+    return { actions: [`Skipped — lead is ${ctx.pipelineStage}`], errors: [], appointmentId: null, taskId: null };
   }
 
   const conversationSummary = await buildConversationSummary(ctx.leadId, ctx.leadName);
@@ -226,6 +245,7 @@ export async function createHeadsUpNotification(
  * Adds a NEW note (notes are append-only in GHL).
  *
  * If no existing appointment/task, creates them (fallback).
+ * GUARD: Never creates/updates appointments for lost/disqualified leads.
  */
 export async function escalateNotification(
   ctx: AgentNotificationContext,
@@ -239,6 +259,12 @@ export async function escalateNotification(
   const agent = ctx.assignedAgent || SALES_AGENTS[0];
   let appointmentId = ctx.existingAppointmentId;
   let taskId = ctx.existingTaskId;
+
+  // GUARD: Never escalate appointments for lost/disqualified leads.
+  if (isLostStage(ctx.pipelineStage)) {
+    console.log(`[AgentNotify] Lead ${ctx.leadId}: Skipping escalation — lead is in lost/disqualified stage (${ctx.pipelineStage})`);
+    return { actions: [`Skipped escalation — lead is ${ctx.pipelineStage}`], errors: [], appointmentId: null, taskId: null };
+  }
 
   const conversationSummary = await buildConversationSummary(ctx.leadId, ctx.leadName);
 
@@ -352,34 +378,35 @@ export async function escalateNotification(
     }
   }
 
-  // ── Add NEW note (notes are append-only) ──
+  // ── Add escalation note ──
   try {
     await addNote(ctx.ghlContactId,
       [
-        `🤖 AI: Status escalated → ${statusLabel}`,
-        `Reason: ${reason}`,
-        ...(intent ? [`Intent: ${intent.intent} — "${intent.reasoning}"`] : []),
-        `Assigned to: ${agent}`,
+        `${titleEmoji} AI: ${titleAction}`,
+        `STATUS: ${statusLabel}`,
         ``,
-        `Existing appointment and task have been updated.`,
+        `Contact: ${leadLabel}${ctx.businessName ? ` (${ctx.businessName})` : ""}`,
+        `Reason: ${reason}`,
+        ...(intent ? [`Intent: ${intent.intent} (${intent.confidence}%) — ${intent.reasoning}`] : []),
+        ``,
         isCommitted
-          ? `Next: Agent to close deal and collect payment.`
-          : `Next: Agent to review conversation and take over.`,
+          ? `Customer has expressed commitment. Review and close the deal.`
+          : `AI has stepped back. Please take over the conversation.`,
       ].join("\n")
     );
     actions.push("Added escalation note to GHL");
   } catch { /* best effort */ }
 
-  // ── Save IDs to leads table (in case fallback created new ones) ──
+  // ── Save updated IDs ──
   try {
     const updates: Record<string, any> = {};
-    if (appointmentId && appointmentId !== ctx.existingAppointmentId) updates.appointmentId = appointmentId;
-    if (taskId && taskId !== ctx.existingTaskId) updates.ghlTaskId = taskId;
+    if (appointmentId) updates.appointmentId = appointmentId;
+    if (taskId) updates.ghlTaskId = taskId;
     if (Object.keys(updates).length > 0) {
       await updateLeadFields(ctx.leadId, updates);
     }
   } catch (err: any) {
-    errors.push(`Failed to save notification IDs: ${err?.message}`);
+    errors.push(`Failed to save escalation IDs: ${err?.message}`);
   }
 
   return { actions, errors, appointmentId, taskId };

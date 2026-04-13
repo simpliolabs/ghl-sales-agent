@@ -269,7 +269,11 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   // If a lead sends an inbound message but has NO appointment or task yet,
   // create one immediately. This covers transferred contacts, leads where
   // first-contact notification failed, and any other gap.
-  if (direction === "inbound" && lead && lead.ghlContactId && (!lead.appointmentId || !lead.ghlTaskId)) {
+  // GUARD: Never create appointments for lost/disqualified leads.
+  // Note: GHL may send stage names with capital letters (e.g. "Lost"), so compare case-insensitively.
+  const LOST_STAGES_MSG = new Set(["not_qualified", "lost", "dnc", "competitor_won"]);
+  const isLostLead = lead?.pipelineStage ? LOST_STAGES_MSG.has(lead.pipelineStage.toLowerCase()) : false;
+  if (direction === "inbound" && lead && lead.ghlContactId && (!lead.appointmentId || !lead.ghlTaskId) && !isLostLead) {
     try {
       const { createHeadsUpNotification } = await import("./agent-notifications");
       const notifCtx = {
@@ -282,6 +286,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
         assignedAgent: lead.assignedAgent,
         pipelineValue: lead.pipelineValue,
         channel,
+        pipelineStage: lead.pipelineStage || null,
         existingAppointmentId: lead.appointmentId || null,
         existingTaskId: lead.ghlTaskId || null,
       };
