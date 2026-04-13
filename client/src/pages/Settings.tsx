@@ -42,6 +42,10 @@ export default function Settings() {
     onSuccess: () => { toast.success("Role updated"); refetchUsers(); },
     onError: (e) => toast.error(e.message),
   });
+  const purgeGhosts = trpc.users.purgeGhosts.useMutation({
+    onSuccess: (data) => { toast.success(`Purged ${data.removed} ghost account${data.removed === 1 ? '' : 's'}`); refetchUsers(); },
+    onError: (e) => toast.error(e.message),
+  });
 
   return (
     <DashboardLayout>
@@ -304,9 +308,21 @@ export default function Settings() {
             {/* Team Members */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Users className="h-4 w-4" /> Team Members
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Users className="h-4 w-4" /> Team Members
+                  </CardTitle>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => purgeGhosts.mutate()}
+                    disabled={purgeGhosts.isPending}
+                    className="text-xs text-destructive border-destructive/40 hover:bg-destructive/10"
+                  >
+                    <Trash2 className="h-3 w-3 mr-1" />
+                    {purgeGhosts.isPending ? "Purging..." : "Purge Ghost Accounts"}
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 {usersList && usersList.length > 0 ? (
