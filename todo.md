@@ -845,3 +845,16 @@
 - [x] Strengthened getBrandContext() with CRITICAL verbatim-use directive
 - [x] Added BUSINESS FACTS verbatim rule to composer.ts with wrong address example as anti-pattern
 - [x] Expanded QC hallucinated_fact rule to catch wrong address/phone/hours (QC now rejects messages with wrong business facts)
+
+## URGENT: Emails still broken in production (Apr 12 - Round 12)
+- [x] Diagnose: What emails are still going out wrong despite HORMOZI_INDIRECT guard?
+- [x] Identify the specific failure pattern: (1) TCPA channel-switch, (2) HORMOZI_INDIRECT in follow_up, (3) fallback sends after blocks
+- [x] Fix at source — 5 architecture fixes deployed (see below)
+- [x] Verify fix in production — 705 tests passing
+
+## CRITICAL: TCPA quiet hours + HORMOZI_INDIRECT ban + Fallback suppression (Apr 12-13 2026)
+- [x] BUG: TCPA quiet hours switches SMS to Email instead of deferring (Vanessia Brooks lead 5) — FIXED: Both pre-BC and post-BC TCPA gates now DEFER to next business hours instead of switching channels
+- [x] BUG: HORMOZI_INDIRECT referral-ask allowed in follow_up approach (Vanessia Brooks: "Know anyone else who needs custom hoodies?") — FIXED: TOTAL BAN on HORMOZI_INDIRECT for ALL approaches. Removed from: Strategist prompt, JSON schema, diversity pool, stage-playbook preferred frameworks. Orchestrator guard catches any remaining. QC check 5b blocks all referral-ask patterns regardless of approach.
+- [x] BUG: Fallback sends after Brain Council blocks (transferred contacts getting generic "Hey c," emails) — FIXED: Fallback sends eliminated from ALL 3 entry points (follow-up-trigger.ts, webhook-contact.ts, webhook-message.ts). When Brain Council blocks, NOTHING is sent. Lead retries on next scheduled cycle.
+- [x] BUG: HORMOZI_INDIRECT in diversity framework pool could be selected as override — FIXED: Removed from ALL_OUTREACH_FRAMEWORKS array
+- [x] Tests updated for TCPA deferral + referral-ask total ban — 705 passing

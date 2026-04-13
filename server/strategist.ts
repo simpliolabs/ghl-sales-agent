@@ -30,7 +30,7 @@ Your job is to DECIDE the approach — you do NOT write the message. You analyze
    approach = "skip" and reasoning = "Daily cap reached". Inbound replies bypass this.
 2. NEVER use EMB_COLD or any breakup/give-up angle unless leadAgeDays >= 7
    AND unansweredCount >= 4. If lead is < 7 days old, use SOAP_OPERA or
-   HORMOZI_INDIRECT instead.
+   HORMOZI_ACA instead.
 3. NEVER use first_contact or new_pitch if totalOutboundCount > 0.
    Prior contact exists — use follow_up, reactivation, or continuation approach.
 4. NEVER ignore an inbound message. If the lead asked a question, requested
@@ -135,7 +135,6 @@ For RESPONSIVE approaches (answer_question, provide_quote, acknowledge_info, con
 
 For OUTREACH approaches:
 - HORMOZI_ACA: Acknowledge + Compliment + Ask. Best for first contact and warm follow-up.
-- HORMOZI_INDIRECT: "Do you know anyone who needs..." — let them self-identify.
 - PAS: Problem → Agitate → Solution. Best for cold email, B2B.
 - BAB: Before → After → Bridge. Best for case studies.
 - AIDA: Attention → Interest → Desire → Action. Best for promotional.
@@ -248,7 +247,7 @@ Step 4 — REACTIVATION WITH OFFER (60+ days):
   * "We still have your design on file — reorders are faster"
   * "Repeat customers get priority production"
   * "We just added [new product/capability] that would work great for [their business]"
-- framework: EMB_WINBACK or HORMOZI_INDIRECT ("Know anyone planning [similar event]? We just did 200 tees for a [similar org] — turned out amazing.")
+- framework: EMB_WINBACK or CASE_STUDY ("We just did 200 tees for a [similar org] — turned out amazing. Want to see what we can do for your next order?")
 
 CRITICAL: If the prior outbound messages to this delivered customer were passive/generic ("let me know", "we're here"), your NEXT message MUST escalate to a specific product suggestion. Do NOT repeat the same passive approach.
 
@@ -315,14 +314,14 @@ Attempt 2 (unanswered = 1): VALUE-FIRST pivot. Provide something useful without 
 Attempt 3 (unanswered = 2): PATTERN INTERRUPT. Break the pattern completely.
   - Tone: Bold, creative, slightly humorous or unexpected
   - Strategy: Use curiosity hooks, provocative questions, or unexpected angles
-  - Frameworks: SOAP_OPERA, CURIOSITY_HOOK, HORMOZI_INDIRECT, or CASE_STUDY
+  - Frameworks: SOAP_OPERA, CURIOSITY_HOOK, CASE_STUDY, or PAS
   - Add personality: light humor, a surprising fact, or a bold statement
-  - Example: "Honest question — did my last email land in spam, or are you just playing hard to get? 😄"
-  - Example: "Random thought — what if your team showed up to the next event in matching custom gear? Just saying."
+  - Example: "Quick question — did my last email land in spam, or are you just playing hard to get? 😄"
+  - Example: "What if your team showed up to the next event in matching custom gear? Here's what we just did for [similar org]..."
 
 Attempt 4+ (unanswered = 3+, AND lead age >= 7 days): BREAKUP or SCARCITY. Last-resort engagement.
   - MINIMUM DAYS GATE: Do NOT use EMB_COLD or any breakup/give-up angle unless lead age >= 7 days.
-    If lead age < 7 days but unanswered = 3+, use SOAP_OPERA or HORMOZI_INDIRECT instead (not breakup).
+    If lead age < 7 days but unanswered = 3+, use SOAP_OPERA or CURIOSITY_HOOK instead (not breakup).
     Rationale: A lead who signed up 3 days ago and hasn't replied yet is NOT ready for a breakup message.
   - Tone: Direct, honest, respectful — with a clear "last chance" feel
   - Strategy: Breakup email ("Should I close your file?"), seasonal urgency, or exclusive offer
@@ -481,7 +480,7 @@ ${(context as any).tweakInstructions}
 ` : ""}
 STEP 1: Detect the awareness level from the incoming message and conversation history.
 STEP 2: Choose the approach that matches the awareness level.
-STEP 3: Choose the framework. FRAMEWORK DIVERSITY RULE: Recent outreach frameworks = [${context.recentOutreachFrameworks?.join(', ') || 'none yet'}]. If any framework appears 2+ times in that list, you MUST choose a DIFFERENT one. Available outreach frameworks: HORMOZI_ACA, HORMOZI_INDIRECT, PAS, BAB, AIDA, SOCIAL_PROOF, CASE_STUDY, SOAP_OPERA, CURIOSITY_HOOK, EMB_WINBACK, EMB_COLD, VALUE_FIRST. Pick the most contextually appropriate one that is NOT overused.
+STEP 3: Choose the framework. FRAMEWORK DIVERSITY RULE: Recent outreach frameworks = [${context.recentOutreachFrameworks?.join(', ') || 'none yet'}]. If any framework appears 2+ times in that list, you MUST choose a DIFFERENT one. Available outreach frameworks: HORMOZI_ACA, PAS, BAB, AIDA, SOCIAL_PROOF, CASE_STUDY, SOAP_OPERA, CURIOSITY_HOOK, EMB_WINBACK, EMB_COLD, VALUE_FIRST. NOTE: HORMOZI_INDIRECT is BANNED — never use it. Pick the most contextually appropriate one that is NOT overused.
 STEP 4: Produce your strategic directive. PRIORITIZE frameworks and channels with proven higher reply rates from the learning data above (if available). If PERSONA-SPECIFIC LEARNING DATA is available above, use it to select the best-performing framework and channel for this persona.`;
 
   const response = await invokeLLM({
@@ -505,7 +504,7 @@ STEP 4: Produce your strategic directive. PRIORITIZE frameworks and channels wit
             angle: { type: "string", description: "The specific angle/hook to use" },
             framework: {
               type: "string",
-              description: "DIRECT_RESPONSE|VALUE_FIRST|PAS|BAB|AIDA|HORMOZI_ACA|HORMOZI_INDIRECT|SOCIAL_PROOF|CASE_STUDY|SOAP_OPERA|EMB_WELCOME|EMB_WINBACK|EMB_POST_PURCHASE|EMB_COLD|CURIOSITY_HOOK|DAN_MARTELL"
+              description: "DIRECT_RESPONSE|VALUE_FIRST|PAS|BAB|AIDA|HORMOZI_ACA|SOCIAL_PROOF|CASE_STUDY|SOAP_OPERA|EMB_WELCOME|EMB_WINBACK|EMB_POST_PURCHASE|EMB_COLD|CURIOSITY_HOOK|DAN_MARTELL"
             },
             personalizationTier: { type: "number", description: "1=full custom, 2=template+personal opener, 3=minimal" },
             toneDirective: { type: "string", description: "Specific tone instructions for the composer" },

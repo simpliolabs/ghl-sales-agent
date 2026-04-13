@@ -731,20 +731,12 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   console.log(`[Webhook] Brain Council for lead ${lead!.id}: QC=${aiResponse.qcScore}, blocked=${aiResponse.blocked}, strategy=${aiResponse.strategyReasoning.substring(0, 80)}`);
 
   // --- ACCOUNTABILITY: Handle blocked messages ---
+  // ARCHITECTURE FIX: When Brain Council blocks, NEVER send fallback.
+  // If the AI couldn't compose a quality message, sending a generic one is worse.
+  // The follow-up trigger will retry on the next scheduled cycle.
   if (aiResponse.blocked && aiResponse.fallbackUsed && aiResponse.fallbackMessage) {
-    console.log(`[Webhook] ⚠️ BLOCKED message for lead ${lead!.id}: ${aiResponse.blockReason}. Sending fallback.`);
-    const fallbackChannel = normalizeChannel(aiResponse.channel || channel);
-    const fallbackSubject = aiResponse.subject || buildContextSubject({ name: lead!.name, businessName: lead!.businessName }, aiResponse.fromName);
-    const fallbackOpts: Parameters<typeof sendMessage>[1] = fallbackChannel === "Email"
-      ? { type: "Email", subject: fallbackSubject, html: formatEmailHtml(aiResponse.fallbackMessage), fromName: aiResponse.fromName }
-      : { type: fallbackChannel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.fallbackMessage };
-    const sendResult = await sendMessageWithRetry(resolvedContactId, fallbackOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
-    if (sendResult.success) {
-      await addConversation({ leadId: lead!.id, channel: fallbackChannel, direction: "outbound", messageBody: `[FALLBACK] ${aiResponse.fallbackMessage}`, senderType: "ai", senderName: aiResponse.fromName });
-    } else {
-      console.error(`[Webhook/Msg] Fallback send FAILED for lead ${lead!.id}: ${sendResult.error} — conversation NOT stored`);
-    }
-    res.json({ success: true, action: sendResult.success ? "blocked_fallback_sent" : "blocked_fallback_failed", violation: aiResponse.violationCategory, blockReason: aiResponse.blockReason });
+    console.log(`[Webhook] 🚫 BLOCKED message for lead ${lead!.id}: ${aiResponse.blockReason}. Fallback SUPPRESSED — blocked messages never send fallbacks.`);
+    res.json({ success: true, action: "blocked_fallback_suppressed", violation: aiResponse.violationCategory, blockReason: aiResponse.blockReason });
     return;
   }
 

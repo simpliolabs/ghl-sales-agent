@@ -545,23 +545,11 @@ async function sendDelayedFirstContact(
     // --- HANDLE BRAIN COUNCIL RESULT ---
     if (brainResult.blocked) {
       console.log(`[Webhook] Brain Council BLOCKED first-contact for lead ${leadId}: ${brainResult.blockReason}`);
-      // If Brain Council blocked but there's a fallback, send it
+      // ARCHITECTURE FIX: When Brain Council blocks, NEVER send fallback.
+      // If the AI couldn't compose a quality message, sending a generic one is worse.
+      // The follow-up trigger will retry on the next scheduled cycle.
       if (brainResult.fallbackUsed && brainResult.fallbackMessage) {
-        console.log(`[Webhook] Using fallback message for lead ${leadId}`);
-        const fallbackSubject = brainResult.subject || buildContextSubject({ name: lead.name, businessName: lead.businessName, formData: formFields }, agentName);
-        const fallbackChannel = enforceMigratedChannel(lead, channel);
-        const fallbackOpts = buildSendOpts(fallbackChannel, brainResult.fallbackMessage, lead, {
-          subject: fallbackSubject,
-          fromName: agentName,
-        });
-        if (fallbackOpts) {
-          const fbResult = await sendMessageWithRetry(resolvedContactId, fallbackOpts, { email: lead.email, phone: lead.phone, id: lead.id });
-          if (fbResult.success) {
-            await addConversation({ leadId, channel, direction: "outbound", messageBody: brainResult.fallbackMessage, senderType: "ai", senderName: agentName });
-          } else {
-            console.error(`[Webhook] Fallback send FAILED for lead ${leadId}: ${fbResult.error}`);
-          }
-        }
+        console.log(`[Webhook] 🚫 Fallback SUPPRESSED for lead ${leadId} — blocked messages never send fallbacks`);
       }
       return;
     }

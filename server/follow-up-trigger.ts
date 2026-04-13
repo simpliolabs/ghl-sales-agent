@@ -291,19 +291,16 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
         }
 
         // --- TCPA QUIET HOURS GATE (SMS only) ---
+        // ARCHITECTURE FIX: During quiet hours, ALWAYS defer to next business hours.
+        // Never switch SMS→Email at night — the message was composed for SMS (short, casual)
+        // and sending it as a plain-text email at 10 PM is a terrible customer experience.
         const { isSmsQuietHours, nextSmsWindowStart, isEmailOutsideOptimalWindow, nextEmailWindowStart } = await import("./scheduling-engine");
         if (isSmsQuietHours() && hintChannel === "SMS") {
-          // Check if lead has email — if so, Brain Council can switch to email
-          if (!(lead as any).email) {
-            // No email fallback — defer to next SMS window
-            const nextWindow = nextSmsWindowStart();
-            console.log(`[FollowUp] ⚠️ TCPA quiet hours — deferring SMS for lead ${leadId} to ${nextWindow.toISOString()}`);
-            await updateLeadFields(leadId, { nextFollowUpAt: nextWindow });
-            stats.skipped++;
-            continue;
-          }
-          // Has email — let Brain Council proceed but hint Email
-          console.log(`[FollowUp] TCPA quiet hours — switching hint to Email for lead ${leadId}`);
+          const nextWindow = nextSmsWindowStart();
+          console.log(`[FollowUp] ⚠️ TCPA quiet hours — deferring lead ${leadId} to next business hours: ${nextWindow.toISOString()} (NO channel switch)`);
+          await updateLeadFields(leadId, { nextFollowUpAt: nextWindow });
+          stats.skipped++;
+          continue;
         }
 
         // --- EMAIL OPTIMAL WINDOW GATE (Email Marketing Bible) ---
@@ -390,24 +387,17 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
 
         console.log(`[FollowUp] Brain Council for lead ${leadId}: QC=${aiResponse.qcScore}, blocked=${aiResponse.blocked}, framework=${aiResponse.framework}, channel=${channel} (hint was ${hintChannel})`);
 
-        // Handle blocked messages
+        // Handle blocked messages — NEVER send fallback
+        // ARCHITECTURE FIX: When Brain Council blocks a message, do NOT send anything.
+        // The fallback concept is fundamentally broken — if the AI couldn't compose a
+        // quality message, sending a generic one is WORSE than sending nothing.
+        // The lead will get a proper message on the next scheduled follow-up cycle.
         if (aiResponse.blocked) {
           console.log(`[FollowUp] ⚠️ BLOCKED follow-up for lead ${leadId}: ${aiResponse.blockReason}`);
           if (aiResponse.fallbackUsed && aiResponse.fallbackMessage) {
-            const fbSubject = aiResponse.subject || buildContextSubject({ name: (lead as any).name, businessName: (lead as any).businessName }, aiResponse.fromName);
-          const fallbackOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
-              ? { type: "Email", subject: fbSubject, html: formatEmailHtml(aiResponse.fallbackMessage), fromName: aiResponse.fromName }
-              : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.fallbackMessage };
-            const sendResult = await sendMessageWithRetry(ghlContactId, fallbackOpts, { email: (lead as any).email, phone: (lead as any).phone, id: leadId });
-            if (sendResult.success) {
-              await addConversation({ leadId, channel, direction: "outbound", messageBody: `[FALLBACK] ${aiResponse.fallbackMessage}`, senderType: "ai", senderName: aiResponse.fromName });
-              stats.sent++;
-            } else {
-              stats.errors++;
-            }
-          } else {
-            stats.skipped++;
+            console.log(`[FollowUp] 🚫 Fallback SUPPRESSED for lead ${leadId} — blocked messages never send fallbacks. Lead will be retried on next cycle.`);
           }
+          stats.skipped++;
 
           // --- CONSECUTIVE BLOCK BACKOFF ---
           // If QC keeps blocking messages for this lead, push the next follow-up
@@ -445,30 +435,14 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
         }
 
         // --- TCPA POST-DECISION GATE: Block SMS if quiet hours (Brain Council may have chosen SMS despite hint) ---
+        // ARCHITECTURE FIX: ALWAYS defer — never switch SMS→Email at night.
+        // The message was composed for SMS and is not formatted for email.
         if (isSmsQuietHours() && channel === "SMS") {
-          if ((lead as any).email) {
-            console.log(`[FollowUp] TCPA gate: Brain Council chose SMS during quiet hours — switching to Email for lead ${leadId}`);
-            // Rewrite as email — check for prior email thread
-            const tcpaThreadId = await getLastEmailThreadId(leadId);
-            const tcpaSubject = aiResponse.subject || buildContextSubject({ name: (lead as any).name, businessName: (lead as any).businessName }, aiResponse.fromName);
-            const emailOpts: Parameters<typeof sendMessage>[1] = { type: "Email", subject: tcpaSubject, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName, ...(tcpaThreadId ? { threadId: tcpaThreadId, replyMessageId: tcpaThreadId } : {}) };
-            const sendResult = await sendMessageWithRetry(ghlContactId, emailOpts, { email: (lead as any).email, phone: (lead as any).phone, id: leadId });
-            if (sendResult.success) {
-              await addConversation({ leadId, channel: "Email", direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName });
-              stats.sent++;
-            } else { stats.errors++; }
-            const scheduleResult2 = await calculateNextFollowUp({ leadId, aiSuggestedHours: aiResponse.nextEngagementHours, triggerEvent: "ai_response" });
-            const isLongLead2 = scheduleResult2.priority === 1;
-            await updateLeadFields(leadId, { nextFollowUpAt: capDate(scheduleResult2.nextFollowUpAt, isLongLead2), cadencePosition: scheduleResult2.cadencePosition, preferredChannel: scheduleResult2.channel, lastOutboundChannel: "Email" });
-            continue;
-          } else {
-            // No email — defer
-            const nextWindow = nextSmsWindowStart();
-            console.log(`[FollowUp] TCPA gate: deferring SMS for lead ${leadId} to ${nextWindow.toISOString()}`);
-            await updateLeadFields(leadId, { nextFollowUpAt: nextWindow });
-            stats.skipped++;
-            continue;
-          }
+          const nextWindow = nextSmsWindowStart();
+          console.log(`[FollowUp] TCPA post-decision gate: deferring SMS for lead ${leadId} to next business hours: ${nextWindow.toISOString()} (NO channel switch)`);
+          await updateLeadFields(leadId, { nextFollowUpAt: nextWindow });
+          stats.skipped++;
+          continue;
         }
 
         // --- SEND MESSAGE ---

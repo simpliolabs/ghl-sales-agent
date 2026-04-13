@@ -621,7 +621,7 @@ describe("context_free_subject violation", () => {
     });
     const strategy = makeStrategy({ channel: "Email" });
     const composed = makeComposed({
-      message: "Hi John, just a thought about your project...",
+      message: "Hi John,\n\nWanted to check in about your project. We have some great options for you.\n\nLet me know if you'd like to chat!\n\n---\nAbby Bouwer\nAdorb Custom Printing\n(555) 123-4567\nprint@adorbcustomtees.com",
       subject: "Hey John",
     });
 
@@ -1244,7 +1244,7 @@ describe("detectViolations — referral_ask_in_inquiry", () => {
     expect(result.category).toBe("referral_ask_in_inquiry");
   });
 
-  it("allows 'do you know anyone' in follow_up approach (valid warm outreach)", () => {
+  it("blocks 'do you know anyone' in follow_up approach (TOTAL BAN — Vanessia Brooks bug)", () => {
     const context = makeContext({
       lead: { name: "Test Lead", businessName: "Test Biz", assignedAgent: "Chris" },
       priorOutbound: [{ messageBody: "Hey Test, Abby here from Adorb!", senderType: "ai" }],
@@ -1252,12 +1252,12 @@ describe("detectViolations — referral_ask_in_inquiry", () => {
     const composed = makeComposed({
       message: "Hey Test — do you know anyone who needs custom tees for their next event? We just did 200 for a local church and they loved them.",
     });
-    const strategy = makeStrategy({ approach: "follow_up", framework: "HORMOZI_INDIRECT", channel: "SMS" });
+    const strategy = makeStrategy({ approach: "follow_up", framework: "HORMOZI_ACA", channel: "SMS" });
     const result = detectViolations(composed, makeQC(), strategy, context, makeInput({ incomingMessage: "" }), makeResearch());
-    expect(result.category).not.toBe("referral_ask_in_inquiry");
+    expect(result.category).toBe("referral_ask_in_inquiry");
   });
 
-  it("allows 'Random thought' in follow_up approach (valid pattern interrupt for cold lead)", () => {
+  it("blocks 'Random thought' in follow_up approach (TOTAL BAN — no exceptions)", () => {
     const context = makeContext({
       lead: { name: "Test Lead", businessName: "Test Biz", assignedAgent: "Chris" },
       priorOutbound: [
@@ -1268,8 +1268,8 @@ describe("detectViolations — referral_ask_in_inquiry", () => {
     const composed = makeComposed({
       message: "Random thought — do you know anyone who needs custom shirts for a reunion or event? We just did 300 for a family reunion and they went crazy for them.",
     });
-    const strategy = makeStrategy({ approach: "follow_up", framework: "HORMOZI_INDIRECT", channel: "SMS" });
+    const strategy = makeStrategy({ approach: "follow_up", framework: "HORMOZI_ACA", channel: "SMS" });
     const result = detectViolations(composed, makeQC(), strategy, context, makeInput({ incomingMessage: "" }), makeResearch());
-    expect(result.category).not.toBe("referral_ask_in_inquiry");
+    expect(result.category).toBe("referral_ask_in_inquiry");
   });
 });

@@ -581,28 +581,32 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
     }
 
     // ============================================================
-    // PROGRAMMATIC HORMOZI_INDIRECT GUARD
+    // PROGRAMMATIC HORMOZI_INDIRECT GUARD — TOTAL BAN
     // HORMOZI_INDIRECT produces referral-ask copy ("Do you know anyone who needs...")
-    // which is ONLY appropriate for warm follow-up outreach — NEVER for first contact
-    // or responsive approaches (when the lead asked a question or shared information).
+    // which is NEVER appropriate for Adorb Custom Printing. The business is trying
+    // to close sales, not ask leads for referrals. This framework must NEVER be used
+    // regardless of approach.
     //
-    // Root cause of Darnicia Calvin bug: Strategist chose HORMOZI_INDIRECT for a
-    // first-contact inquiry response, producing "Random thought: do you know anyone
-    // needing custom tees?" instead of answering her actual inquiry.
+    // History:
+    // - Darnicia Calvin bug: first_contact inquiry got "Random thought: do you know
+    //   anyone needing custom tees?" instead of answering her question.
+    // - Vanessia Brooks bug: follow_up got "Know anyone else who needs custom hoodies
+    //   for a cause?" — referral-ask appended to an otherwise good message.
     //
-    // Fix: hard programmatic override — responsive approaches always use DIRECT_RESPONSE,
-    // first_contact uses HORMOZI_ACA (the correct warm-intro framework).
+    // Fix: TOTAL BAN — override to HORMOZI_ACA for outreach, DIRECT_RESPONSE for
+    // responsive approaches. No approach is exempt.
     // ============================================================
     const RESPONSIVE_APPROACHES = new Set(["answer_question", "provide_quote", "acknowledge_info", "confirm_details"]);
     if (strategy.framework === 'HORMOZI_INDIRECT') {
-      if (strategy.approach === 'first_contact' || strategy.approach === 'new_pitch') {
-        console.log(`[SalesManager] 🚨 HORMOZI_INDIRECT GUARD: first_contact/new_pitch cannot use referral-ask framework. Overriding → HORMOZI_ACA.`);
-        (strategy as any).framework = 'HORMOZI_ACA';
-        (strategy as any).reasoning = `[HORMOZI_INDIRECT GUARD: first_contact must use HORMOZI_ACA, not referral-ask] ${strategy.reasoning}`;
-      } else if (RESPONSIVE_APPROACHES.has(strategy.approach)) {
-        console.log(`[SalesManager] 🚨 HORMOZI_INDIRECT GUARD: responsive approach '${strategy.approach}' cannot use referral-ask framework. Overriding → DIRECT_RESPONSE.`);
+      if (RESPONSIVE_APPROACHES.has(strategy.approach)) {
+        console.log(`[SalesManager] 🚨 HORMOZI_INDIRECT BANNED: responsive approach '${strategy.approach}' cannot use referral-ask. Overriding → DIRECT_RESPONSE.`);
         (strategy as any).framework = 'DIRECT_RESPONSE';
-        (strategy as any).reasoning = `[HORMOZI_INDIRECT GUARD: responsive approach must use DIRECT_RESPONSE, not referral-ask] ${strategy.reasoning}`;
+        (strategy as any).reasoning = `[HORMOZI_INDIRECT BANNED: referral-ask never allowed, using DIRECT_RESPONSE] ${strategy.reasoning}`;
+      } else {
+        // All other approaches (first_contact, new_pitch, follow_up, reactivation, etc.)
+        console.log(`[SalesManager] 🚨 HORMOZI_INDIRECT BANNED: '${strategy.approach}' cannot use referral-ask. Overriding → HORMOZI_ACA.`);
+        (strategy as any).framework = 'HORMOZI_ACA';
+        (strategy as any).reasoning = `[HORMOZI_INDIRECT BANNED: referral-ask never allowed, using HORMOZI_ACA] ${strategy.reasoning}`;
       }
     }
 
@@ -713,7 +717,8 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
         const usageCount = recentOutreachFrameworks.filter(f => f === strategy.framework).length;
         if (usageCount >= 2) {
           // Build a weighted pool: prefer frameworks NOT in recent history
-          const ALL_OUTREACH_FRAMEWORKS = ["PAS", "BAB", "AIDA", "HORMOZI_ACA", "HORMOZI_INDIRECT", "SOCIAL_PROOF", "CASE_STUDY", "SOAP_OPERA", "CURIOSITY_HOOK"] as const;
+          // HORMOZI_INDIRECT removed — referral-ask is permanently banned for Adorb
+          const ALL_OUTREACH_FRAMEWORKS = ["PAS", "BAB", "AIDA", "HORMOZI_ACA", "SOCIAL_PROOF", "CASE_STUDY", "SOAP_OPERA", "CURIOSITY_HOOK"] as const;
           const recentSet = new Set(recentOutreachFrameworks);
           // Prefer frameworks not used recently
           const freshAlternatives = ALL_OUTREACH_FRAMEWORKS.filter(f => f !== strategy.framework && !recentSet.has(f));
