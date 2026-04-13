@@ -414,10 +414,14 @@ ${(() => {
     const rd = (lead.researchData as Record<string, unknown>) || {};
     const tc = (rd.transferredContact as Record<string, unknown>) || {};
     const resolved = (tc.resolvedCustomFields as Record<string, unknown>) || {};
-    const notes = (rd.ghlNotes as Array<{body: string}>) || [];
-    const ghlHistory = (rd.ghlConversationHistory as Array<{direction: string; body: string; dateAdded: string}>) || [];
-    const tags = (tc.ghlTags as string[]) || [];
+    const notes = (rd.ghlNotes as Array<{body: string}>) || (tc.oldGhlNotes as Array<{body: string}>) || [];
+    const ghlHistory = (rd.ghlConversationHistory as Array<{direction: string; body: string; dateAdded: string}>) || (tc.oldGhlHistory as Array<{direction: string; body: string; dateAdded: string}>) || [];
+    const tags = (tc.ghlTags as string[]) || (tc.oldGhlTags as string[]) || [];
+    const segment = (tc.segment as string) || lead.omnisendSegment || "";
+    const attribution = (tc.attribution as Record<string, string>) || {};
     const lines: string[] = [];
+    if (segment && segment !== "other" && segment !== "Other") lines.push(`Contact segment: ${segment}`);
+    if (attribution.medium || attribution.utmMedium) lines.push(`Ad attribution: ${attribution.utmMedium || attribution.medium || ""}${attribution.utmCampaign ? " | Campaign: " + attribution.utmCampaign : ""}${attribution.utmContent ? " | Ad: " + attribution.utmContent : ""}`);
     if (Object.keys(resolved).length > 0) {
       lines.push("CONTACT INQUIRY DETAILS (from their original form/inquiry):");
       for (const [k, v] of Object.entries(resolved)) lines.push(`  ${k}: ${v}`);
