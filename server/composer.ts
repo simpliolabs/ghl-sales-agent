@@ -213,6 +213,7 @@ Cold Email Rules (from EMB Chapter 13):
 - Products NOT on the price list: DO NOT invent pricing. Say "I'll have our team put together a custom quote for that."
 - NEVER present estimates as binding quotes — always frame as "roughly" or "ballpark"
 - After giving a ballpark, ALWAYS offer to get an exact quote: "Want me to have our team lock in an exact price for you?"
+- NEVER append "No design needed yet for a ballpark quote" or "no design required" AFTER already giving a price estimate in the same message — this is self-contradictory and confusing. That reassurance is only appropriate BEFORE giving a quote to a hesitant lead. Once the price is in the message, omit it entirely.
 
 === FRAMEWORK-SPECIFIC STRUCTURE (MANDATORY — follow the assigned framework exactly) ===
 

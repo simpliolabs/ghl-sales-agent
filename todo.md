@@ -874,3 +874,10 @@
 
 ## Ready Stage Cleanup (Apr 13 2026)
 - [x] REMOVE: Ready stage task/appointment creation in webhook-pipeline.ts — team handles fulfillment via Shopify internally, GHL tasks/appointments for shipping/pickup are not needed. DONE: Removed createTask + addNote from READY case. Follow-up schedule still updated so AI can send customer pickup/delivery notification.
+
+## Conversation State Misclassification Bugs (Apr 13 2026) — FIXED (see Composer Ballpark Quote Bug section below)
+
+## Composer Ballpark Quote Bug (Apr 13 2026) — FIXED
+- [x] BUG: Composer appends "No design needed yet for a ballpark quote!" AFTER already giving the ballpark quote — FIXED: Added explicit rule to Composer: NEVER append this phrase after already giving a price estimate in the same message.
+- [x] BUG: 'Thank you' after ballpark quote should NOT trigger committed state — FIXED: Intent classifier now explicitly states 'Thank you' after receiving a ballpark quote = general_chat (closingSignal=FALSE). Only 'Thank you' after CONFIRMED specific order details (qty, design, date) = thank_you_close.
+- [x] BUG: 'hired someone else' triggered agent appointment instead of lost/not-qualified — FIXED: Added competitor_won intent type. Keyword fallback detects 'hired someone', 'already ordered', 'went with another vendor' etc. conversation-state maps competitor_won → dnc_all (Not Qualified, all outreach stops). JSON schema enum updated. Fallback keywords added.

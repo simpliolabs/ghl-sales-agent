@@ -25,6 +25,7 @@ export type MessageIntent =
   | "general_chat"         // Casual conversation, greetings, small talk
   | "attachment_only"      // Lead sent a file/image with no text
   | "soft_decline"        // Lead politely declines ("not right now", "maybe later", "not interested")
+  | "competitor_won"      // Lead explicitly states they hired someone else / placed order elsewhere
   | "unclear";             // Cannot determine intent from message
 
 export interface IntentResult {
@@ -45,8 +46,8 @@ Classify the customer's latest message into ONE intent. Use the conversation his
 - design_request: Customer provides design details (logo, colors, sizes, quantities, event name, artwork)
 - price_inquiry: Customer asks about pricing, quotes, costs, or "how much"
 - confirmation: Customer confirms details ("yes", "that's right", "sounds good", "perfect", "correct")
-- thank_you_close: Customer says "thank you" or "thanks" AFTER a confirmation exchange — this is a CLOSING SIGNAL meaning the customer considers the deal agreed upon. Only classify as thank_you_close if the prior exchange involved confirming order details.
-- objection: Customer raises a concern about price ("too expensive"), timing ("too slow"), competitors ("found cheaper"), or quality
+- thank_you_close: Customer says "thank you" or "thanks" AFTER a confirmation exchange — this is a CLOSING SIGNAL meaning the customer considers the deal agreed upon. Only classify as thank_you_close if the prior exchange involved confirming SPECIFIC order details (quantity, design, delivery date). A "thank you" after receiving a ballpark quote or general information is NOT thank_you_close — classify as general_chat.
+- objection: Customer raises a concern about price ("too expensive"), timing ("too slow"), or quality concerns
 - dnc: Customer explicitly asks to stop receiving messages ("stop", "unsubscribe", "remove me", "do not contact")
 - question: Customer asks about process, turnaround time, materials, shipping, or other general questions
 - complaint: Customer expresses dissatisfaction ("unhappy", "wrong order", "never received", "terrible")
@@ -55,25 +56,31 @@ Classify the customer's latest message into ONE intent. Use the conversation his
 - general_chat: Casual greetings, small talk, or messages that don't fit other categories
 - attachment_only: Message is about a file/image attachment with no other clear intent
 - soft_decline: Customer politely declines without opting out ("not right now", "maybe later", "not interested at this time", "we went with someone else", "not looking for this"). This is NOT a DNC — they may be open to future contact but are saying no to the current offer.
+- competitor_won: Customer explicitly states they have already hired someone else, chosen another vendor, or placed an order elsewhere ("already hired someone", "went with another company", "found someone cheaper and already ordered", "already placed the order with someone else"). This is a LOST signal — classify as competitor_won, NOT objection or soft_decline.
 - unclear: Cannot determine intent — message is too short, ambiguous, or garbled
 
 === CLOSING SIGNAL RULES ===
 A closingSignal is TRUE when:
-1. Customer says "thank you" / "thanks" AFTER confirming design details or order specifics
-2. Customer says "sounds good" / "perfect" / "let's do it" in response to a quote or confirmation
+1. Customer says "thank you" / "thanks" AFTER confirming SPECIFIC order details (quantity confirmed, design approved, delivery date agreed)
+2. Customer says "sounds good" / "perfect" / "let's do it" in response to a CONFIRMED order (not just a ballpark quote)
 3. Customer provides payment info or asks "how do I pay"
 4. Customer says "yes" to a direct close question ("Ready to get started?")
 
 A closingSignal is FALSE for:
 1. Generic "thank you" at the start of a conversation (politeness, not closing)
-2. "Thank you" after receiving information (they're still exploring)
-3. Confirmations that are just acknowledging receipt ("got it", "ok") without committing
+2. "Thank you" after receiving a ballpark quote or general information (they are still exploring, NOT committed)
+3. "Thank you" after receiving pricing — this means they are CONSIDERING, not committed. closingSignal = FALSE.
+4. Confirmations that are just acknowledging receipt ("got it", "ok") without committing
+5. competitor_won intent — always closingSignal = FALSE
 
 === IMPORTANT ===
 - Read the FULL conversation history to understand context
 - A "thank you" early in the conversation is general_chat, not thank_you_close
-- A "thank you" after design details were confirmed IS thank_you_close
-- When in doubt between confirmation and thank_you_close, check if order details were discussed`;
+- A "thank you" after receiving a BALLPARK QUOTE is general_chat (they are acknowledging the info, not committing)
+- A "thank you" after CONFIRMED order details (quantity, design, date all locked in) IS thank_you_close
+- When in doubt between confirmation and thank_you_close, check if SPECIFIC order details were locked in (not just discussed)
+- "hired someone else" / "already placed the order elsewhere" = competitor_won, closingSignal = FALSE
+- "we went with another vendor" = competitor_won, closingSignal = FALSE`;
 
 export async function classifyIntent(
   message: string,
@@ -109,7 +116,7 @@ Classify this message now.`;
                 enum: [
                   "design_request", "price_inquiry", "confirmation", "thank_you_close",
                   "objection", "dnc", "question", "complaint", "referral", "reorder",
-                  "general_chat", "attachment_only", "soft_decline", "unclear",
+                  "general_chat", "attachment_only", "soft_decline", "competitor_won", "unclear",
                 ],
                 description: "The classified intent of the customer message",
               },
@@ -156,11 +163,15 @@ const DNC_KEYWORDS = ["stop", "unsubscribe", "remove", "opt out", "do not contac
 const CONFIRMATION_KEYWORDS = ["yes", "yeah", "yep", "correct", "that's right", "sounds good", "perfect", "let's do it", "go ahead"];
 const PRICE_KEYWORDS = ["how much", "price", "cost", "quote", "pricing", "rate", "budget"];
 const COMPLAINT_KEYWORDS = ["unhappy", "wrong", "terrible", "awful", "never received", "disappointed", "frustrated"];
-const SOFT_DECLINE_KEYWORDS = ["not right now", "maybe later", "not interested", "no thanks", "no thank you", "not looking", "went with someone else", "found someone", "not at this time", "pass for now", "we're good", "all set", "already taken care of"];
+const SOFT_DECLINE_KEYWORDS = ["not right now", "maybe later", "not interested", "no thanks", "no thank you", "not looking", "not at this time", "pass for now", "we're good", "all set"];
+const COMPETITOR_WON_KEYWORDS = ["hired someone", "hired another", "went with another", "went with someone else", "already placed the order", "already ordered", "found someone cheaper and already", "already hired", "placed an order with", "already taken care of", "already have someone"];
 
 export function fallbackIntent(message: string): IntentResult {
   const lower = message.toLowerCase().trim();
 
+  if (COMPETITOR_WON_KEYWORDS.some(kw => lower.includes(kw))) {
+    return { intent: "competitor_won", confidence: 90, reasoning: "Keyword match: competitor won phrase detected", closingSignal: false, timestamp: Date.now() };
+  }
   if (DNC_KEYWORDS.some(kw => lower.includes(kw))) {
     return { intent: "dnc", confidence: 90, reasoning: "Keyword match: DNC phrase detected", closingSignal: false, timestamp: Date.now() };
   }

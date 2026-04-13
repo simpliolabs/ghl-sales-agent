@@ -126,6 +126,11 @@ export function computeNextState(
       // Move to stale so the scheduling engine uses longer cadence.
       return { state: "stale", reason: "Customer politely declined — backing off to longer cadence" };
 
+    case "competitor_won":
+      // Customer explicitly hired someone else / placed order elsewhere. This is a LOST deal.
+      // Move to dnc_all so the system stops all outreach and marks Not Qualified.
+      return { state: "dnc_all", reason: "Customer hired a competitor / placed order elsewhere — marking as lost" };
+
     case "price_inquiry":
       if (["new_lead", "exploring"].includes(currentState)) {
         return { state: "interested", reason: "Customer asking about pricing — showing buying intent" };
