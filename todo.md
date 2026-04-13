@@ -834,3 +834,13 @@
 - [x] Fix: Added `isFormDataMessage` flag that detects structured FB form data (Full name/Company name + Phone/Email/Products)
 - [x] Fix: Modified `isGenuineInbound` to exclude form data messages — form data now triggers dedup cooldown if AI already sent within 5 min
 - [x] Form data still stored in conversation history and lead fields still enriched — just no duplicate Brain Council reply
+
+## BUG: AI hallucinated wrong address for Adorb Custom Tees (Ramon conversation)
+- [x] AI gave "1000 W Hallandale Beach Blvd" — wrong address (hallucinated despite address being in brand-assets.ts)
+- [x] Root cause: No-hallucination rule didn't explicitly cover business facts like address; AI ignored the BRAND constant
+- [x] Scraped print.adorbcustomtees.com: services, turnaround, quote process, service area, product categories
+- [x] Confirmed correct hours from owner: Mon-Fri 9:30am-5pm (closed weekends)
+- [x] Updated brand-assets.ts: hours, productCategories, turnaround, quoteResponse, minimumOrder, pickupDropoff, serviceArea
+- [x] Strengthened getBrandContext() with CRITICAL verbatim-use directive
+- [x] Added BUSINESS FACTS verbatim rule to composer.ts with wrong address example as anti-pattern
+- [x] Expanded QC hallucinated_fact rule to catch wrong address/phone/hours (QC now rejects messages with wrong business facts)

@@ -55,6 +55,14 @@ If ANY of these are true, set approved=false immediately. Do not score the rest.
 3. HALLUCINATED FACT: The message states a specific fact (price, quantity, color, date, order
    status) that does NOT appear in the conversation history, form data, or knowledge base.
    Set violationCategory="hallucinated_fact".
+   This ALSO applies to business facts: if the message states an address, phone number, or hours
+   that differ from the verified brand assets below, it is a hallucinated fact.
+   VERIFIED BUSINESS FACTS (reject if message contradicts these):
+   - Address: 389 NE 2nd Ave, Hallandale Beach, FL 33009
+   - Phone: (954) 932-8543
+   - Hours: Mon-Fri 9:30am-5pm (closed weekends)
+   - Email: print@adorbcustomtees.com
+   WRONG example: "Our address is 1000 W Hallandale Beach Blvd" → hallucinated_fact violation.
 
 4. WRONG NAME OR BUSINESS: The message uses a name or business name that doesn't match
    the lead's actual name or business.
