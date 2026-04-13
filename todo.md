@@ -858,3 +858,7 @@
 - [x] BUG: Fallback sends after Brain Council blocks (transferred contacts getting generic "Hey c," emails) — FIXED: Fallback sends eliminated from ALL 3 entry points (follow-up-trigger.ts, webhook-contact.ts, webhook-message.ts). When Brain Council blocks, NOTHING is sent. Lead retries on next scheduled cycle.
 - [x] BUG: HORMOZI_INDIRECT in diversity framework pool could be selected as override — FIXED: Removed from ALL_OUTREACH_FRAMEWORKS array
 - [x] Tests updated for TCPA deferral + referral-ask total ban — 705 passing
+
+## Osmond Gilmore Issues (Apr 13 2026) — FIXED
+- [x] BUG: Price range too wide ($10-28) — FIXED: Added QUANTITY UNKNOWN RULE and MIXED PRODUCT RULE to Composer pricing section. When quantity unknown, use 24-47 qty tier as reference. When multiple products mentioned, give SEPARATE estimates per product, never blend ranges.
+- [x] BUG: Facebook lead contacted via SMS instead of FB channel — FIXED: Lookback Engine now checks lead.source when no conversation history exists. If source contains 'facebook'/'fb'/'lead_form', sets preferredChannel=FB. Same for Instagram→IG.

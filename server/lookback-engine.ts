@@ -367,8 +367,23 @@ export async function runLookback(options?: {
           await updateLeadFields(leadId, { nextFollowUpAt: newFollowUp });
         }
         // Update preferred channel based on analysis
+        // SOURCE-BASED CHANNEL OVERRIDE: If the lead has no conversation history (never messaged)
+        // and their source indicates Facebook/IG, use that channel instead of SMS.
+        // This prevents historical Facebook leads from being contacted via SMS when they
+        // originally came through a Facebook lead form.
+        let resolvedChannel = analysis.recommendedChannel;
+        if (!historyStr && lead.source) {
+          const src = (lead.source as string).toLowerCase();
+          if (src.includes("facebook") || src.includes("fb") || src.includes("lead_form")) {
+            resolvedChannel = "FB";
+            console.log(`[Lookback] SOURCE CHANNEL OVERRIDE for lead ${leadId}: source='${lead.source}' → channel=FB (no conversation history)`);
+          } else if (src.includes("instagram") || src.includes("ig")) {
+            resolvedChannel = "IG";
+            console.log(`[Lookback] SOURCE CHANNEL OVERRIDE for lead ${leadId}: source='${lead.source}' → channel=IG (no conversation history)`);
+          }
+        }
         // MIGRATED LEAD RESTRICTION: Force email-only for transferred contacts until they re-engage
-        const enforcedChannel = enforceMigratedChannel(lead as any, analysis.recommendedChannel);
+        const enforcedChannel = enforceMigratedChannel(lead as any, resolvedChannel);
         await updateLeadFields(leadId, { preferredChannel: enforcedChannel });
       }
 
