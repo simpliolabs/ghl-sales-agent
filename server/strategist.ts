@@ -408,7 +408,32 @@ LEAD PROFILE:
 - Pipeline Stage: ${lead.pipelineStage}
 - Score: ${lead.opportunityScore}/100
 - Assigned Agent: ${lead.assignedAgent || "Unassigned"}
-- Research: ${JSON.stringify(lead.researchData || {})}
+- Research summary: ${lead.lastResearchSummary || lead.lastStrategyReasoning || "None"}
+${(() => {
+  try {
+    const rd = (lead.researchData as Record<string, unknown>) || {};
+    const tc = (rd.transferredContact as Record<string, unknown>) || {};
+    const resolved = (tc.resolvedCustomFields as Record<string, unknown>) || {};
+    const notes = (rd.ghlNotes as Array<{body: string}>) || [];
+    const ghlHistory = (rd.ghlConversationHistory as Array<{direction: string; body: string; dateAdded: string}>) || [];
+    const tags = (tc.ghlTags as string[]) || [];
+    const lines: string[] = [];
+    if (Object.keys(resolved).length > 0) {
+      lines.push("CONTACT INQUIRY DETAILS (from their original form/inquiry):");
+      for (const [k, v] of Object.entries(resolved)) lines.push(`  ${k}: ${v}`);
+    }
+    if (tags.length > 0) lines.push(`Contact tags: ${tags.join(", ")}`);
+    if (notes.length > 0) {
+      lines.push("INTERNAL NOTES:");
+      notes.slice(0, 5).forEach(n => lines.push(`  - ${(n.body || "").substring(0, 300)}`));
+    }
+    if (ghlHistory.length > 0) {
+      lines.push(`PRIOR GHL CONVERSATION HISTORY (${ghlHistory.length} messages from original account):`);
+      ghlHistory.slice(0, 20).forEach(m => lines.push(`  [${m.direction}] ${(m.body || "").substring(0, 400)}`));
+    }
+    return lines.length > 0 ? lines.join("\n") : "";
+  } catch { return ""; }
+})()}
 
 ENGAGEMENT STATE:
 - First response? ${isFirstResponse ? "YES — this is the very first message to this lead" : "NO — there are prior messages"}

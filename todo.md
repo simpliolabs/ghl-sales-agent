@@ -885,3 +885,26 @@
 ## Owner Notification Spam (Apr 13 2026)
 - [ ] BUG: Owner receiving multiple emails for same lead/event (e.g., "New Contact: Test Lead" fired 4+ times at 1:53 PM) — needs deduplication/batching so only 1 email per lead per event type
 - [ ] BUG: Appointment creation for new contacts — "Heads-up appointment + task created in GHL" message in notification — clarify if new contact appointments should still be created
+
+## Full GHL Contact Enrichment Pipeline
+
+- [ ] BUILD: enrichContactFromGHL() — pull ALL GHL data for a contact: full conversation history (all messages), all custom fields (with field name resolution), all internal notes, all tags, opportunity history (pipeline stage, value, created/updated dates), contact attribution (source, campaign, UTM data), and store structured in leads.researchData
+- [ ] WIRE: Call enrichContactFromGHL() in webhook-contact.ts when a transferred_contact arrives (before Brain Council runs)
+- [ ] WIRE: Call enrichContactFromGHL() in lookback-engine.ts for any lead older than 3 days with no enrichment
+- [ ] FEED: Pass full enrichment data (custom fields, notes, tags, opportunity history, GHL conversation history) into Brain Council Strategist prompt
+- [ ] FEED: Pass full enrichment data into Researcher brain so it synthesizes real context instead of guessing
+- [ ] FIX: Johnny Saif Marshall and all transferred contacts — re-enrich now so next outreach is personalized
+- [ ] TEST: Verify enriched data appears in Brain Council audit log for a transferred contact
+
+## Full GHL Enrichment + Omnisend Sync for All Transferred Contacts
+
+- [ ] AUDIT: Count how many of the 1800+ transferred contacts have enriched researchData, classified omnisendSegment, and are synced to Omnisend
+- [ ] BUILD: enrichContactFromGHL(contactId) — pull ALL data from GHL API: full conversation history (all messages), all custom fields (with field name resolution from location custom fields schema), all internal notes, all tags, opportunity history (pipeline stage, value, dates), contact attribution (source, campaign, UTM medium/content/source), website, company name
+- [ ] BUILD: classifyContactSegment(enrichedData) — LLM classification into: Church, Sports, School, Trades, Event, Brand, Nonprofit, Other — based on business name, tags, custom fields, conversation history, form data
+- [ ] BUILD: syncContactToOmnisend(lead, segment) — upsert contact to Omnisend with correct segment tag, email, phone, name, tags
+- [ ] BUILD: bulkEnrichAndSync runner — process all 1800+ transferred contacts in batches of 20, with rate limiting, progress tracking, and error recovery
+- [ ] WIRE: Auto-enrich + classify + sync on every new transferred_contact webhook arrival
+- [ ] FEED: Pass enriched custom fields, notes, tags, opportunity history, and GHL conversation history into Brain Council Strategist prompt context
+- [ ] FEED: Pass enriched data into Researcher brain as ground truth (not guesswork)
+- [ ] RUN: Execute bulk enrichment + Omnisend sync for all existing transferred contacts
+- [ ] VERIFY: Confirm enriched data appears in Brain Council audit log; confirm contacts appear in Omnisend with correct segments

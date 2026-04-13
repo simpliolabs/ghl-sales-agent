@@ -576,6 +576,33 @@ ${!lead.email && !lead.phone ? "⚠️ CRITICAL: BOTH email AND phone are MISSIN
 
 ${getComposerStageBlock(lead.pipelineStage)}
 
+${(() => {
+  try {
+    const rd = (lead.researchData as Record<string, unknown>) || {};
+    const tc = (rd.transferredContact as Record<string, unknown>) || {};
+    const resolved = (tc.resolvedCustomFields as Record<string, unknown>) || {};
+    const notes = (rd.ghlNotes as Array<{body: string}>) || [];
+    const ghlHistory = (rd.ghlConversationHistory as Array<{direction: string; body: string; dateAdded: string}>) || [];
+    const tags = (tc.ghlTags as string[]) || [];
+    const lines: string[] = [];
+    if (Object.keys(resolved).length > 0) {
+      lines.push("=== CONTACT INQUIRY DETAILS (what they originally requested — USE THIS to personalize) ===");
+      for (const [k, v] of Object.entries(resolved)) lines.push(`${k}: ${v}`);
+    }
+    if (tags.length > 0) lines.push(`Tags: ${tags.join(", ")}`);
+    if (notes.length > 0) {
+      lines.push("=== INTERNAL NOTES ===");
+      notes.slice(0, 5).forEach(n => lines.push(`- ${(n.body || "").substring(0, 300)}`));
+    }
+    if (ghlHistory.length > 0) {
+      lines.push(`=== PRIOR CONVERSATION FROM ORIGINAL GHL ACCOUNT (${ghlHistory.length} messages) ===`);
+      lines.push("IMPORTANT: This lead was previously contacted. Reference what was discussed — do NOT start from scratch.");
+      ghlHistory.slice(0, 20).forEach(m => lines.push(`[${m.direction}] ${(m.body || "").substring(0, 400)}`));
+    }
+    return lines.length > 0 ? lines.join("\n") : "";
+  } catch { return ""; }
+})()}
+
 ${context.lastInteractionSummary ? `=== LAST INTERACTION SUMMARY (cross-session memory) ===
 ${context.lastInteractionSummary}
 IMPORTANT: Continue from where this left off. Do NOT repeat what was already discussed.
