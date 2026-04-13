@@ -11,7 +11,7 @@ import {
   deleteKnowledgeFile, updateKnowledgeFile, getActiveTweaks, addAiTweak, archiveTweak,
   getAgentWorkload, getPipelineEvents, getAiState, updateLeadFields, upsertLead,
   createInvite, getInviteByToken, markInviteUsed, getActiveInvites, deleteInvite,
-  getAllUsers, updateUserRole, getUserByOpenId,
+  getAllUsers, updateUserRole, getUserByOpenId, purgeGhostUsers,
   getBrainCouncilAuditLog, getBrainCouncilAuditForLead, getRecentWebhookLogs,
 } from "./db";
 import { ENV } from "./_core/env";
@@ -404,6 +404,10 @@ export const appRouter = router({
     updateRole: adminProcedure.input(z.object({ userId: z.number(), role: z.enum(["admin", "viewer"]) })).mutation(async ({ input }) => {
       await updateUserRole(input.userId, input.role);
       return { success: true };
+    }),
+    purgeGhosts: adminProcedure.mutation(async () => {
+      const removed = await purgeGhostUsers();
+      return { success: true, removed };
     }),
   }),
 

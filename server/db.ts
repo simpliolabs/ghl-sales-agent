@@ -1,4 +1,4 @@
-import { eq, desc, asc, gte, lte, and, sql } from "drizzle-orm";
+import { eq, desc, asc, gte, lte, and, or, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users, leads, conversations, aiState, pipelineEvents, agentAssignments, knowledgeFiles, aiTweaks, invites, webhookLogs, brainCouncilAudit, systemSettings, hallOfFame, channelPerformance, seasonalCampaigns, postDeliverySequences, messageOutcomes } from "../drizzle/schema";
 import type { InsertLead } from "../drizzle/schema";
@@ -376,7 +376,49 @@ export async function deleteInvite(id: number) {
 export async function getAllUsers() {
   const db = await getDb();
   if (!db) return [];
-  return db.select({ id: users.id, name: users.name, email: users.email, role: users.role, lastSignedIn: users.lastSignedIn, createdAt: users.createdAt }).from(users).orderBy(desc(users.createdAt));
+  // Only return invited team members (admin or viewer roles).
+  // Exclude default role='user' ghost accounts created by accidental OAuth sign-ins.
+  // Exclude the owner account — they are the super-admin and should not appear in the team list.
+  return db
+    .select({ id: users.id, name: users.name, email: users.email, role: users.role, lastSignedIn: users.lastSignedIn, createdAt: users.createdAt })
+    .from(users)
+    .where(
+      and(
+        or(eq(users.role, 'admin'), eq(users.role, 'viewer')),
+        ne(users.openId, ENV.ownerOpenId)
+      )
+    )
+    .orderBy(desc(users.createdAt));
+}
+
+/**
+ * Purge ghost accounts: users who signed in via OAuth but were never invited
+ * (role is still the default 'user' and they are not the owner).
+ * These accounts are safe to delete — they have no meaningful data.
+ */
+export async function purgeGhostUsers(): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  // Count before deletion so we can return how many were removed
+  const [countRow] = await db
+    .select({ cnt: sql<number>`COUNT(*)` })
+    .from(users)
+    .where(
+      and(
+        eq(users.role, 'user'),
+        ne(users.openId, ENV.ownerOpenId)
+      )
+    );
+  const count = countRow?.cnt ?? 0;
+  if (count > 0) {
+    await db.delete(users).where(
+      and(
+        eq(users.role, 'user'),
+        ne(users.openId, ENV.ownerOpenId)
+      )
+    );
+  }
+  return count;
 }
 
 export async function updateUserRole(userId: number, role: "user" | "admin" | "viewer") {
