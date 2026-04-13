@@ -871,3 +871,6 @@
 - [x] FIX: warmSlotPointersFromCalendar() fetches existing GHL events on startup to prevent double-booking after restart
 - [x] FIX: All 5 agent-notifications.ts calls now pass agent key for per-agent isolation
 - [x] 6 new tests (ghl-slot.test.ts), 711 total passing
+
+## Ready Stage Cleanup (Apr 13 2026)
+- [x] REMOVE: Ready stage task/appointment creation in webhook-pipeline.ts — team handles fulfillment via Shopify internally, GHL tasks/appointments for shipping/pickup are not needed. DONE: Removed createTask + addNote from READY case. Follow-up schedule still updated so AI can send customer pickup/delivery notification.

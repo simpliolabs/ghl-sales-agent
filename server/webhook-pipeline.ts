@@ -179,14 +179,8 @@ export async function handleStageAutomation(
     }
 
     case STAGES.READY: {
-      try {
-        await createTask(contactId, {
-          title: `📦 Ship/arrange pickup for ${leadLabel}`,
-          body: `Order is ready. Arrange shipping or coordinate pickup with the customer.\n\nBusiness: ${lead.businessName || "N/A"}`,
-          assignedTo: PRODUCTION_MANAGER,
-        });
-        await addNote(contactId, `🤖 Order ready. Shipping/pickup assigned to ${PRODUCTION_MANAGER}.`);
-      } catch { /* best effort */ }
+      // NOTE: No GHL task/appointment created here — fulfillment is handled internally via Shopify.
+      // Only update the follow-up schedule so the AI can send a pickup/delivery notification to the customer.
       const readySchedule = await calculateNextFollowUp({ leadId: lead.id, triggerEvent: "stage_change", stageTransition: "Ready" });
       await updateLeadFields(lead.id, { nextFollowUpAt: readySchedule.nextFollowUpAt, cadencePosition: readySchedule.cadencePosition });
       break;

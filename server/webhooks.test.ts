@@ -245,7 +245,8 @@ describe("Webhook Router", () => {
       }));
     });
 
-    it("assigns Cindy for shipping on Ready stage", async () => {
+    it("schedules follow-up on Ready stage (no GHL task — Shopify handles fulfillment)", async () => {
+      const { updateLeadFields } = await import("./db");
       const { createTask } = await import("./ghl");
       const res = await request(app).post("/api/webhooks/ghl").send({
         contactId: "contact_123",
@@ -253,9 +254,13 @@ describe("Webhook Router", () => {
         currentStage: "Ready",
       });
       expect(res.status).toBe(200);
-      expect(createTask).toHaveBeenCalledWith("contact_123", expect.objectContaining({
+      // Fulfillment is handled via Shopify — no GHL task should be created for Ready stage
+      expect(createTask).not.toHaveBeenCalledWith("contact_123", expect.objectContaining({
         title: expect.stringContaining("Ship"),
-        assignedTo: "Cindy Muchnick",
+      }));
+      // Follow-up schedule should still be updated so AI can notify the customer
+      expect(updateLeadFields).toHaveBeenCalledWith(1, expect.objectContaining({
+        nextFollowUpAt: expect.any(Date),
       }));
     });
 
