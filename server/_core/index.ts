@@ -170,6 +170,34 @@ async function startServer() {
       }
     }, SC_INTERVAL);
     console.log(`[Cron] Seasonal campaign executor scheduled every ${SC_INTERVAL / 60000} minutes`);
+
+    // --- CRON: Stuck Processing Lock Cleaner every 5 minutes ---
+    // Clears processingLockedAt values older than 5 minutes.
+    // Prevents silent bot failures like the Rosemari incident where a stuck lock
+    // silenced the bot indefinitely. The Brain Council lock TTL is 300s (5 min),
+    // so any lock older than 5 min is definitively stuck (server crash, timeout, etc.).
+    const STUCK_LOCK_INTERVAL = 5 * 60 * 1000; // 5 minutes
+    const STUCK_LOCK_TTL_MS = 5 * 60 * 1000; // 5 minutes
+    setInterval(async () => {
+      try {
+        const { getDb } = await import("../db");
+        const db = await getDb();
+        if (!db) return;
+        const { leads } = await import("../../drizzle/schema");
+        const { sql: sqlFn, isNotNull } = await import("drizzle-orm");
+        const cutoff = new Date(Date.now() - STUCK_LOCK_TTL_MS);
+        const result = await db.update(leads)
+          .set({ processingLockedAt: null })
+          .where(sqlFn`processingLockedAt IS NOT NULL AND processingLockedAt < ${cutoff}`);
+        const affected = (result as any)?.[0]?.affectedRows || 0;
+        if (affected > 0) {
+          console.log(`[StuckLockCleaner] Cleared ${affected} stuck processing lock(s) older than 5 minutes`);
+        }
+      } catch (err) {
+        console.error(`[StuckLockCleaner] Error:`, err);
+      }
+    }, STUCK_LOCK_INTERVAL);
+    console.log(`[Cron] Stuck processing lock cleaner scheduled every ${STUCK_LOCK_INTERVAL / 60000} minutes`);
   });
 }
 

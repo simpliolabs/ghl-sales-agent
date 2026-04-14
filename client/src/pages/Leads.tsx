@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Users, Search, RefreshCw, CalendarClock, FileSearch, Ban } from "lucide-react";
+import { Users, Search, RefreshCw, CalendarClock, FileSearch, Ban, ExternalLink } from "lucide-react";
 import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { Input } from "@/components/ui/input";
@@ -137,6 +137,7 @@ export default function Leads() {
                       {tab === "not_qualified" && (
                         <th className="text-left p-3 font-medium">Reason</th>
                       )}
+                      <th className="text-center p-3 font-medium hidden sm:table-cell">GHL</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -210,6 +211,27 @@ export default function Leads() {
                               </span>
                             </td>
                           )}
+                          <td className="p-3 text-center hidden sm:table-cell" onClick={(e) => e.stopPropagation()}>
+                            {lead.ghlContactId ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <a
+                                    href={`https://app.gohighlevel.com/v2/location/me/contacts/detail/${lead.ghlContactId}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center justify-center h-7 w-7 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                                  >
+                                    <ExternalLink className="h-3.5 w-3.5" />
+                                  </a>
+                                </TooltipTrigger>
+                                <TooltipContent side="left">
+                                  <p className="text-xs">View in GoHighLevel</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              <span className="text-xs text-muted-foreground/30">—</span>
+                            )}
+                          </td>
                         </tr>
                       );
                     })}

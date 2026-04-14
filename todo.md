@@ -994,3 +994,23 @@
 - [x] FIX: Updated brain-context.ts to use lastMessageAt as the recency anchor — if lead has activity in last 60 days, leadAgeDays is computed from lastMessageAt, not createdAt. Truly dormant leads still use createdAt (366 days = correct)
 - [x] FIX: New contacts use createdAt.defaultNow() so they always get today's date — backfill was a one-time SQL UPDATE, not ongoing
 - [x] VERIFY: 743/743 tests passing
+
+## BUG: Circuit Breaker fired for Laura Damian Lead #720001 (Apr 14 2026)
+
+- [ ] REVIEW: Circuit breaker fired after 4 consecutive failures — violation: REPEATED OPENER "hey laura, following up"
+- [ ] FIX: AI reusing exact same opener despite prior outbound messages — anti-repetition rule not working for follow-up openers
+- [ ] FIX: Blocked message references "Rodriguez Family Child Care" — wrong business name for a Church/Ministry lead (context contamination)
+- [ ] FIX: Resume AI for Laura Damian after fixing root causes
+- [ ] FIX: Strengthen anti-repetition rule to compare full opener phrase, not just greeting word
+
+## Repeated Opener Circuit Breaker Bug (Apr 14 2026) — FIXED
+
+- [x] ROOT CAUSE: Composer kept generating "Hey Laura, following up" opener for Laura Damian (lead 720001) despite ANTI-REPETITION RULES in prompt — LLM was ignoring the rule
+- [x] FIX: Added POST-COMPOSE OPENER AUTO-FIX in brain-council-orchestrator.ts (lines 792-864): after Composer runs, deterministically check if first 4 words match any prior outbound opener; if yes, surgically replace just the opener with a diverse alternative (escalation tiers based on unansweredCount)
+- [x] FIX: Opener pool is tiered: unanswered>=3 → "Quick question —" / "Plot twist —" etc; unanswered>=2 → "${name}, just checking in —" etc; base → "${name}," / "Quick update —" etc
+- [x] FIX: Message content (business name, CTA, context) is fully preserved — only the opener word choice changes
+- [x] FIX: Auto-fix prevents circuit breaker accumulation for what is a formatting issue, not a content problem
+- [x] RESET: Laura Damian (lead 720001) circuit breaker reset: consecutiveRejects=0, humanTakeover=0, processingLockedAt=NULL
+- [x] ADDED: Stuck Processing Lock Cleaner cron job (every 5 min) in server/_core/index.ts — clears processingLockedAt values older than 5 min to prevent silent bot failures
+- [x] ADDED: GHL deep-link column in Leads table (Leads.tsx) — ExternalLink icon opens contact directly in GoHighLevel (stops row click propagation)
+- [x] TESTS: 17 new tests in server/opener-autofix.test.ts — all 764 tests passing

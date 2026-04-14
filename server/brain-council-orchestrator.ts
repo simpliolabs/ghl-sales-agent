@@ -790,6 +790,80 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
     }
 
     // ============================================================
+    // POST-COMPOSE OPENER AUTO-FIX (SOURCE-LEVEL)
+    // If the Composer generated a repeated opener (same first 4 words as any
+    // prior outbound message), surgically replace JUST the opener with a
+    // diverse alternative. This prevents circuit breaker accumulation for
+    // what is fundamentally a formatting issue, not a content problem.
+    // The message content (business name, CTA, context) is preserved.
+    // ============================================================
+    if (context.priorOutbound && context.priorOutbound.length > 0 && composed.message) {
+      const composedWords = composed.message.trim().split(/\s+/);
+      const composedOpener4 = composedWords.slice(0, 4).join(" ").toLowerCase().replace(/[!.,?]/g, "");
+      const composedOpener3 = composedWords.slice(0, 3).join(" ").toLowerCase().replace(/[!.,?]/g, "");
+      let openerMatched = false;
+      for (const prior of context.priorOutbound) {
+        const priorWords = (prior.messageBody || "").trim().split(/\s+/);
+        const priorOpener4 = priorWords.slice(0, 4).join(" ").toLowerCase().replace(/[!.,?]/g, "");
+        const priorOpener3 = priorWords.slice(0, 3).join(" ").toLowerCase().replace(/[!.,?]/g, "");
+        if ((priorOpener4.length > 8 && composedOpener4 === priorOpener4) ||
+            (priorOpener3.length > 5 && composedOpener3 === priorOpener3)) {
+          openerMatched = true;
+          break;
+        }
+      }
+      if (openerMatched) {
+        // Extract the body after the greeting line (everything after the first newline or sentence)
+        const leadFirstName = (context.lead.name || "").split(" ")[0] || "there";
+        const msgBody = composed.message.trim();
+        // Find where the greeting ends (first \n or first sentence boundary after greeting)
+        const greetingEndIdx = msgBody.indexOf("\n");
+        const bodyAfterGreeting = greetingEndIdx > -1 ? msgBody.slice(greetingEndIdx).trimStart() : msgBody;
+        // Pool of diverse openers — rotate based on unanswered count for escalation
+        const unanswered = context.unansweredCount || 0;
+        const diverseOpeners = unanswered >= 3
+          ? [
+              `Quick question —`,
+              `Honest question —`,
+              `Random thought —`,
+              `Plot twist —`,
+              `Between us —`,
+              `${leadFirstName}, real talk —`,
+            ]
+          : unanswered >= 2
+          ? [
+              `${leadFirstName}, just checking in —`,
+              `Circling back on this —`,
+              `One more thing —`,
+              `Still thinking about this —`,
+              `${leadFirstName}, wanted to follow up —`,
+            ]
+          : [
+              `${leadFirstName},`,
+              `Quick update —`,
+              `Good news:`,
+              `So,`,
+              `Checking in —`,
+              `Just wanted to share —`,
+              `One thing —`,
+            ];
+        const openerIdx = Math.floor(Math.random() * diverseOpeners.length);
+        const newOpener = diverseOpeners[openerIdx];
+        // Reconstruct: new opener + body (preserving content)
+        // If body already starts with the content (no greeting line), prepend opener
+        // If body has a greeting line, replace it
+        const hasGreetingLine = /^(hey|hi|hello|yo)\s+\S+/i.test(msgBody.split("\n")[0]);
+        if (hasGreetingLine && greetingEndIdx > -1) {
+          composed.message = `${newOpener}\n\n${bodyAfterGreeting}`;
+        } else {
+          // No clear greeting line — prepend opener to full message
+          composed.message = `${newOpener}\n\n${msgBody}`;
+        }
+        console.log(`[SalesManager] 🔄 OPENER AUTO-FIX: Replaced repeated opener with "${newOpener}" for lead ${input.leadId} (unanswered=${unanswered})`);
+      }
+    }
+
+    // ============================================================
     // POST-COMPOSE EMAIL FORMATTING ENFORCEMENT (SOURCE-LEVEL)
     // If the Composer returned an email as one long paragraph without
     // proper line breaks or signature, fix it structurally here.
