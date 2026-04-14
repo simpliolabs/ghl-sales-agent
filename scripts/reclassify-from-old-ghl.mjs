@@ -338,14 +338,21 @@ async function main() {
   const csvMap = await loadCsvMap();
   await sleep(500);
 
+  // Process ALL unenriched contacts: transferred_contact, source='r', source='Facebook' with null researchData
   const [leads] = await conn.execute(`
-    SELECT id, name, email, phone, ghlContactId, researchData
+    SELECT id, name, email, phone, ghlContactId, researchData, source
     FROM leads
-    WHERE source = 'transferred_contact'
+    WHERE (
+      source = 'transferred_contact'
+      OR (source = 'r' AND (researchData IS NULL OR CAST(researchData AS CHAR) = 'null' OR researchData = ''))
+      OR (source = 'Facebook' AND (researchData IS NULL OR CAST(researchData AS CHAR) = 'null' OR researchData = ''))
+      OR (source = 'ghl' AND (researchData IS NULL OR CAST(researchData AS CHAR) = 'null' OR researchData = ''))
+      OR (source = 'fb' AND (researchData IS NULL OR CAST(researchData AS CHAR) = 'null' OR researchData = ''))
+    )
     ORDER BY id ASC
   `);
 
-  console.log(`Processing ${leads.length} transferred contacts\n`);
+  console.log(`Processing ${leads.length} contacts (transferred + unenriched r/Facebook/ghl/fb)\n`);
 
   let processed = 0, errors = 0, omnisendSynced = 0;
   const segmentCounts = {};

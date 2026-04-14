@@ -908,3 +908,16 @@
 - [ ] FEED: Pass enriched data into Researcher brain as ground truth (not guesswork)
 - [ ] RUN: Execute bulk enrichment + Omnisend sync for all existing transferred contacts
 - [ ] VERIFY: Confirm enriched data appears in Brain Council audit log; confirm contacts appear in Omnisend with correct segments
+
+## Bulk Enrichment from Old GHL Account (Completed Apr 13 2026)
+
+- [x] COMPLETED: Enriched ALL 3,232 contacts (1,554 transferred + 1,001 source='r' + 517 source='Facebook' + 160 other) from old GHL account (aWJyvzTN1mCxBzkgSFYK)
+- [x] COMPLETED: Pulled custom fields from old GHL API, resolved field IDs to names (45 field definitions loaded)
+- [x] COMPLETED: Pulled notes from old GHL API for each contact
+- [x] COMPLETED: Classified all contacts using rule-based + LLM classification
+- [x] COMPLETED: Final segments: Other=1960, Brand=451, Church=330, Sports=261, Nonprofit=225, School=5
+- [x] COMPLETED: Synced 2,454 contacts to Omnisend with correct segment tags
+- [x] COMPLETED: Updated Brain Council Strategist prompt to surface resolved custom fields, notes, tags, segment
+- [x] COMPLETED: Updated Brain Council Composer prompt to include enrichment context
+- [x] COMPLETED: Lost-lead appointment guard (blocks appointment creation for Lost/DNC/competitor_won leads)
+- [x] COMPLETED: Notification deduplication (5-min in-memory dedup cache for notifyOwner)
