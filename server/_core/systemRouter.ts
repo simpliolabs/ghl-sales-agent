@@ -241,6 +241,7 @@ export const systemRouter = router({
           await notifyOwner({
             title: "🔴 AI Messaging Paused",
             content: `AI messaging has been set to OFFLINE by ${ctx.user?.name || "admin"}. No messages will be sent to leads until AI is set back online.`,
+            priority: "critical",
           });
         } catch { /* best effort */ }
       } else {
@@ -248,6 +249,7 @@ export const systemRouter = router({
           await notifyOwner({
             title: "🟢 AI Messaging Resumed",
             content: `AI messaging has been set back ONLINE by ${ctx.user?.name || "admin"}. All autonomous senders are now active.`,
+            priority: "standard",
           });
         } catch { /* best effort */ }
       }

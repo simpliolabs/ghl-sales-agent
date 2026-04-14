@@ -471,6 +471,7 @@ async function handleHumanActive(ctx: DispatchContext, reason: string): Promise<
         `Assigned to: ${agent}`,
         `AI has stepped back. Existing appointment/task updated in GHL.`,
       ].join("\n"),
+      priority: "critical",
     });
     actions.push("Sent owner notification");
   } catch { /* best effort */ }

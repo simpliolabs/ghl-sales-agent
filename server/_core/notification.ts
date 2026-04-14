@@ -1,10 +1,40 @@
 import { TRPCError } from "@trpc/server";
 import { ENV } from "./env";
 
+// ---------------------------------------------------------------------------
+// Notification Priority System
+// ---------------------------------------------------------------------------
+// CRITICAL — sends email to owner (real money, system down, SLA breach, human handoff needed)
+// STANDARD — portal-only (routine AI operations, QC blocks, campaign updates, etc.)
+// ---------------------------------------------------------------------------
+export type NotificationPriority = "critical" | "standard";
+
 export type NotificationPayload = {
   title: string;
   content: string;
+  /** Defaults to "standard" (portal-only). Set to "critical" for email delivery. */
+  priority?: NotificationPriority;
 };
+
+// ---------------------------------------------------------------------------
+// Title-based auto-classification — if caller doesn't specify priority,
+// we infer from the notification title. Only truly urgent events get email.
+// ---------------------------------------------------------------------------
+const CRITICAL_TITLE_PATTERNS: RegExp[] = [
+  /payment received/i,
+  /URGENT.*waiting.*business hours/i,
+  /AI Messaging Paused/i,
+  /Human Handoff/i,
+  /LLM Credits Exhausted/i,
+  /CIRCUIT BREAKER/i,
+];
+
+function inferPriority(title: string): NotificationPriority {
+  for (const pattern of CRITICAL_TITLE_PATTERNS) {
+    if (pattern.test(title)) return "critical";
+  }
+  return "standard";
+}
 
 // ---------------------------------------------------------------------------
 // Deduplication cache — prevents notification spam when multiple subsystems
@@ -89,25 +119,38 @@ const validatePayload = (input: NotificationPayload): NotificationPayload => {
     });
   }
 
-  return { title, content };
+  return { title, content, priority: input.priority };
 };
 
 /**
  * Dispatches a project-owner notification through the Manus Notification Service.
  *
+ * **Priority system:**
+ * - `"critical"` → sends email notification (payment, SLA breach, system down, human handoff)
+ * - `"standard"` → portal-only notification (routine AI operations, QC blocks, campaigns)
+ * - If not specified, priority is auto-inferred from the title using known patterns.
+ *
  * Built-in deduplication: if the same notification title fires more than once
- * within a 5-minute window (e.g., multiple subsystems reacting to the same
- * webhook event), only the first call sends — subsequent calls return `true`
- * silently without hitting the upstream service.
+ * within a 5-minute window, only the first call sends.
  *
  * Returns `true` if the request was accepted (or suppressed as a duplicate),
- * `false` when the upstream service cannot be reached. Validation errors
- * bubble up as TRPC errors so callers can fix the payload.
+ * `false` when the upstream service cannot be reached.
  */
 export async function notifyOwner(
   payload: NotificationPayload
 ): Promise<boolean> {
-  const { title, content } = validatePayload(payload);
+  const { title, content, priority: explicitPriority } = validatePayload(payload);
+
+  // Determine effective priority
+  const priority = explicitPriority || inferPriority(title);
+
+  // STANDARD priority → log to console only, do NOT send email
+  if (priority === "standard") {
+    console.log(`[Notification/Portal] ${title}: ${content.substring(0, 200)}${content.length > 200 ? "..." : ""}`);
+    return true;
+  }
+
+  // CRITICAL priority → send email notification via Manus service
 
   // Deduplicate: skip if same title was sent within the last 5 minutes
   if (_isDuplicate(title)) {
@@ -153,6 +196,7 @@ export async function notifyOwner(
       return false;
     }
 
+    console.log(`[Notification/Email] CRITICAL sent: "${title}"`);
     return true;
   } catch (error) {
     console.warn("[Notification] Error calling notification service:", error);

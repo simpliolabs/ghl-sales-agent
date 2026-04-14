@@ -397,6 +397,7 @@ export async function runSupervisorCycle(): Promise<CycleResult> {
       await notifyOwner({
         title: `Supervisor: ${correctionsFailed} failed corrections`,
         content: violations.filter(v => !v.success).map(v => `Lead #${v.leadId}: ${v.invariant} — ${v.correction}`).join("\n"),
+        priority: "standard",
       });
     } catch {
       // Best effort

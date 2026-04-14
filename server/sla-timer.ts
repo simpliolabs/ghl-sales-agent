@@ -142,6 +142,7 @@ export async function runSlaCheck(): Promise<{ checked: number; alerted: number 
       await notifyOwner({
         title: `🔴 URGENT: ${orangeAlerts.length} lead(s) waiting 8+ business hours for human response`,
         content: `These leads have humanTakeover enabled but no agent activity for 8+ business hours:\n\n${orangeAlerts.join("\n")}\n\nAction needed: respond to these leads or release them back to AI.`,
+        priority: "critical",
       });
     }
 
@@ -149,6 +150,7 @@ export async function runSlaCheck(): Promise<{ checked: number; alerted: number 
       await notifyOwner({
         title: `🟡 SLA Warning: ${yellowAlerts.length} lead(s) waiting 4+ business hours for human response`,
         content: `These leads have humanTakeover enabled but no agent activity for 4+ business hours:\n\n${yellowAlerts.join("\n")}\n\nPlease respond soon or release them back to AI.`,
+        priority: "standard",
       });
     }
 

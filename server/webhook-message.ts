@@ -721,6 +721,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
           await notifyOwner({
             title: `⚠️ LLM Credits Exhausted — ${currentRetries === 0 ? "Leads Being Queued" : `${currentRetries} retries so far`}`,
             content: `Brain Council failed for ${lead!.name || "Lead #" + lead!.id} (${effectiveMessageBody?.substring(0, 100)}). Error: ${String((brainErr as any)?.message || brainErr).substring(0, 200)}. Lead auto-scheduled for retry at ${retryAt.toLocaleString()}. Credits will auto-replenish on your Manus billing cycle.`,
+            priority: "critical",
           });
         } catch { /* best effort */ }
       }

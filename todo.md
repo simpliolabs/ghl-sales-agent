@@ -930,3 +930,14 @@
 - [x] FIX: brain-context.ts urgencyStage needs granular tiers beyond "Day 30+ dormant"
 - [x] FIX: Added fresh_outreach_on_aged_lead QC violation — auto-rejects messages using fresh-outreach phrasing on 90+ day leads
 - [x] FIX: Added ENGAGEMENT STATE block to Composer prompt with leadAgeDays + urgencyStage warning
+
+## createdAt Backfill for Imported Contacts (Apr 14 2026)
+
+- [x] FIX: Set all imported contacts (source IN transferred_contact, r, Facebook, ghl, fb, ghl_import) createdAt to 366 days ago via SQL UPDATE — all 3,458 now show 365+ days
+- [x] VERIFY: Confirmed — all 3,458 imported contacts now in 365+ day bucket, reactivation tiers active
+
+## Notification Tier System — Email Only for Critical Events (Apr 14 2026)
+
+- [x] AUDIT: Identified all 25+ notifyOwner() call sites across 14 files, classified as CRITICAL (5 events) vs STANDARD (10+ events)
+- [x] BUILD: Added notification priority system to notification.ts — CRITICAL sends email, STANDARD logs to portal only. Auto-inference from title patterns + explicit priority parameter
+- [x] VERIFY: 18 vitest tests passing, 740 total tests passing. Only 5 event types send email: Payment, AI Paused, Human Handoff, LLM Exhausted, Circuit Breaker, URGENT SLA breach

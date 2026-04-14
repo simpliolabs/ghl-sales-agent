@@ -154,6 +154,7 @@ export async function handleStageAutomation(
         await notifyOwner({
           title: `💰 Payment received: ${leadLabel}`,
           content: `${leadLabel} has paid. Order value: $${lead.pipelineValue || "N/A"}. Design proof assigned to ${DESIGNER}.`,
+          priority: "critical",
         });
       } catch { /* best effort */ }
       break;

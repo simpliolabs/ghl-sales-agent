@@ -1021,8 +1021,12 @@ async function notifyOwnerOfViolation(
     `\nA safe fallback message was sent instead. Review the Brain Council Audit Log for full details.`,
   ].filter(Boolean).join("\n");
   
+  // Circuit breaker (3+ consecutive failures) = CRITICAL email
+  // Regular QC blocks = standard (portal-only)
+  const priority = consecutiveFailures >= 3 ? "critical" as const : "standard" as const;
+
   try {
-    return await notifyOwner({ title, content });
+    return await notifyOwner({ title, content, priority });
   } catch (err) {
     console.error("[BrainCouncil] Failed to notify owner:", err);
     return false;

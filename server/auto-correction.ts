@@ -175,6 +175,7 @@ export async function sendAutoCorrection(params: {
     await notifyOwner({
       title: `🔧 Auto-Correction Sent: ${lead.name || "Lead #" + leadId}`,
       content: `An auto-correction was sent to ${lead.name || "Lead #" + leadId} (${channel}).\n\nReason: ${reason}\n\nApology: ${apology}\n\nCorrect message: ${correct}`,
+      priority: "standard",
     });
 
     console.log(`[AutoCorrect] Correction sent for audit #${auditId}, lead #${leadId}: ${reason}`);

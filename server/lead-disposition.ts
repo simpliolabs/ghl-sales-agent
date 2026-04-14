@@ -359,6 +359,7 @@ export async function runDispositionSweep(): Promise<DispositionStats> {
         await notifyOwner({
           title: `Lead Disposition: ${stats.dncDisposed} DNC, ${stats.emailEscalated} email escalated, ${stats.takeoverExpired} takeover expired`,
           content: `Disposition sweep completed:\n- ${stats.dncDisposed} DNC leads moved to Not Qualified\n- ${stats.emailEscalated} leads escalated to email outreach\n- ${stats.takeoverExpired} stale takeovers expired\n- ${stats.errors} errors\n\nTotal processed: ${stats.processed}`,
+          priority: "standard",
         });
       } catch { /* best effort notification */ }
     }

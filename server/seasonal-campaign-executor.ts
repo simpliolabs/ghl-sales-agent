@@ -111,6 +111,7 @@ export async function processSeasonalCampaigns(): Promise<{ campaignsProcessed: 
           await notifyOwner({
             title: `Seasonal Campaign "${campaign.name}": ${scheduled} leads activated`,
             content: `Campaign "${campaign.name}" activated ${scheduled} stale leads for outreach.\n\nAngle: ${campaign.angle}\n\nThese leads will be contacted within the next 2 hours with the campaign-specific messaging.`,
+            priority: "standard",
           }).catch(() => {});
         }
       } catch (err) {

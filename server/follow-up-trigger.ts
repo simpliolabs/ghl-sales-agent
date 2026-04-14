@@ -362,6 +362,7 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
                 await notifyOwner({
                   title: `⚠️ LLM Credits Exhausted — Follow-ups Paused`,
                   content: `Brain Council failed for ${leadName} (Lead #${leadId}). Error: ${String((brainErr as any)?.message || brainErr).substring(0, 200)}. All ${batch.length} overdue leads rescheduled for retry at ${retryAt.toLocaleString()}. This is exhaustion cycle #${consecutiveLlmExhaustionCycles}. Credits will auto-replenish on your Manus billing cycle.`,
+                  priority: "critical",
                 });
               } catch { /* best effort */ }
             }

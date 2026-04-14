@@ -284,6 +284,7 @@ export async function runBrainCouncilSelfReview(): Promise<{
           await notifyOwner({
             title: `🔄 Council Self-Review: Recovery Sent to ${issue.leadName}`,
             content: `Issue: ${issue.issueType}\nDetail: ${issue.issueDetail}\n\nRecovery message sent:\n"${result.message}"\n\nFramework: ${result.framework} | QC Score: ${result.qcScore}`,
+            priority: "standard",
           });
         } else {
           console.error(`[CouncilReview] Failed to send recovery to lead ${issue.leadId}: ${sendResult.error}`);

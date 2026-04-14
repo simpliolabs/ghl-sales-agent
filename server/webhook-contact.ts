@@ -195,6 +195,7 @@ export async function handleContactWebhook(payload: Record<string, unknown>, res
       await notifyOwner({
         title: `\u{1F4DE} New Contact: ${leadLabel}`,
         content: `A new contact has entered the system.\n\n\u2022 Name: ${leadLabel}\n\u2022 Business: ${lead.businessName || "N/A"}\n\u2022 Phone: ${lead.phone || "N/A"}\n\u2022 Email: ${lead.email || "N/A"}\n\u2022 Source: ${lead.source || "N/A"}\n\u2022 Assigned to: ${lead.assignedAgent || "Abby Bouwer"}\n\nHeads-up appointment + task created in GHL.\nAI will attempt first-contact in ${FIRST_CONTACT_DELAY_MS / 1000}s.`,
+        priority: "standard",
       });
     } catch (autoErr) {
       console.error(`[Webhook] Heads-up notification failed for lead ${lead.id}:`, autoErr);
