@@ -57,7 +57,15 @@ export async function buildLeadContext(leadId: number): Promise<LeadContext> {
   const isFirstResponse = priorAiMessages.length === 0;
 
   const leadCreatedAt = lead.createdAt ? new Date(lead.createdAt).getTime() : Date.now();
-  const leadAgeDays = Math.floor((Date.now() - leadCreatedAt) / (1000 * 60 * 60 * 24));
+  // Use lastMessageAt as the recency anchor when available — this prevents imported contacts
+  // with backfilled createdAt from being treated as dormant when they have recent activity.
+  // Rule: if the lead has sent/received a message in the last 60 days, use that as the age baseline.
+  const lastMsgTs = lead.lastMessageAt ? new Date(lead.lastMessageAt).getTime() : null;
+  const daysSinceLastMsg = lastMsgTs ? Math.floor((Date.now() - lastMsgTs) / (1000 * 60 * 60 * 24)) : null;
+  const effectiveAgeTs = (lastMsgTs && daysSinceLastMsg !== null && daysSinceLastMsg < 60)
+    ? lastMsgTs  // Active lead — age from last message, not import date
+    : leadCreatedAt; // Dormant lead — age from createdAt (the backfilled 366-day value is correct here)
+  const leadAgeDays = Math.floor((Date.now() - effectiveAgeTs) / (1000 * 60 * 60 * 24));
   let urgencyStage = "Day 0 (first contact)";
   if (leadAgeDays >= 365) urgencyStage = `${Math.floor(leadAgeDays / 365)}+ year(s) old — LONG-DORMANT REACTIVATION. This lead reached out over a year ago. MUST frame as check-in/reconnect, NEVER as fresh outreach.`;
   else if (leadAgeDays >= 180) urgencyStage = `${Math.floor(leadAgeDays / 30)} months old — DORMANT REACTIVATION. Lead is 6+ months old. Frame as "checking back in" — reference their original inquiry timeframe.`;

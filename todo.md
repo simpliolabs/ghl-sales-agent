@@ -987,3 +987,10 @@
 ## FIX: Replace "The CEO Store" with "KAUSE SQUAD Merchandise Store" (Apr 14 2026)
 
 - [x] FIX: Added ONLINE STORE NAMING hard constraint to all 3 AI layers (ai-brain, QC, Brain Council) — "The CEO Store" → "KAUSE SQUAD Merchandise Store" in all outbound messages. Brain Council will REJECT any message containing "The CEO Store"
+
+## BUG: createdAt backfill too broad — new contacts also getting "a year ago" framing (Apr 14 2026)
+
+- [x] FIX: Restored createdAt to today for 298 contacts that had message activity in last 30 days but were incorrectly backfilled to 366 days
+- [x] FIX: Updated brain-context.ts to use lastMessageAt as the recency anchor — if lead has activity in last 60 days, leadAgeDays is computed from lastMessageAt, not createdAt. Truly dormant leads still use createdAt (366 days = correct)
+- [x] FIX: New contacts use createdAt.defaultNow() so they always get today's date — backfill was a one-time SQL UPDATE, not ongoing
+- [x] VERIFY: 743/743 tests passing
