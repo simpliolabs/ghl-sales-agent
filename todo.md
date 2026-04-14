@@ -1014,3 +1014,23 @@
 - [x] ADDED: Stuck Processing Lock Cleaner cron job (every 5 min) in server/_core/index.ts — clears processingLockedAt values older than 5 min to prevent silent bot failures
 - [x] ADDED: GHL deep-link column in Leads table (Leads.tsx) — ExternalLink icon opens contact directly in GoHighLevel (stops row click propagation)
 - [x] TESTS: 17 new tests in server/opener-autofix.test.ts — all 764 tests passing
+
+## CRITICAL BUG: Saturday Appointment Scheduled for Jimmie/Basoom LLC (Apr 14 2026)
+
+- [ ] BUG: AI scheduled appointment for Apr 15 (Saturday) at 12:30 PM EST — business is CLOSED on weekends (Mon-Fri only)
+- [ ] BUG: Composer confirmed the Saturday appointment ("Awesome, Jimmie! Glad you got it. We're all set for your Saturday visit...") without catching the day-of-week error
+- [ ] ROOT CAUSE 1: getNextBusinessHoursSlot() allows Saturday/Sunday slots
+- [ ] ROOT CAUSE 2: Composer has no day-of-week validation for appointment confirmations
+- [ ] FIX: getNextBusinessHoursSlot() must skip Saturday (day=6) and Sunday (day=0) — advance to Monday
+- [ ] FIX: Business hours are 9:30am-5pm Mon-Fri (NOT 10am-5pm as previously stated)
+- [ ] FIX: Add day-of-week guard to Composer — NEVER confirm weekend appointments
+- [ ] FIX: Cancel the bad Jimmie appointment in GHL and send correction message
+- [ ] TEST: Add weekend slot tests to ghl-slot.test.ts
+
+## CRITICAL BUG FIX: Saturday Hours Hallucination (Apr 14, 2026)
+
+- [x] Root cause: AI told Jimmie "open Saturdays 10am-4pm" on Apr 11-12 (context poisoning from prior AI errors). On Apr 14, Composer read those prior messages and confirmed "your Saturday visit" — treating its own prior errors as ground truth.
+- [x] Fix 1: Strengthen Composer prompt with CONTEXT POISONING WARNING — explicitly tells LLM to ignore hours claims from prior messages and always use BRAND hours
+- [x] Fix 2: Add wrong_hours to ViolationCategory type in brain-types.ts
+- [x] Fix 3: Add wrong_hours deterministic QC guard in qc.ts — blocks any message containing "open Saturdays", "Saturday visit", "see you Saturday", "Mon-Sat", etc.
+- [x] Fix 4: 20 tests written and passing for wrong_hours guard (server/wrong-hours.test.ts)

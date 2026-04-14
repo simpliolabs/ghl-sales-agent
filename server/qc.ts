@@ -502,6 +502,31 @@ export function detectViolations(
     }
   }
 
+  // 6c. WRONG HOURS GUARD — block any message that states incorrect business hours or weekend availability
+  // The business is CLOSED on weekends (Mon-Fri 9:30am-5pm only). Prior AI messages may have said
+  // "open Saturdays" — this is context poisoning. Catch and block any message that repeats it.
+  const wrongHoursPatterns = [
+    /open\s+saturdays?/i,
+    /open\s+sundays?/i,
+    /saturdays?\s+(?:10am|9am|8am|\d+am|\d+:\d+)/i,
+    /sundays?\s+(?:10am|9am|8am|\d+am|\d+:\d+)/i,
+    /(?:see you|visit|come in|stop by|swing by)\s+(?:this\s+)?saturday/i,
+    /(?:see you|visit|come in|stop by|swing by)\s+(?:this\s+)?sunday/i,
+    /your\s+saturday\s+(?:visit|appointment|meeting)/i,
+    /your\s+sunday\s+(?:visit|appointment|meeting)/i,
+    /saturday\s+visit/i,
+    /sunday\s+visit/i,
+    /we(?:'re|\s+are)\s+open\s+(?:monday\s+(?:through|thru|to|-)\s+saturday|mon(?:day)?\s*-\s*sat(?:urday)?)/i,
+  ];
+  const wrongHoursMatch = wrongHoursPatterns.find(p => p.test(msg));
+  if (wrongHoursMatch) {
+    const matched = msg.match(wrongHoursMatch)?.[0] || "weekend availability claim";
+    return {
+      category: "wrong_hours" as ViolationCategory,
+      reason: `Message contains incorrect hours/availability: "${matched}". Business is CLOSED on weekends — Mon-Fri 9:30am-5pm ONLY. NEVER reference Saturday or Sunday availability.`,
+    };
+  }
+
   // 7a. REPEATED OPENER — composed message starts with EXACTLY the same words as a prior outbound
   // IMPORTANT: "Hey [Name]" is a VALID personalized greeting, NOT a repeated opener.
   // Only flag when the EXACT first 3+ words match a prior message (e.g., "Hey Larry! It's" === "Hey Larry! It's").
