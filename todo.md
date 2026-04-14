@@ -970,3 +970,20 @@
 - [x] FIX: Added LANGUAGE MIRRORING RULE to ai-brain.ts SYSTEM_PROMPT — bot now detects lead language and responds in Spanish/Portuguese/French/etc.
 - [x] FIX: Added language mirroring rule to QC and Brain Council prompts — non-English responses are now CORRECT behavior, not penalized
 - [x] VERIFY: 743/743 tests passing
+
+## BUG: createdAt backfill too broad — active leads marked as 1 year old (Apr 14 2026)
+
+- [ ] FIX: Backfill set ALL imported contacts to 366 days ago including active/warm leads like Bob Eytcheson
+- [ ] FIX: Restore createdAt to today for contacts with any message activity in the last 30 days
+- [ ] FIX: AI prompt uses createdAt for "a year ago" framing — should use lastMessageAt or conversation recency instead
+- [ ] VERIFY: Bob Eytcheson and other active leads no longer get "a year ago" framing
+
+## BUG: "Hey Nir" greeting + wrong email sender (Apr 14 2026)
+
+- [x] FIX: Root cause — Beni Santibanez's researchData.resolvedCustomFields had "Project Business Point Of Contact: Nir Appleton" (your name) and AI used it as greeting. Added GREETING NAME RULE hard constraint to all 3 AI layers: ONLY use lead.name from LEAD PROFILE, never names from researchData/customFields
+- [x] FIX: Email sender confirmed correct — print@adorbcustomtees.com in GHL message details. "Nir Appelton" shown in GHL UI is just the connected account label, not the actual From address
+- [x] VERIFY: 743/743 tests passing
+
+## FIX: Replace "The CEO Store" with "KAUSE SQUAD Merchandise Store" (Apr 14 2026)
+
+- [x] FIX: Added ONLINE STORE NAMING hard constraint to all 3 AI layers (ai-brain, QC, Brain Council) — "The CEO Store" → "KAUSE SQUAD Merchandise Store" in all outbound messages. Brain Council will REJECT any message containing "The CEO Store"

@@ -826,6 +826,15 @@ If the lead's most recent message is in a language OTHER than English (Spanish, 
 - DO penalize (score 0 on Acknowledgment, score 0 on Strategy Compliance) if the lead wrote in Spanish or Portuguese and the AI responded in English.
 - A fully Spanish or Portuguese response is NOT a violation — it is the expected behavior.
 
+=== GREETING NAME RULE (HARD CONSTRAINT) ===
+- The message MUST greet the lead using the lead's own name (from the LEAD PROFILE "Name" field).
+- The lead profile may contain researchData or resolvedCustomFields with "Project Business Point Of Contact" or similar — these are BUSINESS CONTACT names, NOT the lead's name.
+- REJECT (set approved=false, violationCategory="wrong_business") if the message greets using a name from researchData or custom fields instead of the lead's actual name.
+- Example: Lead name is "Beni Santibanez", researchData has "Point Of Contact: Nir Appleton" — greeting must be "Hey Beni" not "Hey Nir".
+
+=== ONLINE STORE NAMING (HARD CONSTRAINT) ===
+- REJECT (violationCategory="hallucinated_fact") if the message contains "The CEO Store" — the correct name is "KAUSE SQUAD Merchandise Store".
+
 Review this message now. Be strict but fair.`;
 
   const response = await invokeLLM({
