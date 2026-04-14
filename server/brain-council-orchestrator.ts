@@ -550,6 +550,46 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
     console.log(`[SalesManager] Strategy: ${strategy.approach}/${strategy.framework}/${strategy.angle} (tier ${strategy.personalizationTier})`);
 
     // ============================================================
+    // PROGRAMMATIC DORMANT LEAD CHANNEL OVERRIDE (PRE-FRAMEWORK)
+    // Leads dormant >60 days MUST be re-engaged via Email, not SMS.
+    // The Strategist prompt says this but LLMs ignore it. Enforce here.
+    // ============================================================
+    if (strategy.channel === 'SMS' && context.leadAgeDays > 60) {
+      const hasEmail = !!(context.lead.email && context.lead.email.includes('@'));
+      if (hasEmail) {
+        console.log(`[SalesManager] ⚠️ DORMANT CHANNEL OVERRIDE: lead ${input.leadId} is ${context.leadAgeDays}d dormant — SMS → Email (has email: ${context.lead.email})`);
+        (strategy as any).channel = 'Email';
+        (strategy as any).reasoning = `[DORMANT CHANNEL OVERRIDE: ${context.leadAgeDays}d dormant, SMS→Email] ${strategy.reasoning}`;
+      } else {
+        console.log(`[SalesManager] ⚠️ DORMANT CHANNEL: lead ${input.leadId} is ${context.leadAgeDays}d dormant but has no email — keeping SMS (no alternative)`);
+      }
+    }
+
+    // ============================================================
+    // PROGRAMMATIC HORMOZI_ACA CONTEXT GUARD
+    // HORMOZI_ACA requires Acknowledge+Compliment+Ask — it MUST reference
+    // the lead's business, product, event, or conversation topic.
+    // If context is empty/none, the LLM will hallucinate acknowledgment.
+    // Override to CURIOSITY_HOOK (works without specific context) or
+    // SOCIAL_PROOF (works with just product/industry knowledge).
+    // ============================================================
+    if (strategy.framework === 'HORMOZI_ACA') {
+      const hasLeadContext = !!(
+        (context.lead.name && context.lead.name.trim().length > 2) ||
+        (context.lead.businessName && context.lead.businessName.trim().length > 2) ||
+        (context.lead.productInterest && context.lead.productInterest.trim().length > 2) ||
+        (input.formData && input.formData.length > 0) ||
+        (context.convHistory && context.convHistory.length > 0)
+      );
+      if (!hasLeadContext) {
+        const acacFallback = context.leadAgeDays > 60 ? 'SOCIAL_PROOF' : 'CURIOSITY_HOOK';
+        console.log(`[SalesManager] ⚠️ HORMOZI_ACA CONTEXT GUARD: no lead context available for lead ${input.leadId} — overriding to ${acacFallback} (works without specific context)`);
+        (strategy as any).framework = acacFallback;
+        (strategy as any).reasoning = `[HORMOZI_ACA CONTEXT GUARD: no lead context, using ${acacFallback}] ${strategy.reasoning}`;
+      }
+    }
+
+    // ============================================================
     // PROGRAMMATIC EMB_COLD / BREAKUP MINIMUM DAYS GATE
     // The LLM prompt says "7+ days" but LLMs can ignore soft instructions.
     // This is a hard programmatic override: if the lead is < 7 days old
@@ -812,6 +852,28 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
           break;
         }
       }
+      // Also check for distinctive phrase repetition (e.g., "hey larry" 2+ times)
+      // This mirrors the QC distinctive phrase check so we can auto-fix before QC blocks.
+      if (!openerMatched && context.priorOutbound.length >= 2) {
+        const composedLower = composed.message.toLowerCase().replace(/[!.,?]/g, "");
+        const composedWords2 = composed.message.trim().split(/\s+/);
+        // Check 2-word opener (e.g., "hey larry")
+        const composedOpener2 = composedWords2.slice(0, 2).join(" ").toLowerCase().replace(/[!.,?]/g, "");
+        if (composedOpener2.length >= 5) {
+          let distinctiveMatchCount = 0;
+          for (const prior of context.priorOutbound) {
+            const priorLower = (prior.messageBody || "").toLowerCase().replace(/[!.,?]/g, "");
+            if (priorLower.startsWith(composedOpener2) || priorLower.includes(`\n${composedOpener2}`)) {
+              distinctiveMatchCount++;
+            }
+          }
+          if (distinctiveMatchCount >= 2) {
+            openerMatched = true;
+            console.log(`[SalesManager] 🔄 DISTINCTIVE PHRASE MATCH: "${composedOpener2}" found in ${distinctiveMatchCount} prior messages — triggering opener auto-fix`);
+          }
+        }
+      }
+
       if (openerMatched) {
         // Extract the body after the greeting line (everything after the first newline or sentence)
         const leadFirstName = (context.lead.name || "").split(" ")[0] || "there";
@@ -825,10 +887,11 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
           ? [
               `Quick question —`,
               `Honest question —`,
-              `Random thought —`,
-              `Plot twist —`,
+              `Real talk —`,
               `Between us —`,
               `${leadFirstName}, real talk —`,
+              `Straight up —`,
+              `One honest question —`,
             ]
           : unanswered >= 2
           ? [

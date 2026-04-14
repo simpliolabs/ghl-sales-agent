@@ -1034,3 +1034,13 @@
 - [x] Fix 2: Add wrong_hours to ViolationCategory type in brain-types.ts
 - [x] Fix 3: Add wrong_hours deterministic QC guard in qc.ts — blocks any message containing "open Saturdays", "Saturday visit", "see you Saturday", "Mon-Sat", etc.
 - [x] Fix 4: 20 tests written and passing for wrong_hours guard (server/wrong-hours.test.ts)
+
+## Block Rate Reduction Fixes (Apr 14, 2026) — 70% → target <20%
+
+- [x] Audit: 29/41 blocked (70.7%) in last 2h — breakdown: repeated_opener (10), fresh_outreach_on_aged_lead (9), missing_aca_acknowledgment (6), referral_ask (3), other (1)
+- [x] Fix 1: Extend opener auto-fix to handle "Distinctive phrase" repetition (e.g., "hey larry" 2+ times) — was only catching exact 4-word/3-word matches
+- [x] Fix 2: Pre-Strategist dormant channel override — leads >60 days dormant with email get channel forced to Email before Strategist runs (was blocking AFTER Strategist chose SMS)
+- [x] Fix 3: HORMOZI_ACA context guard — if lead has no name/business/product/formData/history, override to SOCIAL_PROOF (dormant) or CURIOSITY_HOOK (fresh) to prevent missing_aca_acknowledgment blocks
+- [x] Fix 4: Remove banned phrases (Random thought —, Plot twist —) from opener auto-fix pool — they were being injected as auto-fix replacements then blocked by QC's referral_ask check
+- [x] Fix 5: Remove banned phrases from Composer prompt (line 400) — replaced with safe alternatives (Real talk —, Straight up —, One honest question —)
+- [x] All 785 tests passing

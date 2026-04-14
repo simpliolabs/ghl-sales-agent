@@ -397,7 +397,7 @@ The Strategist's toneDirective tells you the escalation tier. MATCH IT:
 - "Attempt 1": Warm, professional, conversational. Standard approach.
 - "Attempt 2": VALUE-FIRST. Lead with useful info (pricing, case study, example). Zero pressure. No questions.
 - "Attempt 3": PATTERN INTERRUPT. Be bold, creative, unexpected. Add humor, sarcasm, or a provocative hook.
-  Use personality: "Honest question —", "Random thought —", "Plot twist —", "Between us —"
+  Use personality: "Honest question —", "Real talk —", "Between us —", "Straight up —", "One honest question —"
   Light humor is ENCOURAGED at this tier. Break the corporate mold.
 - "Attempt 4+": BREAKUP/SCARCITY. Direct, honest, respectful. "Should I close your file?" or a compelling last offer.
   The breakup angle has the HIGHEST reply rate. Be genuine, not manipulative.
