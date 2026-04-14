@@ -26,6 +26,7 @@ import {
   updateAppointment,
   addNote,
   getNextBusinessHoursSlot,
+  toETOffsetString,
   AGENT_CALENDAR_IDS,
   AGENT_GHL_USER_IDS,
 } from "./ghl";
@@ -149,14 +150,14 @@ export async function createHeadsUpNotification(
           `Reason: ${reason}`,
           ...(conversationSummary ? [``, `--- Conversation ---`, conversationSummary] : []),
         ].join("\n"),
-        startTime: slot.start.toISOString(),
-        endTime: endTime.toISOString(),
+        startTime: toETOffsetString(slot.start),
+        endTime: toETOffsetString(endTime),
         assignedUserId: userId,
       });
 
       appointmentId = result?.id || result?.event?.id || null;
       if (appointmentId) {
-        actions.push(`Created heads-up appointment for ${agent} at ${slot.start.toISOString()}`);
+        actions.push(`Created heads-up appointment for ${agent} at ${toETOffsetString(slot.start)}`);
         console.log(`[AgentNotify] Lead ${ctx.leadId}: Created appointment ${appointmentId}`);
       } else {
         // GHL may return the ID in different shapes — log for debugging
@@ -188,7 +189,7 @@ export async function createHeadsUpNotification(
           `If the customer needs a live quote, this task will be updated.`,
           ...(conversationSummary ? [``, `--- Conversation ---`, conversationSummary] : []),
         ].join("\n"),
-        dueDate: slot.start.toISOString(),
+        dueDate: toETOffsetString(slot.start),
         assignedTo: agent,
       });
 
@@ -295,8 +296,8 @@ export async function escalateNotification(
           `Please review the conversation and ${isCommitted ? "close the deal" : "take over"}.`,
           ...(conversationSummary ? [``, `--- Conversation ---`, conversationSummary] : []),
         ].join("\n"),
-        startTime: slot.start.toISOString(),
-        endTime: endTime.toISOString(),
+        startTime: toETOffsetString(slot.start),
+        endTime: toETOffsetString(endTime),
       });
       actions.push(`Updated appointment to: ${titleAction}`);
       console.log(`[AgentNotify] Lead ${ctx.leadId}: Updated appointment ${appointmentId} → ${titleAction}`);
@@ -319,8 +320,8 @@ export async function escalateNotification(
           `Reason: ${reason}`,
           ...(conversationSummary ? [``, `--- Conversation ---`, conversationSummary] : []),
         ].join("\n"),
-        startTime: slot.start.toISOString(),
-        endTime: endTime.toISOString(),
+        startTime: toETOffsetString(slot.start),
+        endTime: toETOffsetString(endTime),
         assignedUserId: userId,
       });
       appointmentId = result?.id || result?.event?.id || null;
@@ -368,7 +369,7 @@ export async function escalateNotification(
           `Reason: ${reason}`,
           ...(conversationSummary ? [``, `--- Conversation ---`, conversationSummary] : []),
         ].join("\n"),
-        dueDate: slot.start.toISOString(),
+        dueDate: toETOffsetString(slot.start),
         assignedTo: agent,
       });
       taskId = result?.task?.id || result?.id || null;

@@ -5,7 +5,7 @@
 import { Response } from "express";
 import { getLeadByGhlContactId, addPipelineEvent, getPipelineEvents, updateLeadFields, addConversation, addAgentAssignment, getAgentWorkload, isAiOffline } from "./db";
 import { calculateNextFollowUp } from "./scheduling-engine";
-import { createTask, addNote, createAppointment, getNextBusinessHoursSlot, AGENT_CALENDAR_IDS, AGENT_GHL_USER_IDS } from "./ghl";
+import { createTask, addNote, createAppointment, getNextBusinessHoursSlot, toETOffsetString, AGENT_CALENDAR_IDS, AGENT_GHL_USER_IDS } from "./ghl";
 import { getConversationHistory } from "./db";
 import { attributeStageAdvance } from "./outcome-engine";
 import { buildJourneyFromLead, recordConversationOutcome } from "./learning-loop";
@@ -130,8 +130,8 @@ export async function handleStageAutomation(
             `Order Value: $${lead.pipelineValue || "N/A"}`,
             ...(designSummary ? [``, `--- Order Details from Conversation ---`, designSummary] : []),
           ].join("\n"),
-          startTime: slot.start.toISOString(),
-          endTime: endTime.toISOString(),
+          startTime: toETOffsetString(slot.start),
+          endTime: toETOffsetString(endTime),
           assignedUserId: cesarUserId,
         });
       } catch { /* best effort */ }

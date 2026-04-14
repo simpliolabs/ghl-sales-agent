@@ -365,6 +365,44 @@ export async function fetchGhlConversationHistory(contactId: string): Promise<Ar
   }
 }
 
+// --- Calendar / Appointments ---
+
+/**
+ * Format a Date as an ISO 8601 string with explicit America/New_York UTC offset.
+ * e.g. "2026-04-15T09:00:00-04:00" (EDT) or "2026-01-15T09:00:00-05:00" (EST)
+ * GHL requires explicit offsets so it displays the correct local time regardless
+ * of the location's calendar timezone setting.
+ */
+export function toETOffsetString(date: Date): string {
+  // Get the ET date/time components AND the timezone offset in one pass
+  const etFmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: false,
+    timeZoneName: "shortOffset", // e.g. "GMT-4" or "GMT-5"
+  });
+  const parts = etFmt.formatToParts(date);
+  const get = (t: string) => parts.find(p => p.type === t)?.value || "00";
+  const year = get("year");
+  const month = get("month");
+  const day = get("day");
+  const hour = get("hour");
+  const minute = get("minute");
+  const second = get("second");
+  // Parse the offset from "GMT-4" or "GMT-5" → "-04:00" or "-05:00"
+  const tzName = get("timeZoneName"); // e.g. "GMT-4"
+  const offsetMatch = tzName.match(/GMT([+-]\d+)/);
+  let offsetStr = "-05:00"; // default EST
+  if (offsetMatch) {
+    const hours = parseInt(offsetMatch[1], 10);
+    const sign = hours >= 0 ? "+" : "-";
+    const absHours = String(Math.abs(hours)).padStart(2, "0");
+    offsetStr = `${sign}${absHours}:00`;
+  }
+  return `${year}-${month}-${day}T${hour}:${minute}:${second}${offsetStr}`;
+}
+
 // --- Tasks ---
 export async function createTask(contactId: string, opts: {
   title: string;
@@ -375,14 +413,12 @@ export async function createTask(contactId: string, opts: {
   const { data } = await ghlClient.post(`/contacts/${contactId}/tasks`, {
     title: opts.title,
     body: opts.body || "",
-    dueDate: opts.dueDate || new Date().toISOString(),
+    dueDate: opts.dueDate || toETOffsetString(new Date()),
     completed: false,
     assignedTo: opts.assignedTo,
   });
   return data;
 }
-
-// --- Calendar / Appointments ---
 
 /** Map agent names → their GHL personal calendar IDs */
 export const AGENT_CALENDAR_IDS: Record<string, string> = {
@@ -504,7 +540,16 @@ export function getNextBusinessHoursSlot(
 
   // Advance the per-agent pointer to the end of this slot
   agentSlotPointers.set(agentKey, end.getTime());
-  console.log(`[SlotQueue] Agent '${agentKey}' booked slot: ${start.toISOString()} → ${end.toISOString()}`);
+  console.log(`[SlotQueue] Agent '${agentKey}' booked slot: ${toETOffsetString(start)} → ${toETOffsetString(end)}`);
+
+  // Persist pointer to DB so it survives server restarts
+  setImmediate(async () => {
+    try {
+      const { setSystemSetting } = await import("./db");
+      const key = `slot_pointer_${agentKey.replace(/\s+/g, '_').toLowerCase()}`;
+      await setSystemSetting(key, String(end.getTime()), 'slot_queue');
+    } catch { /* best effort — in-memory pointer still works */ }
+  });
 
   return { start, end };
 }
@@ -535,12 +580,33 @@ export async function getCalendarEvents(
 }
 
 /**
- * Warm the per-agent slot pointer by fetching today's existing appointments from GHL.
- * Call this once on server startup to avoid double-booking after a restart.
+ * Warm the per-agent slot pointer on startup.
+ * Strategy: load persisted pointers from DB first (survives restarts),
+ * then try GHL calendar events as a secondary source.
+ * DB is the source of truth since GHL events API may return empty.
  */
 export async function warmSlotPointersFromCalendar(): Promise<void> {
+  // 1. Load persisted pointers from DB (primary — survives restarts)
+  try {
+    const { getSystemSetting } = await import("./db");
+    for (const agentName of Object.keys(AGENT_CALENDAR_IDS)) {
+      const key = `slot_pointer_${agentName.replace(/\s+/g, '_').toLowerCase()}`;
+      const stored = await getSystemSetting(key);
+      if (stored) {
+        const storedMs = parseInt(stored, 10);
+        if (!isNaN(storedMs) && storedMs > Date.now()) {
+          // Only restore if pointer is in the future (still relevant)
+          agentSlotPointers.set(agentName, storedMs);
+          console.log(`[SlotQueue] Restored pointer for '${agentName}' from DB: ${new Date(storedMs).toISOString()}`);
+        }
+      }
+    }
+  } catch (err: any) {
+    console.error(`[SlotQueue] Failed to load pointers from DB:`, err?.message);
+  }
+
+  // 2. Try GHL calendar events as secondary source (may be empty)
   const now = new Date();
-  // Fetch events for today + next 2 business days
   const windowStart = new Date(now);
   windowStart.setHours(0, 0, 0, 0);
   const windowEnd = new Date(now);
@@ -554,19 +620,19 @@ export async function warmSlotPointersFromCalendar(): Promise<void> {
         windowEnd.toISOString(),
       );
       if (events.length === 0) continue;
-      // Find the latest end time among all booked events
       const latestEndMs = Math.max(
         ...events.map(e => new Date(e.endTime).getTime()),
       );
       const currentPointer = agentSlotPointers.get(agentName) || 0;
       if (latestEndMs > currentPointer) {
         agentSlotPointers.set(agentName, latestEndMs);
-        console.log(`[SlotQueue] Warmed pointer for '${agentName}': ${new Date(latestEndMs).toISOString()} (${events.length} existing events)`);
+        console.log(`[SlotQueue] Warmed pointer for '${agentName}' from GHL: ${new Date(latestEndMs).toISOString()} (${events.length} events)`);
       }
     } catch (err: any) {
-      console.error(`[SlotQueue] Failed to warm pointer for '${agentName}':`, err?.message);
+      console.error(`[SlotQueue] Failed to warm pointer for '${agentName}' from GHL:`, err?.message);
     }
   }
+  console.log(`[SlotQueue] Slot pointers warmed from GHL calendar`);
 }
 
 /** Create a GHL calendar appointment */

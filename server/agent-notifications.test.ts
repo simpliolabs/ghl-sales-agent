@@ -17,6 +17,7 @@ vi.mock("./ghl", () => ({
   getNextBusinessHoursSlot: vi.fn().mockReturnValue({
     start: new Date("2026-04-14T13:00:00.000Z"),
   }),
+  toETOffsetString: vi.fn((d: Date) => d.toISOString()),
   AGENT_CALENDAR_IDS: { "Abby Bouwer": "cal-abc" },
   AGENT_GHL_USER_IDS: { "Abby Bouwer": "user-abc" },
 }));

@@ -941,3 +941,11 @@
 - [x] AUDIT: Identified all 25+ notifyOwner() call sites across 14 files, classified as CRITICAL (5 events) vs STANDARD (10+ events)
 - [x] BUILD: Added notification priority system to notification.ts — CRITICAL sends email, STANDARD logs to portal only. Auto-inference from title patterns + explicit priority parameter
 - [x] VERIFY: 18 vitest tests passing, 740 total tests passing. Only 5 event types send email: Payment, AI Paused, Human Handoff, LLM Exhausted, Circuit Breaker, URGENT SLA breach
+
+## BUG: Appointments always set to 8:00 AM (Apr 14 2026)
+
+- [x] FIX: Appointments auto-created at 8:00 AM AND stacked — root causes identified and fixed
+- [x] FIX: Added toETOffsetString() helper — sends 2026-04-15T09:00:00-04:00 (EDT) instead of UTC Z, GHL now displays correct 9 AM
+- [x] FIX: Slot pointer now persists to DB (system_settings table) on every booking — survives server restarts
+- [x] FIX: warmSlotPointersFromCalendar now loads from DB first (primary), GHL calendar API as secondary fallback
+- [x] VERIFY: 740/740 tests passing, toETOffsetString correctly returns -04:00 EDT / -05:00 EST
