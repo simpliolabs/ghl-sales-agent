@@ -963,3 +963,10 @@
 - [x] FIX: Lock also checks appointmentId IS NULL — if appointment already exists, lock will not be granted
 - [x] FIX: Added real-time GHL calendar availability check — advances slot up to 20 times to find a free window
 - [x] VERIFY: 743/743 tests passing, 3 new dedup tests added
+
+## BUG: Bot not responding to Portuguese/Spanish messages (Apr 14 2026)
+
+- [x] DIAGNOSE: Bot went silent because processingLockedAt was stuck (never released after a prior run crashed) — cleared manually
+- [x] FIX: Added LANGUAGE MIRRORING RULE to ai-brain.ts SYSTEM_PROMPT — bot now detects lead language and responds in Spanish/Portuguese/French/etc.
+- [x] FIX: Added language mirroring rule to QC and Brain Council prompts — non-English responses are now CORRECT behavior, not penalized
+- [x] VERIFY: 743/743 tests passing

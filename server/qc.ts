@@ -264,6 +264,13 @@ If the strategy says approach = first_contact:
 - Score 0 on Strategy Compliance if the message is generic ("What can we help you with?", "How can I assist you?").
 - Score 0 on Acknowledgment if form data exists but isn't referenced.
 
+=== LANGUAGE MIRRORING RULE (CRITICAL) ===
+If the lead's most recent message is in a language OTHER than English (Spanish, Portuguese, French, Haitian Creole, etc.):
+- The AI response MUST be in that same language. This is CORRECT behavior.
+- Do NOT penalize or reject a non-English response when the lead is writing in that language.
+- DO penalize (score 0 on Acknowledgment, score 0 on Strategy Compliance) if the lead wrote in Spanish or Portuguese and the AI responded in English.
+- A fully Spanish or Portuguese response is NOT a violation — it is the expected behavior.
+
 Review this message now. Be strict but fair.`;
 
   const response = await invokeLLM({
