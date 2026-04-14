@@ -88,6 +88,9 @@ export const leads = mysqlTable("leads", {
   // Migrated contact reactivation flag
   // 0 = still email-only (migrated, not yet re-engaged), 1 = reactivated (inbound message received)
   reactivatedFromMigration: tinyint("reactivatedFromMigration").default(0),
+  // DB-level appointment creation lock — set BEFORE creating appointment, cleared after
+  // Prevents race condition when contact webhook + message webhook fire simultaneously
+  appointmentCreatingAt: timestamp("appointmentCreatingAt"),
   // Conversation State Machine (Phase A)
   convState: varchar("convState", { length: 20 }).default("new_lead"),
   convStateUpdatedAt: bigint("convStateUpdatedAt", { mode: "number" }),

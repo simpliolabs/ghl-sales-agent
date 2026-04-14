@@ -113,6 +113,13 @@
       "when": 1776014686660,
       "tag": "0015_striped_photon",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "5",
+      "when": 1776168698690,
+      "tag": "0016_steady_paper_doll",
+      "breakpoints": true
     }
   ]
 }

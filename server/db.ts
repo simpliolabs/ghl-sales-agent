@@ -617,6 +617,49 @@ export async function releaseDbBrainCouncilLock(leadId: number): Promise<void> {
 }
 
 // ============================================================
+// APPOINTMENT CREATION LOCK
+// Prevents race condition where contact webhook + message webhook
+// both fire simultaneously and each create a duplicate appointment.
+// Lock expires after 30 seconds — covers worst-case GHL API latency.
+// ============================================================
+const APPOINTMENT_LOCK_TTL_SECONDS = 30;
+
+/**
+ * Atomically acquire the appointment-creation lock for a lead.
+ * Returns true if the lock was acquired (caller may proceed).
+ * Returns false if another process already holds the lock (skip creation).
+ * Also returns false if the lead already has an appointmentId set.
+ */
+export async function acquireAppointmentLock(leadId: number): Promise<boolean> {
+  try {
+    const db = await getDb();
+    if (!db) return true; // fail open if DB unavailable
+    // Atomic: only succeeds if no lock AND no existing appointmentId
+    const result = await db.execute(
+      sql`UPDATE leads SET appointmentCreatingAt = NOW()
+          WHERE id = ${leadId}
+          AND appointmentId IS NULL
+          AND (appointmentCreatingAt IS NULL OR appointmentCreatingAt < DATE_SUB(NOW(), INTERVAL ${APPOINTMENT_LOCK_TTL_SECONDS} SECOND))`
+    );
+    const affectedRows = (result as any)[0]?.affectedRows ?? (result as any).affectedRows ?? 0;
+    return affectedRows > 0;
+  } catch (err) {
+    console.error('[DB/ApptLock] acquireAppointmentLock error (fail CLOSED):', err);
+    return false;
+  }
+}
+
+export async function releaseAppointmentLock(leadId: number): Promise<void> {
+  try {
+    const db = await getDb();
+    if (!db) return;
+    await db.execute(sql`UPDATE leads SET appointmentCreatingAt = NULL WHERE id = ${leadId}`);
+  } catch (err) {
+    console.error('[DB/ApptLock] releaseAppointmentLock error:', err);
+  }
+}
+
+// ============================================================
 // SYSTEM SETTINGS — key-value store for global toggles
 // ============================================================
 export async function getSystemSetting(key: string): Promise<string | null> {

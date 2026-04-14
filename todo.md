@@ -949,3 +949,17 @@
 - [x] FIX: Slot pointer now persists to DB (system_settings table) on every booking — survives server restarts
 - [x] FIX: warmSlotPointersFromCalendar now loads from DB first (primary), GHL calendar API as secondary fallback
 - [x] VERIFY: 740/740 tests passing, toETOffsetString correctly returns -04:00 EDT / -05:00 EST
+
+## BUG: Duplicate appointments created for same contact (Apr 14 2026)
+
+- [ ] FIX: Two appointments created for Charlena Best (9:30 AM + 9:50 AM) — createHeadsUpNotification called twice for same contact
+- [ ] FIND: Identify which two code paths both trigger createHeadsUpNotification on new contact webhook
+- [ ] FIX: Add deduplication guard — check if appointment already exists before creating a new one
+
+## BUG: Duplicate appointments created for same contact (Apr 14 2026)
+
+- [x] FIX: Race condition — added DB re-fetch of lead in createHeadsUpNotification to get freshest appointmentId before creating
+- [x] FIX: Added DB-level atomic lock (appointmentCreatingAt column) — only one process can hold the lock at a time (30s TTL)
+- [x] FIX: Lock also checks appointmentId IS NULL — if appointment already exists, lock will not be granted
+- [x] FIX: Added real-time GHL calendar availability check — advances slot up to 20 times to find a free window
+- [x] VERIFY: 743/743 tests passing, 3 new dedup tests added

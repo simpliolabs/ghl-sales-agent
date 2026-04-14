@@ -18,7 +18,7 @@
  * flows go through this module.
  */
 
-import { updateLeadFields, getConversationHistory } from "./db";
+import { updateLeadFields, getConversationHistory, acquireAppointmentLock, releaseAppointmentLock, getLeadById } from "./db";
 import {
   createTask,
   updateTask,
@@ -112,18 +112,37 @@ export async function createHeadsUpNotification(
   let appointmentId = ctx.existingAppointmentId;
   let taskId = ctx.existingTaskId;
 
-  // Skip if both already exist (idempotent)
+  // GUARD: Never create appointments for lost/disqualified leads.
+  if (isLostStage(ctx.pipelineStage)) {
+    console.log(`[AgentNotify] Lead ${ctx.leadId}: Skipping heads-up — lead is in lost/disqualified stage (${ctx.pipelineStage})`);
+    return { actions: [`Skipped — lead is ${ctx.pipelineStage}`], errors: [], appointmentId: null, taskId: null };
+  }
+
+  // RE-FETCH lead from DB to get the freshest appointmentId/taskId.
+  // This prevents the race condition where webhook-contact.ts and webhook-message.ts
+  // both fire within milliseconds and both see appointmentId=null in their stale objects.
+  try {
+    const freshLead = await getLeadById(ctx.leadId);
+    if (freshLead) {
+      appointmentId = (freshLead as any).appointmentId || appointmentId;
+      taskId = (freshLead as any).ghlTaskId || taskId;
+    }
+  } catch { /* best effort — proceed with ctx values if DB unavailable */ }
+
+  // Skip if both already exist (idempotent after re-fetch)
   if (appointmentId && taskId) {
     console.log(`[AgentNotify] Lead ${ctx.leadId}: Heads-up already exists (appt=${appointmentId}, task=${taskId}) — skipping`);
     return { actions: ["Heads-up already exists — skipped"], errors: [], appointmentId, taskId };
   }
 
-  // GUARD: Never create appointments for lost/disqualified leads.
-  // This prevents spurious appointments when a lost lead sends a final reply
-  // (e.g., "All done", "Thanks") after being marked Lost/Not Qualified.
-  if (isLostStage(ctx.pipelineStage)) {
-    console.log(`[AgentNotify] Lead ${ctx.leadId}: Skipping heads-up — lead is in lost/disqualified stage (${ctx.pipelineStage})`);
-    return { actions: [`Skipped — lead is ${ctx.pipelineStage}`], errors: [], appointmentId: null, taskId: null };
+  // APPOINTMENT LOCK: Atomically acquire lock to prevent concurrent creation.
+  // If another webhook already holds the lock, skip — they will create the appointment.
+  if (!appointmentId) {
+    const lockAcquired = await acquireAppointmentLock(ctx.leadId);
+    if (!lockAcquired) {
+      console.log(`[AgentNotify] Lead ${ctx.leadId}: Appointment lock not acquired — another process is creating it`);
+      return { actions: ["Appointment creation already in progress — skipped"], errors: [], appointmentId, taskId };
+    }
   }
 
   const conversationSummary = await buildConversationSummary(ctx.leadId, ctx.leadName);
@@ -131,9 +150,33 @@ export async function createHeadsUpNotification(
   // 1. Create appointment (10-min slot at next business hours)
   if (!appointmentId) {
     try {
-      const slot = getNextBusinessHoursSlot(new Date(), agent);
+      // Get next slot — the slot pointer already advances 10 min per booking
+      // and persists to DB so server restarts don't reset it.
+      // Additionally, verify the slot is not already occupied in GHL calendar.
+      let slot = getNextBusinessHoursSlot(new Date(), agent);
       const calendarId = AGENT_CALENDAR_IDS[agent] || AGENT_CALENDAR_IDS["Abby Bouwer"];
       const userId = AGENT_GHL_USER_IDS[agent];
+
+      // Check GHL calendar for conflicts — advance slot until we find a free window
+      try {
+        const { getCalendarEvents } = await import("./ghl");
+        let attempts = 0;
+        while (attempts < 20) {
+          const slotEndMs = slot.start.getTime() + 10 * 60 * 1000;
+          const windowStart = new Date(slot.start.getTime() - 5 * 60 * 1000); // 5 min buffer
+          const windowEnd = new Date(slotEndMs + 5 * 60 * 1000);
+          const events = await getCalendarEvents(calendarId, windowStart.toISOString(), windowEnd.toISOString());
+          if (!events || events.length === 0) break; // slot is free
+          console.log(`[AgentNotify] Lead ${ctx.leadId}: Slot ${toETOffsetString(slot.start)} occupied (${events.length} events), advancing...`);
+          // Advance pointer by 10 min and try again
+          slot = getNextBusinessHoursSlot(new Date(slot.start.getTime() + 10 * 60 * 1000), agent);
+          attempts++;
+        }
+      } catch (calErr: any) {
+        // Non-fatal — proceed with slot pointer result if GHL calendar check fails
+        console.warn(`[AgentNotify] Lead ${ctx.leadId}: GHL calendar availability check failed (non-fatal):`, calErr?.message);
+      }
+
       const endTime = new Date(slot.start.getTime() + 10 * 60 * 1000); // 10-min appointment
 
       const result = await createAppointment({
@@ -234,6 +277,9 @@ export async function createHeadsUpNotification(
   } catch (err: any) {
     errors.push(`Failed to save notification IDs: ${err?.message}`);
   }
+
+  // 5. Release appointment creation lock
+  await releaseAppointmentLock(ctx.leadId);
 
   return { actions, errors, appointmentId, taskId };
 }

@@ -25,6 +25,11 @@ vi.mock("./ghl", () => ({
 vi.mock("./db", () => ({
   updateLeadFields: vi.fn().mockResolvedValue(undefined),
   getConversationHistory: vi.fn().mockResolvedValue([]),
+  // Appointment lock helpers — always grant lock in tests
+  acquireAppointmentLock: vi.fn().mockResolvedValue(true),
+  releaseAppointmentLock: vi.fn().mockResolvedValue(undefined),
+  // Re-fetch returns null so tests use ctx values
+  getLeadById: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("./webhook-helpers", () => ({
@@ -142,5 +147,42 @@ describe("agent-notifications — lost-lead guard", () => {
     // No existing appointment → should create one
     expect(createAppointment).toHaveBeenCalledTimes(1);
     expect(result.actions.some(a => a.includes("Created escalation appointment"))).toBe(true);
+  });
+});
+
+describe("agent-notifications — duplicate prevention (race condition guard)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("skips appointment creation when DB lock is not acquired (another process holds it)", async () => {
+    const { acquireAppointmentLock } = await import("./db");
+    vi.mocked(acquireAppointmentLock).mockResolvedValueOnce(false);
+
+    const result = await createHeadsUpNotification(BASE_CTX, "New inquiry");
+    expect(createAppointment).not.toHaveBeenCalled();
+    expect(result.actions[0]).toContain("already in progress");
+  });
+
+  it("skips appointment creation when DB re-fetch finds existing appointmentId", async () => {
+    const { getLeadById } = await import("./db");
+    vi.mocked(getLeadById).mockResolvedValueOnce({
+      appointmentId: "appt-already-created",
+      ghlTaskId: "task-already-created",
+    } as any);
+
+    const result = await createHeadsUpNotification(BASE_CTX, "New inquiry");
+    expect(createAppointment).not.toHaveBeenCalled();
+    expect(result.actions[0]).toContain("already exists");
+  });
+
+  it("creates appointment when lock is acquired and no existing appointmentId in DB", async () => {
+    const { acquireAppointmentLock, getLeadById } = await import("./db");
+    vi.mocked(acquireAppointmentLock).mockResolvedValueOnce(true);
+    vi.mocked(getLeadById).mockResolvedValueOnce(null); // no fresh data
+
+    const result = await createHeadsUpNotification(BASE_CTX, "New inquiry");
+    expect(createAppointment).toHaveBeenCalledTimes(1);
+    expect(result.appointmentId).toBe("appt-123");
   });
 });
