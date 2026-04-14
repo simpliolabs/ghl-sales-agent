@@ -881,6 +881,46 @@ export function detectViolations(
     }
   }
 
+  // 15. FRESH OUTREACH ON AGED LEAD — message treats a 90+ day old lead as if they just submitted a form
+  if (context.leadAgeDays >= 90) {
+    const msg = composed.message.toLowerCase();
+    const FRESH_OUTREACH_PHRASES = [
+      "saw you're looking for",
+      "saw you are looking for",
+      "noticed you're looking for",
+      "noticed you are looking for",
+      "noticed you need",
+      "saw you need",
+      "we see you're interested",
+      "we noticed your interest",
+      "looks like you're interested",
+      "you're looking at",
+      "you are looking at",
+      "we see you need",
+      "saw your request for",
+      "noticed your request",
+      "we got your inquiry",
+      "thanks for your interest",
+      "thanks for reaching out",
+      "thank you for your inquiry",
+      "we received your request",
+    ];
+    const freshMatch = FRESH_OUTREACH_PHRASES.find(p => msg.includes(p));
+    if (freshMatch) {
+      return {
+        category: "fresh_outreach_on_aged_lead" as ViolationCategory,
+        reason: `Message to a ${context.leadAgeDays}-day-old lead uses fresh-outreach phrasing: "${freshMatch}". This lead reached out ${context.leadAgeDays >= 365 ? 'over a year' : Math.floor(context.leadAgeDays / 30) + ' months'} ago. The message MUST acknowledge the time gap (e.g., "You reached out about a year ago about...") and frame as a reactivation/check-in, NOT as if they just submitted a form.`
+      };
+    }
+    // Also check for first_contact/new_pitch approach on aged leads
+    if (strategy.approach === "first_contact" || strategy.approach === "new_pitch") {
+      return {
+        category: "fresh_outreach_on_aged_lead" as ViolationCategory,
+        reason: `Strategy used approach "${strategy.approach}" for a ${context.leadAgeDays}-day-old lead. Aged leads (90+ days) MUST use "reactivation" or "win_back" approach, not "${strategy.approach}".`
+      };
+    }
+  }
+
   return { category: null, reason: "" };
 }
 

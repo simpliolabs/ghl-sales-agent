@@ -59,7 +59,10 @@ export async function buildLeadContext(leadId: number): Promise<LeadContext> {
   const leadCreatedAt = lead.createdAt ? new Date(lead.createdAt).getTime() : Date.now();
   const leadAgeDays = Math.floor((Date.now() - leadCreatedAt) / (1000 * 60 * 60 * 24));
   let urgencyStage = "Day 0 (first contact)";
-  if (leadAgeDays >= 30) urgencyStage = "Day 30+ (dormant)";
+  if (leadAgeDays >= 365) urgencyStage = `${Math.floor(leadAgeDays / 365)}+ year(s) old — LONG-DORMANT REACTIVATION. This lead reached out over a year ago. MUST frame as check-in/reconnect, NEVER as fresh outreach.`;
+  else if (leadAgeDays >= 180) urgencyStage = `${Math.floor(leadAgeDays / 30)} months old — DORMANT REACTIVATION. Lead is 6+ months old. Frame as "checking back in" — reference their original inquiry timeframe.`;
+  else if (leadAgeDays >= 90) urgencyStage = `${Math.floor(leadAgeDays / 30)} months old — AGED REACTIVATION. Lead is 3+ months old. Acknowledge the time gap — "You reached out a few months ago about..." framing required.`;
+  else if (leadAgeDays >= 30) urgencyStage = "Day 30+ (dormant)";
   else if (leadAgeDays >= 15) urgencyStage = "Day 15-30 (stale)";
   else if (leadAgeDays >= 8) urgencyStage = "Day 8-14 (cold)";
   else if (leadAgeDays >= 4) urgencyStage = "Day 4-7 (cooling)";

@@ -41,6 +41,18 @@ You receive a STRATEGY DIRECTIVE and RESEARCH BRIEF, and you write the actual me
    MUST sound like a continuation, not a first contact. Reference prior conversation.
    "Hi, Chris here from Adorb!" to someone you've messaged 3 times = trust destroyed.
 
+7. AGED LEAD REACTIVATION (HARD RULE).
+   If the lead is 90+ days old (check ENGAGEMENT STATE below), you MUST:
+   a) Acknowledge the time gap in your opening — "You reached out to us about [X months / a year] ago..."
+   b) Reference their ORIGINAL stated need from the CONTACT INQUIRY DETAILS section
+   c) Frame as a check-in: "Wanted to see if you have any current needs" / "Any upcoming events?"
+   d) NEVER write as if they just submitted a form — "Saw you're looking for..." is FORBIDDEN for aged leads
+   e) NEVER use cold-intro framing — they already know who Adorb is
+   Examples:
+   - 90-180 days: "Hey [name]! You reached out a few months ago about custom [product] for [org]. Any new needs coming up?"
+   - 180-365 days: "Hey [name]! You connected with us about 6 months ago regarding [product]. Wanted to check in — any upcoming projects?"
+   - 365+ days: "Hey [name]! You reached out to us about a year ago about [product] for [org]. Wanted to reconnect — do you have any current needs?"
+
 4. NEVER HALLUCINATE FACTS. If a detail is not in the conversation history,
    form data, or knowledge base, you MUST NOT state it. No invented quantities,
    colors, sizes, prices, dates, order statuses, or commitments.
@@ -564,6 +576,10 @@ ${research.dataConfidence === "inferred" ? "⚠️ INFERRED DATA — some facts 
 - Connection Points: ${research.connectionPoints.join(", ")}
 - Seasonal Hook: ${research.seasonalRelevance}
 - Summary: ${research.summary}
+
+=== ENGAGEMENT STATE ===
+- Lead age: ${context.leadAgeDays} days (${context.urgencyStage})
+${context.leadAgeDays >= 365 ? `⚠️ THIS LEAD IS ${Math.floor(context.leadAgeDays / 365)}+ YEAR(S) OLD. They reached out over a year ago. You MUST frame this as a reactivation/check-in. NEVER write as if they just submitted a form. See HARD RULE #7 above.` : context.leadAgeDays >= 180 ? `⚠️ THIS LEAD IS ${Math.floor(context.leadAgeDays / 30)} MONTHS OLD. Frame as "checking back in" — reference their original inquiry timeframe. See HARD RULE #7.` : context.leadAgeDays >= 90 ? `⚠️ THIS LEAD IS ${Math.floor(context.leadAgeDays / 30)} MONTHS OLD. Acknowledge the time gap — "You reached out a few months ago..." See HARD RULE #7.` : ''}
 
 === LEAD CONTEXT ===
 - Name: ${lead.name || "Unknown"}

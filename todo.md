@@ -921,3 +921,12 @@
 - [x] COMPLETED: Updated Brain Council Composer prompt to include enrichment context
 - [x] COMPLETED: Lost-lead appointment guard (blocks appointment creation for Lost/DNC/competitor_won leads)
 - [x] COMPLETED: Notification deduplication (5-min in-memory dedup cache for notifyOwner)
+
+## Time-Aware Reactivation Framing for Aged Leads (Apr 13 2026)
+
+- [x] FIX: Strategist urgencyStage only has "Day 30+ dormant" — no distinction between 1-month and 1-year-old leads. Add granular tiers: 90+ days, 180+ days, 365+ days
+- [x] FIX: Strategist must instruct reactivation framing for leads 90+ days old — "You reached out about X months ago" not "Saw you're looking for..."
+- [x] FIX: Composer must acknowledge time gap for aged leads — hard rule: if lead > 90 days old, MUST reference prior interaction timeframe
+- [x] FIX: brain-context.ts urgencyStage needs granular tiers beyond "Day 30+ dormant"
+- [x] FIX: Added fresh_outreach_on_aged_lead QC violation — auto-rejects messages using fresh-outreach phrasing on 90+ day leads
+- [x] FIX: Added ENGAGEMENT STATE block to Composer prompt with leadAgeDays + urgencyStage warning
