@@ -527,6 +527,17 @@ export function detectViolations(
     };
   }
 
+  // 6b. CEO STORE CONTAMINATION GUARD — deterministic block for data migration artifact
+  // "The CEO Store" is an Adorb internal project name that got migrated to ALL imported contacts
+  // via oldGhlCustomFields. It is NOT a lead's business name. Any message containing this phrase
+  // must be blocked before it reaches the lead.
+  if (/the\s+ceo\s+store/i.test(msg)) {
+    return {
+      category: "hallucinated_fact" as ViolationCategory,
+      reason: `Message contains "The CEO Store" which is an Adorb internal project name, NOT this lead's business. This is a data migration artifact — do NOT use it in outbound messages.`,
+    };
+  }
+
   // 7a. REPEATED OPENER — composed message starts with EXACTLY the same words as a prior outbound
   // IMPORTANT: "Hey [Name]" is a VALID personalized greeting, NOT a repeated opener.
   // Only flag when the EXACT first 3+ words match a prior message (e.g., "Hey Larry! It's" === "Hey Larry! It's").

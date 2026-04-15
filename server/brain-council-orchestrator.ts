@@ -574,18 +574,18 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
     // SOCIAL_PROOF (works with just product/industry knowledge).
     // ============================================================
     if (strategy.framework === 'HORMOZI_ACA') {
-      const hasLeadContext = !!(
-        (context.lead.name && context.lead.name.trim().length > 2) ||
-        (context.lead.businessName && context.lead.businessName.trim().length > 2) ||
-        (context.lead.productInterest && context.lead.productInterest.trim().length > 2) ||
-        (input.formData && input.formData.length > 0) ||
-        (context.convHistory && context.convHistory.length > 0)
-      );
+      // Mirror the QC's exact ackTokens logic: HORMOZI_ACA requires acknowledgment tokens
+      // from (a) formData, (b) businessName, or (c) convHistory product/event keywords.
+      // Lead name alone is NOT sufficient (QC treats it as weak acknowledgment).
+      const hasFormData = !!(input.formData && input.formData.some(f => f.value && f.value.trim().length > 2));
+      const hasBusinessName = !!(context.lead.businessName && context.lead.businessName.trim().length > 2);
+      const hasConvHistory = !!(context.convHistory && context.convHistory.length > 0);
+      const hasLeadContext = hasFormData || hasBusinessName || hasConvHistory;
       if (!hasLeadContext) {
         const acacFallback = context.leadAgeDays > 60 ? 'SOCIAL_PROOF' : 'CURIOSITY_HOOK';
-        console.log(`[SalesManager] ⚠️ HORMOZI_ACA CONTEXT GUARD: no lead context available for lead ${input.leadId} — overriding to ${acacFallback} (works without specific context)`);
+        console.log(`[SalesManager] ⚠️ HORMOZI_ACA CONTEXT GUARD: no ack tokens available for lead ${input.leadId} (formData=${hasFormData}, bizName=${hasBusinessName}, convHistory=${hasConvHistory}) — overriding to ${acacFallback}`);
         (strategy as any).framework = acacFallback;
-        (strategy as any).reasoning = `[HORMOZI_ACA CONTEXT GUARD: no lead context, using ${acacFallback}] ${strategy.reasoning}`;
+        (strategy as any).reasoning = `[HORMOZI_ACA CONTEXT GUARD: no ack tokens, using ${acacFallback}] ${strategy.reasoning}`;
       }
     }
 

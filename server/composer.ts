@@ -601,7 +601,18 @@ ${(() => {
   try {
     const rd = (lead.researchData as Record<string, unknown>) || {};
     const tc = (rd.transferredContact as Record<string, unknown>) || {};
-    const resolved = (tc.resolvedCustomFields as Record<string, unknown>) || {};
+    const resolvedRaw = (tc.resolvedCustomFields as Record<string, unknown>) || {};
+    // Strip Adorb's internal project management fields — these were migrated from the old GHL
+    // sub-account and appear on ALL imported contacts. They are NOT lead-specific data.
+    const ADORB_INTERNAL_FIELDS = new Set([
+      'Project Name', 'Project Business Name', 'Project Business Email',
+      'Project Business Phone Number', 'Project Business Point Of Contact',
+      'Project City', 'Project Full Address', 'Project State', 'Project SOP Link',
+    ]);
+    const resolved: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(resolvedRaw)) {
+      if (!ADORB_INTERNAL_FIELDS.has(k)) resolved[k] = v;
+    }
     const notes = (rd.ghlNotes as Array<{body: string}>) || [];
     const ghlHistory = (rd.ghlConversationHistory as Array<{direction: string; body: string; dateAdded: string}>) || [];
     const tags = (tc.ghlTags as string[]) || [];

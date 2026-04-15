@@ -1044,3 +1044,18 @@
 - [x] Fix 4: Remove banned phrases (Random thought —, Plot twist —) from opener auto-fix pool — they were being injected as auto-fix replacements then blocked by QC's referral_ask check
 - [x] Fix 5: Remove banned phrases from Composer prompt (line 400) — replaced with safe alternatives (Real talk —, Straight up —, One honest question —)
 - [x] All 785 tests passing
+
+## BUG: 366-day imported contacts getting SMS as first_contact (Apr 14, 2026)
+
+- [ ] Diagnose why David Rose (366-day dormant) got SMS despite dormancy override
+- [ ] Fix: imported contacts >90 days should be treated as reactivation, not first_contact
+- [ ] Fix: channel for 366-day contacts with no email should default to SMS but with reactivation tone (not fresh inquiry tone)
+- [ ] Fix: Strategist must never choose first_contact approach for leads >90 days old
+
+## BUG FIX: "The CEO Store" Data Migration Contamination (Apr 14-15, 2026)
+
+- [x] Root cause: old GHL sub-account had internal project fields (Project Name, Project Business Name, etc.) with value "The CEO Store" — these got migrated to ALL imported contacts via resolvedCustomFields
+- [x] Fix: Strip ADORB_INTERNAL_FIELDS from resolvedCustomFields in both composer.ts and strategist.ts before injecting into LLM prompts
+- [x] Fix: Add deterministic QC guard (hallucinated_fact) to block any message containing "The CEO Store"
+- [x] Fix: HORMOZI_ACA context guard now mirrors QC's exact ackTokens logic — requires businessName OR formData OR convHistory (not just lead.name)
+- [x] All 785 tests passing
