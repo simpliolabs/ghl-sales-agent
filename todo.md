@@ -1234,3 +1234,7 @@
 - [ ] Add Skill Proposals panel to /self-learning page
 - [ ] Wire learning.skillProposals + learning.approveSkillProposal + learning.rejectSkillProposal tRPC procedures
 - [ ] Write server/skill-hunter.test.ts
+
+## Bugs Fixed — Apr 15, 2026
+- [x] Ghost lead #240004 (Hudson Grove Ame Zion) — no email/phone/value, dead GHL contact ID LucQ2gQTVMMhGmhUzZOZ — deleted from DB; real lead #240003 intact
+- [x] Human agent outbound messages NOT saved to conversations table — webhook-message.ts now calls addConversation(senderType=human, senderName=agentName) before returning; lead detail page now shows agent name instead of AI for human-sent messages
