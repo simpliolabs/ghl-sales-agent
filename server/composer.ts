@@ -489,7 +489,7 @@ export async function runComposer(
   strategy: StrategyDecision,
   research: ResearchResult
 ): Promise<ComposedMessage> {
-  const { lead, historyStr, kbContent, tweakInstructions } = context;
+  const { lead, historyStr, kbContent, tweakInstructions, privateMemory } = context;
 
   // Extract recent openers from prior outbound messages for anti-repetition
   const fullHistory = input.externalHistory ? input.externalHistory + "\n" + historyStr : historyStr || "";
@@ -660,6 +660,8 @@ ${getCompactTrainingCorpus()}
 ${getPersonaGuidance(lead.omnisendSegment)}
 
 ${tweakInstructions ? `=== ADMIN BEHAVIOR ADJUSTMENTS ===\n${tweakInstructions}` : ""}
+
+${privateMemory ? `=== LEAD MEMORY (verified facts — use to personalize, never contradict) ===\n${privateMemory}` : ""}
 
 ${await getViolationAvoidanceBlock()}
 

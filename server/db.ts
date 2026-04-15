@@ -532,6 +532,14 @@ export async function addBrainCouncilAudit(data: {
   // Module 4: Multi-Agent Deliberation
   deliberationUsed?: number;
   deliberationNote?: string;
+  // Module 2B: Expert Panel Scoring
+  expertPanelBrandScore?: number | null;
+  expertPanelConversionScore?: number | null;
+  expertPanelComplianceScore?: number | null;
+  expertPanelCompositeScore?: number | null;
+  expertPanelNotes?: string | null;
+  // Module 3A: Skill Catalog
+  skillUsed?: string | null;
 }) {
   const db = await getDb();
   if (!db) return;

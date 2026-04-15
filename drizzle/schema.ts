@@ -258,6 +258,14 @@ export const brainCouncilAudit = mysqlTable("brain_council_audit", {
   // Module 4: Multi-Agent Deliberation
   deliberationUsed: tinyint("deliberationUsed").default(0),
   deliberationNote: text("deliberationNote"),
+  // Module 2B: Expert Panel Scoring
+  expertPanelBrandScore: int("expertPanelBrandScore"),
+  expertPanelConversionScore: int("expertPanelConversionScore"),
+  expertPanelComplianceScore: int("expertPanelComplianceScore"),
+  expertPanelCompositeScore: int("expertPanelCompositeScore"),
+  expertPanelNotes: text("expertPanelNotes"),
+  // Module 3A: Skill Catalog
+  skillUsed: varchar("skillUsed", { length: 64 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -568,3 +576,41 @@ export const deferredResponses = mysqlTable("deferred_responses", {
 });
 export type DeferredResponse = typeof deferredResponses.$inferSelect;
 export type InsertDeferredResponse = typeof deferredResponses.$inferInsert;
+
+// ============================================================
+// LEAD MEMORY — Module 5B: Continuous Private Memory per lead
+// ============================================================
+export const leadMemory = mysqlTable("lead_memory", {
+  id: int("id").autoincrement().primaryKey(),
+  leadId: int("leadId").notNull(),
+  factKey: varchar("factKey", { length: 128 }).notNull(), // e.g., "prefers_email", "budget_signal", "event_date"
+  factValue: text("factValue").notNull(),                 // e.g., "prefers email over SMS", "$300 budget mentioned"
+  confidence: varchar("confidence", { length: 16 }).default("medium").notNull(), // high, medium, low
+  source: varchar("source", { length: 32 }).default("brain_council").notNull(),  // brain_council, manual
+  learnedAt: bigint("learnedAt", { mode: "number" }).notNull(),
+  lastConfirmedAt: bigint("lastConfirmedAt", { mode: "number" }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type LeadMemoryEntry = typeof leadMemory.$inferSelect;
+export type InsertLeadMemoryEntry = typeof leadMemory.$inferInsert;
+
+// ============================================================
+// SKILL PROPOSALS — Module 3B: Auto-Skill Hunter proposals
+// ============================================================
+export const skillProposals = mysqlTable("skill_proposals", {
+  id: int("id").autoincrement().primaryKey(),
+  violationCategory: varchar("violationCategory", { length: 64 }).notNull(),
+  occurrenceCount: int("occurrenceCount").default(0).notNull(),
+  proposedSkillId: varchar("proposedSkillId", { length: 64 }).notNull(), // e.g., "church_pricing_objection"
+  proposedSkillName: varchar("proposedSkillName", { length: 128 }).notNull(),
+  proposedPrompt: text("proposedPrompt").notNull(),
+  triggerConditions: json("triggerConditions"),  // { segment?, approach?, conversationStage? }
+  exampleMessages: json("exampleMessages"),       // array of 2-3 example outputs
+  status: varchar("status", { length: 16 }).default("pending_review").notNull(), // pending_review, approved, rejected
+  reviewedAt: timestamp("reviewedAt"),
+  reviewNote: text("reviewNote"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type SkillProposal = typeof skillProposals.$inferSelect;
+export type InsertSkillProposal = typeof skillProposals.$inferInsert;

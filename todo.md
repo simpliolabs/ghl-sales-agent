@@ -1195,3 +1195,42 @@
 - [x] Add tRPC procedure learning.icpStats to expose source+segment conversion data
 - [ ] Add icpTier to LeadContext and Strategist prompt — deferred to next session
 - [ ] Write server/icp-multiplier.test.ts — deferred to next session
+
+## Module 2B — Expert Panel Scoring — Apr 15, 2026
+- [ ] Create server/expert-panel.ts — Brand Voice, Conversion, Compliance experts run in parallel
+- [ ] Integrate into orchestrator: after Composer, before QC — revision pass if any expert < 60
+- [ ] Add expertPanelBrandScore, expertPanelConversionScore, expertPanelComplianceScore to brainCouncilAudit schema
+- [ ] Apply DB migration
+- [ ] Add Expert Panel scores to AuditLog.tsx detail view
+- [ ] Add Expert Panel aggregate score to BrainCouncilOutput type
+- [ ] Wire learning.expertPanelStats tRPC procedure
+- [ ] Add Expert Panel section to /ai-performance page
+- [ ] Write server/expert-panel.test.ts
+
+## Module 5B — Private Memory — Apr 15, 2026
+- [ ] Create server/lead-memory.ts — extract facts after each BC run, store in leadMemory table
+- [ ] Add leadMemory table to drizzle/schema.ts (leadId, factKey, factValue, confidence, learnedAt, lastConfirmedAt)
+- [ ] Apply DB migration
+- [ ] Inject getLeadMemory() into buildLeadContext() as privateMemory field
+- [ ] Add LEAD MEMORY section to Strategist + Composer prompts
+- [ ] Add Lead Memory panel to lead detail page
+- [ ] Wire leads.getMemory tRPC procedure
+- [ ] Write server/lead-memory.test.ts
+
+## Module 3A — Skill Catalog — Apr 15, 2026
+- [ ] Create server/skill-registry.ts — registry of named skills with triggerConditions, systemPrompt, exampleMessages, qcRules
+- [ ] Seed 6 initial skills: church_outreach, corporate_outreach, pricing_objection, reactivation_90d, first_contact_sms, first_contact_email
+- [ ] Update server/composer.ts to call skillRegistry.selectSkill() before composing
+- [ ] Add skillsUsed column to brainCouncilAudit schema
+- [ ] Apply DB migration
+- [ ] Add Skill Used badge to AuditLog.tsx
+- [ ] Write server/skill-registry.test.ts
+
+## Module 3B — Auto-Skill Hunter — Apr 15, 2026
+- [ ] Create server/skill-hunter.ts — weekly scan of violation log, LLM generates skill proposals
+- [ ] Add skillProposals table to drizzle/schema.ts (id, violationCategory, proposedSkillId, proposedPrompt, status, createdAt)
+- [ ] Apply DB migration
+- [ ] Register skill-hunter cron in server/_core/index.ts (weekly, Sunday 2 AM)
+- [ ] Add Skill Proposals panel to /self-learning page
+- [ ] Wire learning.skillProposals + learning.approveSkillProposal + learning.rejectSkillProposal tRPC procedures
+- [ ] Write server/skill-hunter.test.ts

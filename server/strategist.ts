@@ -454,7 +454,7 @@ async function getPromotedLearningsBlock(): Promise<string> {
 }
 
 export async function runStrategist(input: BrainCouncilInput, context: LeadContext): Promise<StrategyDecision> {
-  const { lead, state, historyStr, isFirstResponse, leadAgeDays, urgencyStage, unansweredCount, lookbackContext } = context;
+  const { lead, state, historyStr, isFirstResponse, leadAgeDays, urgencyStage, unansweredCount, lookbackContext, privateMemory } = context;
 
   const strategistInput = `
 LEAD PROFILE:
@@ -541,6 +541,9 @@ ${context.lastInteractionSummary ? `
 LAST INTERACTION SUMMARY (cross-session memory):
 ${context.lastInteractionSummary}
 IMPORTANT: This is a summary of the last AI interaction with this lead. Use it to maintain continuity — do NOT repeat what was already discussed or offered.` : ""}
+${privateMemory ? `
+${privateMemory}
+IMPORTANT: These are verified facts about this lead. Use them to personalize your strategy. Never contradict them.` : ""}
 
 ${getPersonaGuidance(lead.omnisendSegment)}
 

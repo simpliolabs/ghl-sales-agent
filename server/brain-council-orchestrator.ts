@@ -54,6 +54,9 @@ import { normalizePersona, getPersonaLearningContext } from "./persona-learning"
 import { recordViolationLearning, recordReformulationSuccess } from "./learning-loop";
 import { computeCadence, normalizeStageName } from "./cadence-engine";
 import { recordError, addKnownFix } from "./error-memory";
+import { runExpertPanel } from "./expert-panel";
+import { updateLeadMemoryAfterRun } from "./lead-memory";
+import { selectSkill, applySkillToContext } from "./skill-registry";
 
 // Re-export types so callers only need one import
 export type { BrainCouncilInput, BrainCouncilOutput } from "./brain-types";
@@ -851,6 +854,16 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
       : await runResearcher(input, context, strategy);
     console.log(`[SalesManager] Research: ${research.summary.substring(0, 100)}...`);
 
+    // MODULE 3A: SKILL SELECTION — pick best skill before Composer runs
+    let selectedSkillId: string | undefined;
+    const selectedSkill = selectSkill(strategy, context, input);
+    if (selectedSkill) {
+      const { skillId, promptOverlay } = applySkillToContext(selectedSkill);
+      selectedSkillId = skillId;
+      // Inject skill overlay into context for Composer to pick up
+      (context as any)._skillOverlay = promptOverlay;
+    }
+
     // BRAIN 3: COMPOSER (or specialized Sales Brain based on convState)
     let composed;
     const useCloser = context.convState === "committed";
@@ -1038,6 +1051,23 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
         const agentFirst = (composed.fromName || context.lead.assignedAgent || "Abby").split(" ")[0];
         composed.message = composed.message.trimEnd() + `\n\n---\nBest,\n${agentFirst} | Adorb Custom Printing\n(954) 932-8543\nprint@adorbcustomtees.com\nadorbcustomtees.com\n⭐ 4.9 Stars · 867+ Verified Reviews\nSee our reviews: https://adorbcustomtees.com/pages/reviews`;
       }
+    }
+
+    // MODULE 2B: EXPERT PANEL SCORING — runs after Composer, before QC
+    // Three parallel experts (Brand Voice, Conversion, Compliance) score the draft.
+    // If any expert scores < 60, the Composer is called once more with panel notes.
+    let expertPanel: Awaited<ReturnType<typeof runExpertPanel>> | null = null;
+    try {
+      expertPanel = await runExpertPanel(composed, strategy, context, input);
+      if (!expertPanel.allPassed) {
+        console.log(`[SalesManager] Expert Panel failed (composite=${expertPanel.compositeScore}) — requesting revision...`);
+        // Inject panel notes into context for Composer revision
+        const revisionContext = { ...context, tweakInstructions: (context.tweakInstructions || "") + `\n\n=== EXPERT PANEL REVISION REQUEST ===\nThe following experts flagged issues with your draft. Revise to address them:\n${expertPanel.panelNotes}` };
+        composed = await runComposer(input, revisionContext, strategy, research);
+        console.log(`[SalesManager] Revised after Expert Panel: "${composed.message.substring(0, 80)}..."`);
+      }
+    } catch (epErr) {
+      console.error(`[SalesManager] Expert Panel error (non-fatal):`, epErr);
     }
 
     // ============================================================
@@ -1297,6 +1327,14 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
         // Module 4: Multi-Agent Deliberation
         deliberationUsed: deliberationUsed ? 1 : 0,
         deliberationNote: deliberationNote,
+        // Module 2B: Expert Panel Scoring
+        expertPanelBrandScore: expertPanel?.brandScore?.score ?? null,
+        expertPanelConversionScore: expertPanel?.conversionScore?.score ?? null,
+        expertPanelComplianceScore: expertPanel?.complianceScore?.score ?? null,
+        expertPanelCompositeScore: expertPanel?.compositeScore ?? null,
+        expertPanelNotes: expertPanel?.panelNotes || null,
+        // Module 3A: Skill Catalog
+        skillUsed: selectedSkillId || null,
       });
     } catch (auditErr) {
       console.error('[SalesManager] Audit log error (non-fatal):', auditErr);
@@ -1312,6 +1350,12 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
     } catch (summaryErr) {
       console.error('[SalesManager] Interaction summary error (non-fatal):', summaryErr);
     }
+
+    // --- MODULE 5B: PRIVATE MEMORY UPDATE (non-blocking) ---
+    const leadName = context.lead?.name || context.lead?.email || `Lead ${input.leadId}`;
+    updateLeadMemoryAfterRun(input.leadId, leadName, context.historyStr).catch(memErr => {
+      console.error('[SalesManager] Private memory update error (non-fatal):', memErr);
+    });
 
     console.log(`[SalesManager] === COMPLETE for lead ${input.leadId}: approved, QC=${qc.score} ===`);
 

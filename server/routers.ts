@@ -33,6 +33,9 @@ import { compressSchedule, MAX_FOLLOWUP_DELAY_MS } from "./scheduling-engine";
 import { runAndStoreSupervisorCycle, getSupervisorStatus } from "./supervisor";
 import { runLookback } from "./lookback-engine";
 import { runDispositionSweep } from "./lead-disposition";
+import { getAllSkills } from "./skill-registry";
+import { runAutoSkillHunter, getSkillProposals, reviewSkillProposal } from "./auto-skill-hunter";
+import { getLeadMemoryFacts } from "./lead-memory";
 
 // Auto-synthesize uploaded content using LLM
 async function synthesizeContent(rawText: string, fileName: string): Promise<string> {
@@ -474,6 +477,27 @@ export const appRouter = router({
 
     // --- Module 2A: ICP Cadence Multiplier Stats ---
     icpStats: protectedProcedure.query(async () => getIcpStats()),
+
+    // --- Module 3A: Skill Catalog ---
+    listSkills: protectedProcedure.query(async () => getAllSkills()),
+
+    // --- Module 3B: Auto-Skill Hunter ---
+    skillProposals: protectedProcedure
+      .input(z.object({ status: z.enum(["pending_review", "approved", "rejected"]).optional() }))
+      .query(async ({ input }) => getSkillProposals(input.status)),
+    reviewSkillProposal: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        action: z.enum(["approved", "rejected"]),
+        reviewNote: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => reviewSkillProposal(input.id, input.action, input.reviewNote)),
+    triggerAutoSkillHunter: adminProcedure.mutation(async () => runAutoSkillHunter()),
+
+    // --- Module 5B: Lead Memory ---
+    leadMemory: protectedProcedure
+      .input(z.object({ leadId: z.number() }))
+      .query(async ({ input }) => getLeadMemoryFacts(input.leadId)),
 
     // --- Combined Dashboard Data ---
     dashboardSummary: protectedProcedure.query(async () => {

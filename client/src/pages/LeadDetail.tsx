@@ -10,7 +10,7 @@ import {
   ArrowLeft, Mail, Phone, Globe, Building2, Brain, MessageSquare,
   UserCheck, HandMetal, DollarSign, StickyNote, FileSearch, CalendarClock,
   ExternalLink, MailOpen, MousePointerClick, MailX, Calendar, Clock,
-  AlertTriangle, Send, RefreshCw
+  AlertTriangle, Send, RefreshCw, BookOpen
 } from "lucide-react";
 import { useLocation, useParams } from "wouter";
 import { toast } from "sonner";
@@ -20,6 +20,7 @@ export default function LeadDetail() {
   const params = useParams<{ id: string }>();
   const leadId = parseInt(params.id || "0");
   const { data, isLoading } = trpc.leads.detail.useQuery({ id: leadId }, { enabled: leadId > 0 });
+  const { data: memoryFacts } = trpc.learning.leadMemory.useQuery({ leadId }, { enabled: leadId > 0 });
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
   const [showReschedule, setShowReschedule] = useState(false);
@@ -367,6 +368,23 @@ export default function LeadDetail() {
             </Card>
           </div>
         </div>
+
+        {/* Lead Memory (Module 5B) */}
+        {memoryFacts && memoryFacts.length > 0 && (
+          <Card>
+            <CardHeader><CardTitle className="text-base flex items-center gap-2"><BookOpen className="h-4 w-4" />AI Memory — What the system knows about this lead</CardTitle></CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {memoryFacts.map((fact: any) => (
+                  <div key={fact.id} className="flex items-start gap-2 text-sm rounded-md bg-muted/40 px-3 py-2">
+                    <span className="text-xs font-medium text-muted-foreground shrink-0 min-w-[100px]">{fact.factKey.replace(/_/g, " ")}</span>
+                    <span className="text-xs text-foreground">{fact.factValue}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Pipeline Events */}
         {events && events.length > 0 && (

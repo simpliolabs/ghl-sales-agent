@@ -24,6 +24,8 @@ import {
   LifeBuoy,
   Wrench,
   Zap,
+  BookOpen,
+  Star,
 } from "lucide-react";
 
 type FilterTab = "all" | "approved" | "blocked" | "recomposed" | "violations" | "corrected";
@@ -301,6 +303,27 @@ export default function AuditLog() {
                               <Badge className="bg-violet-100 text-violet-700 border-violet-200 text-xs shrink-0" title={(entry as any).deliberationNote || "Dual-Strategist deliberation used"} >
                                 <Zap className="h-3 w-3 mr-1" />
                                 Deliberation
+                              </Badge>
+                            )}
+                            {(entry as any).expertPanelCompositeScore != null && (
+                              <Badge
+                                className={`text-xs shrink-0 ${
+                                  (entry as any).expertPanelCompositeScore >= 80
+                                    ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+                                    : (entry as any).expertPanelCompositeScore >= 60
+                                    ? "bg-amber-100 text-amber-700 border-amber-200"
+                                    : "bg-rose-100 text-rose-700 border-rose-200"
+                                }`}
+                                title={`Brand: ${(entry as any).expertPanelBrandScore ?? "—"} | Conversion: ${(entry as any).expertPanelConversionScore ?? "—"} | Compliance: ${(entry as any).expertPanelComplianceScore ?? "—"}\n${(entry as any).expertPanelNotes || ""}`}
+                              >
+                                <Star className="h-3 w-3 mr-1" />
+                                Panel {(entry as any).expertPanelCompositeScore}
+                              </Badge>
+                            )}
+                            {(entry as any).skillUsed && (
+                              <Badge className="bg-sky-100 text-sky-700 border-sky-200 text-xs shrink-0" title={`Skill applied: ${(entry as any).skillUsed}`}>
+                                <BookOpen className="h-3 w-3 mr-1" />
+                                {(entry as any).skillUsed}
                               </Badge>
                             )}
                             {!isBlocked && (

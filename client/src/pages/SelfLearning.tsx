@@ -12,7 +12,7 @@ import {
   FlaskConical, TrendingUp, Users, BarChart3, RefreshCw, Play, Pause,
   CheckCircle2, XCircle, Clock, ArrowUpRight, ArrowDownRight, Minus,
   Beaker, Target, Lightbulb, ChevronDown, ChevronUp, Trash2, AlertTriangle,
-  Zap,
+  Zap, BookOpen, Wand2, ThumbsUp, ThumbsDown, Eye,
 } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -236,6 +236,8 @@ export default function SelfLearning() {
             <TabsTrigger value="personas">Persona Matrix</TabsTrigger>
             <TabsTrigger value="trends">Trends</TabsTrigger>
             <TabsTrigger value="icp">ICP Win/Loss</TabsTrigger>
+            <TabsTrigger value="skills">Skill Catalog</TabsTrigger>
+            <TabsTrigger value="proposals">Skill Proposals</TabsTrigger>
           </TabsList>
 
           {/* ============ OVERVIEW TAB ============ */}
@@ -273,6 +275,16 @@ export default function SelfLearning() {
           {/* ============ ICP WIN/LOSS TAB ============ */}
           <TabsContent value="icp" className="space-y-6 mt-4">
             <IcpTab stats={icpStats} isLoading={icpLoading} />
+          </TabsContent>
+
+          {/* ============ SKILL CATALOG TAB ============ */}
+          <TabsContent value="skills" className="space-y-6 mt-4">
+            <SkillCatalogTab isAdmin={isAdmin} />
+          </TabsContent>
+
+          {/* ============ SKILL PROPOSALS TAB ============ */}
+          <TabsContent value="proposals" className="space-y-6 mt-4">
+            <SkillProposalsTab isAdmin={isAdmin} />
           </TabsContent>
         </Tabs>
       </div>
@@ -954,6 +966,224 @@ function IcpTab({ stats, isLoading }: { stats: any; isLoading: boolean }) {
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// ============================================================
+// SKILL CATALOG TAB — Module 3A
+// ============================================================
+
+function SkillCatalogTab({ isAdmin }: { isAdmin: boolean }) {
+  const { data: skills, isLoading } = trpc.learning.listSkills.useQuery();
+
+  if (isLoading) return <Skeleton className="h-64 w-full rounded-lg" />;
+
+  const channelColors: Record<string, string> = {
+    SMS: "bg-blue-100 text-blue-700 border-blue-200",
+    Email: "bg-purple-100 text-purple-700 border-purple-200",
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <BookOpen className="h-5 w-5" /> Skill Catalog
+          </h2>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {skills?.length || 0} active skills — specialized Composer overlays that activate based on segment, stage, and channel
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {(skills || []).map((skill) => (
+          <Card key={skill.id} className="border border-border/60">
+            <CardHeader className="pb-2">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <CardTitle className="text-base">{skill.name}</CardTitle>
+                  <CardDescription className="text-xs mt-0.5">{skill.description}</CardDescription>
+                </div>
+                <Badge variant="outline" className="text-xs shrink-0 font-mono">{skill.id}</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {skill.triggerConditions.segments?.map(s => (
+                  <Badge key={s} className="bg-amber-100 text-amber-700 border-amber-200 text-xs">{s}</Badge>
+                ))}
+                {skill.triggerConditions.approaches?.map(a => (
+                  <Badge key={a} className="bg-slate-100 text-slate-600 border-slate-200 text-xs">{a}</Badge>
+                ))}
+                {skill.triggerConditions.conversationStages?.map(cs => (
+                  <Badge key={cs} className="bg-violet-100 text-violet-700 border-violet-200 text-xs">{cs}</Badge>
+                ))}
+                {skill.triggerConditions.channels?.map(ch => (
+                  <Badge key={ch} className={`text-xs ${channelColors[ch] || "bg-gray-100 text-gray-700"}`}>{ch}</Badge>
+                ))}
+                {skill.triggerConditions.minLeadAgeDays !== undefined && (
+                  <Badge className="bg-rose-100 text-rose-700 border-rose-200 text-xs">
+                    ≥{skill.triggerConditions.minLeadAgeDays}d old
+                  </Badge>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <Card className="border-dashed border-amber-300 bg-amber-50/40">
+        <CardContent className="pt-4 pb-4">
+          <div className="flex items-start gap-3">
+            <Wand2 className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-amber-800">Auto-Skill Hunter is active</p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                Every 6 hours, the system scans for recurring violation patterns and proposes new skills.
+                Approved proposals are added to this catalog by the developer.
+                Check the <strong>Skill Proposals</strong> tab for pending reviews.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================
+// SKILL PROPOSALS TAB — Module 3B
+// ============================================================
+
+function SkillProposalsTab({ isAdmin }: { isAdmin: boolean }) {
+  const [statusFilter, setStatusFilter] = useState<"pending_review" | "approved" | "rejected" | undefined>(undefined);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const { data: proposals, isLoading, refetch } = trpc.learning.skillProposals.useQuery({ status: statusFilter });
+  const reviewMutation = trpc.learning.reviewSkillProposal.useMutation({
+    onSuccess: () => { toast.success("Proposal updated"); refetch(); },
+    onError: () => toast.error("Failed to update proposal"),
+  });
+  const triggerHunter = trpc.learning.triggerAutoSkillHunter.useMutation({
+    onSuccess: (result) => {
+      toast.success(`Auto-Skill Hunter: ${result.proposalsCreated} new proposal${result.proposalsCreated !== 1 ? "s" : ""} created`);
+      refetch();
+    },
+    onError: () => toast.error("Auto-Skill Hunter failed"),
+  });
+
+  const statusColors: Record<string, string> = {
+    pending_review: "bg-amber-100 text-amber-700 border-amber-200",
+    approved: "bg-emerald-100 text-emerald-700 border-emerald-200",
+    rejected: "bg-rose-100 text-rose-700 border-rose-200",
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <Wand2 className="h-5 w-5" /> Skill Proposals
+          </h2>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Auto-generated skill proposals from recurring violation patterns
+          </p>
+        </div>
+        <div className="flex gap-2">
+          {isAdmin && (
+            <Button size="sm" variant="outline" onClick={() => triggerHunter.mutate()} disabled={triggerHunter.isPending}>
+              <Wand2 className={`h-3.5 w-3.5 mr-1 ${triggerHunter.isPending ? "animate-spin" : ""}`} />
+              Run Hunter Now
+            </Button>
+          )}
+          <div className="flex gap-1">
+            {([undefined, "pending_review", "approved", "rejected"] as const).map(s => (
+              <Button
+                key={String(s)}
+                size="sm"
+                variant={statusFilter === s ? "default" : "outline"}
+                onClick={() => setStatusFilter(s)}
+                className="text-xs"
+              >
+                {s === undefined ? "All" : s.replace("_", " ")}
+              </Button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <Skeleton className="h-64 w-full rounded-lg" />
+      ) : (proposals || []).length === 0 ? (
+        <Card>
+          <CardContent className="pt-8 pb-8 text-center text-muted-foreground">
+            <Wand2 className="h-8 w-8 mx-auto mb-3 opacity-30" />
+            <p className="text-sm">No proposals yet. The Auto-Skill Hunter runs every 6 hours and will propose skills when it detects recurring violation patterns.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {(proposals || []).map((proposal) => (
+            <Card key={proposal.id} className="border border-border/60">
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <CardTitle className="text-base">{proposal.proposedSkillName}</CardTitle>
+                      <Badge variant="outline" className="font-mono text-xs">{proposal.proposedSkillId}</Badge>
+                      <Badge className={`text-xs ${statusColors[proposal.status] || ""}`}>{proposal.status.replace("_", " ")}</Badge>
+                    </div>
+                    <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                      <span>Violation: <strong className="text-foreground">{proposal.violationCategory}</strong></span>
+                      <span>Triggered <strong className="text-foreground">{proposal.occurrenceCount}×</strong> in 7 days</span>
+                      <span>{new Date(proposal.createdAt).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setExpandedId(expandedId === proposal.id ? null : proposal.id)}
+                  >
+                    <Eye className="h-4 w-4" />
+                  </Button>
+                </div>
+              </CardHeader>
+              {expandedId === proposal.id && (
+                <CardContent className="pt-0">
+                  <div className="rounded-md bg-muted/50 p-3 text-xs font-mono whitespace-pre-wrap max-h-48 overflow-y-auto">
+                    {proposal.proposedPrompt}
+                  </div>
+                  {proposal.reviewNote && (
+                    <p className="text-xs text-muted-foreground mt-2 italic">Review note: {proposal.reviewNote}</p>
+                  )}
+                  {isAdmin && proposal.status === "pending_review" && (
+                    <div className="flex gap-2 mt-3">
+                      <Button
+                        size="sm"
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                        onClick={() => reviewMutation.mutate({ id: proposal.id, action: "approved" })}
+                        disabled={reviewMutation.isPending}
+                      >
+                        <ThumbsUp className="h-3.5 w-3.5 mr-1" /> Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-rose-600 border-rose-300 hover:bg-rose-50"
+                        onClick={() => reviewMutation.mutate({ id: proposal.id, action: "rejected", reviewNote: "Rejected from dashboard" })}
+                        disabled={reviewMutation.isPending}
+                      >
+                        <ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              )}
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

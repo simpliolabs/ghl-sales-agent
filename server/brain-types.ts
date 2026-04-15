@@ -167,4 +167,6 @@ export type LeadContext = {
   originalInboundChannel?: string | null;
   // Module 2A: ICP Cadence Multiplier
   icpTier?: "high" | "medium" | "low" | "unknown";
+  // Module 5B: Private Memory
+  privateMemory?: string;  // Formatted LEAD MEMORY block for prompt injection
 };

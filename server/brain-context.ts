@@ -4,6 +4,7 @@
  */
 
 import { getDb, getConversationHistory, getRecentOutreachFrameworks } from "./db";
+import { getLeadMemory } from "./lead-memory";
 import { aiState, aiTweaks, knowledgeFiles, leads } from "../drizzle/schema";
 import { eq, type InferSelectModel } from "drizzle-orm";
 import type { LeadContext } from "./brain-types";
@@ -131,6 +132,8 @@ export async function buildLeadContext(leadId: number): Promise<LeadContext> {
     recentOutreachFrameworks: await getRecentOutreachFrameworks(leadId, 5),
     // Original inbound channel — for channel-switch context awareness
     originalInboundChannel,
+    // Module 5B: Private Memory — accumulated facts about this lead
+    privateMemory: await getLeadMemory(leadId),
   };
 }
 

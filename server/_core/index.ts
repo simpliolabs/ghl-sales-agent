@@ -265,6 +265,21 @@ async function startServer() {
       }
     }, EVENT_TRIGGER_INTERVAL);
     console.log(`[Cron] Event-driven triggers scheduled every ${EVENT_TRIGGER_INTERVAL / 60000} minutes`);
+
+    // --- CRON: Auto-Skill Hunter (Module 3B) every 6 hours ---
+    const AUTO_SKILL_INTERVAL = 6 * 60 * 60 * 1000; // 6 hours
+    setInterval(async () => {
+      try {
+        const { runAutoSkillHunter } = await import("../auto-skill-hunter");
+        const result = await runAutoSkillHunter();
+        if (result.proposalsCreated > 0) {
+          console.log(`[AutoSkillHunter/Timer] ${result.patternsFound} patterns, ${result.proposalsCreated} proposed, ${result.skippedCooldown} on cooldown`);
+        }
+      } catch (err) {
+        console.error("[AutoSkillHunter/Timer] Error:", err);
+      }
+    }, AUTO_SKILL_INTERVAL);
+    console.log(`[Cron] Auto-Skill Hunter scheduled every ${AUTO_SKILL_INTERVAL / 3600000} hours`);
   });
 }
 
