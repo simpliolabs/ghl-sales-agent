@@ -1165,3 +1165,15 @@
 - [x] QC receives conversationStage in strategy directive
 - [x] 4 new stage-aware QC hard constraints (stage_mismatch, fresh_outreach_on_aged_lead)
 - [x] 17 tests for conversation stage detection — all passing
+
+## Lost Lead Nurture Engine Rewrite — Apr 15
+- [x] Rewrite lost-lead-nurture.ts to use Brain Council instead of pre-written templates
+- [x] Every nurture email must go through full Brain Council (Strategist → Researcher → Composer → QC)
+- [x] Brain Council receives full conversation history so it knows if lead declined
+- [x] If Brain detects DECLINING, block the send — no nurture email goes out
+- [x] NOT-INTERESTED fast-path detection BEFORE Brain Council (regex patterns on local + GHL history)
+- [x] graceful_exit detection from Brain Council → moves lead to not_qualified
+- [x] Sweep DB for leads who explicitly declined but are still in active pools
+- [x] Correct pipeline stage for all declined leads found in sweep (2 leads: #536 Liani Echagarruga, #1291 test12)
+- [x] 19 new tests for Brain Council-based nurture engine — all passing
+- [x] 846 total tests, 39 test files, 0 failures, 0 TypeScript errors
