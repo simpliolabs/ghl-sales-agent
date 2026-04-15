@@ -696,6 +696,7 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
         violationCategory: "graceful_exit_retired",
         messageSent: 0,
         ownerNotified: 0,
+        conversationStage: strategy.conversationStage,
       });
       return {
         message: "",
@@ -713,6 +714,7 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
         blocked: true,
         blockReason: `Graceful exit — lead retired from automated outreach`,
         fallbackUsed: false,
+        conversationStage: strategy.conversationStage || "lost",
       };
     }
 
@@ -1127,6 +1129,7 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
           blocked: true, blockReason: `${violation.reason} [Fallback suppressed — ${context.priorOutbound.length} prior messages]`,
           violationCategory: violation.category || "missing_framework",
           fallbackUsed: false,
+          conversationStage: strategy.conversationStage,
         };
       }
 
@@ -1171,6 +1174,7 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
         ownerNotified: notified ? 1 : 0,
         fallbackUsed: 1,
         fallbackMessage: fallbackMsg,
+        conversationStage: strategy.conversationStage,
       });
 
       return {
@@ -1192,6 +1196,7 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
         violationCategory: effectiveViolationCategory || "missing_framework",
         fallbackUsed: true,
         fallbackMessage: fallbackMsg,
+        conversationStage: strategy.conversationStage,
       };
     }
 
@@ -1267,6 +1272,8 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
         experimentId: experimentAssignment?.experimentId,
         variant: experimentAssignment?.variant,
         persona,
+        // Module 1: Conversation Stage Detection
+        conversationStage: strategy.conversationStage,
       });
     } catch (auditErr) {
       console.error('[SalesManager] Audit log error (non-fatal):', auditErr);
@@ -1305,6 +1312,8 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
       experimentId: experimentAssignment?.experimentId,
       variant: experimentAssignment?.variant,
       persona,
+      // Module 1: Conversation Stage Detection
+      conversationStage: strategy.conversationStage,
     };
   } finally {
     // ALWAYS release the DB lock, no matter what happened

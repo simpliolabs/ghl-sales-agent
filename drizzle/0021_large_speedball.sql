@@ -1,0 +1,1 @@
+ALTER TABLE `brain_council_audit` ADD `conversationStage` varchar(32);

@@ -378,8 +378,25 @@ The Composer will use your keyPoints to build the subject line and opening sente
 If your keyPoints are generic (e.g., "mention their business", "reference their needs"), the Composer will produce generic messages that get rejected by QC.
 Be SPECIFIC in keyPoints: "Reference their 200 custom hoodies for Grace Church picnic" NOT "mention their product interest".
 
+=== CONVERSATION STAGE DETECTION (SalesGPT pattern) ===
+Before producing your strategy, classify the lead's current CONVERSATION STAGE based on the full conversation history.
+This label tells the entire system where this lead is in the sales journey — not just the pipeline stage, but the actual conversational progress.
+
+Stages (pick exactly ONE):
+- "introduction" — No prior conversation, or only a form submission. We haven't had a real exchange yet.
+- "qualification" — We've made contact and are gathering info: what they need, quantity, timeline, budget.
+- "value_proposition" — We know what they need and are presenting our solution, pricing, or capabilities.
+- "objection_handling" — Lead has pushed back (price too high, not ready, comparing options). We're addressing concerns.
+- "negotiation" — Lead is interested but negotiating terms (price, timeline, design changes).
+- "closing" — Lead is ready to buy. We're finalizing details, sending invoices, or confirming orders.
+- "post_sale" — Order placed or paid. We're in fulfillment, follow-up, or relationship nurture.
+- "reactivation" — Lead went cold (90+ days). We're trying to re-engage.
+- "lost" — Lead explicitly declined or is non-responsive after multiple attempts.
+
+Your reasoning MUST include: "ConversationStage: [stage] because [evidence from conversation history]."
+
 === YOUR OUTPUT ===
-Analyze the lead context, detect awareness level, and produce a strategic directive. Be specific and actionable.`;
+Analyze the lead context, detect awareness level, classify the conversation stage, and produce a strategic directive. Be specific and actionable.`;
 
 // Cache learning context for 10 minutes to avoid repeated DB queries
 let _learningCache: { text: string; expires: number } | null = null;
@@ -601,9 +618,10 @@ STEP 4: Produce your strategic directive. PRIORITIZE frameworks and channels wit
             keyPoints: { type: "array", items: { type: "string" }, description: "What MUST be included. MUST contain at least one SPECIFIC lead detail (product type, business name, event, quantity). For answer_question: include the question + lead context. For provide_quote: include product/qty. For acknowledge_info: include what they shared. For outreach: include the specific product/event/business to reference in subject line and opener." },
             avoidPoints: { type: "array", items: { type: "string" }, description: "What MUST NOT be said" },
             nextEngagementHours: { type: "number", description: "Hours until next follow-up" },
-            reasoning: { type: "string", description: "Why this strategy was chosen. MUST start with 'Awareness: [ASKING|QUOTING|INFORMING|CLARIFYING|OUTREACH] because...' to prove you detected the awareness level." },
+            reasoning: { type: "string", description: "Why this strategy was chosen. MUST start with 'Awareness: [ASKING|QUOTING|INFORMING|CLARIFYING|OUTREACH] because...' then include 'ConversationStage: [stage] because [evidence]'." },
+            conversationStage: { type: "string", description: "Current conversation stage: introduction|qualification|value_proposition|objection_handling|negotiation|closing|post_sale|reactivation|lost" },
           },
-          required: ["approach", "channel", "angle", "framework", "personalizationTier", "toneDirective", "maxLength", "keyPoints", "avoidPoints", "nextEngagementHours", "reasoning"],
+          required: ["approach", "channel", "angle", "framework", "personalizationTier", "toneDirective", "maxLength", "keyPoints", "avoidPoints", "nextEngagementHours", "reasoning", "conversationStage"],
           additionalProperties: false,
         },
       },

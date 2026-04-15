@@ -6,23 +6,52 @@ import { getContact, searchContacts, sendMessage, updateContactCustomField } fro
 import { updateLeadFields } from "./db";
 
 // --- MIGRATED LEAD CHANNEL RESTRICTION ---
-// Contacts migrated from the old GHL account (source='transferred_contact') should
-// ONLY be reached via Email until they re-engage by sending an inbound message.
+// Contacts migrated from the old GHL account should ONLY be reached via Email
+// until they re-engage by sending an inbound message.
 // Once they reply, they become active leads and all channels are unlocked.
+//
+// IMPORTANT: Two batches of migrated contacts exist:
+//   1. source='transferred_contact' (1,554 leads)
+//   2. source='r' (1,001 leads) — these also have transferredContact in researchData
+// The guard MUST check BOTH the source string AND the researchData to catch all migrated contacts.
 
-/** Source value used for contacts imported from the previous GHL account */
+/** Source values used for contacts imported from the previous GHL account */
 export const MIGRATED_SOURCE = "transferred_contact";
+export const MIGRATED_SOURCES = ["transferred_contact", "r"];
+
+/** Type for the lead object accepted by migration guard functions */
+type MigrationGuardLead = {
+  source?: string | null;
+  convState?: string | null;
+  lastMessageAt?: Date | null;
+  reactivatedFromMigration?: number | null;
+  researchData?: unknown;
+};
+
+/**
+ * Returns true if the lead is a migrated contact from either import batch.
+ * Checks both the source field AND the presence of transferredContact in researchData.
+ */
+function isMigratedContact(lead: MigrationGuardLead): boolean {
+  // Check source string (covers both 'transferred_contact' and 'r')
+  if (lead.source && MIGRATED_SOURCES.includes(lead.source)) return true;
+  // Check researchData for transferredContact (catches any batch regardless of source)
+  if (lead.researchData) {
+    const rd = typeof lead.researchData === "string" ? JSON.parse(lead.researchData) : lead.researchData;
+    if (rd && typeof rd === "object" && "transferredContact" in rd) return true;
+  }
+  return false;
+}
 
 /**
  * Returns true if the lead is a migrated contact that hasn't re-engaged yet.
  * Migrated leads are email-only until they send an inbound message.
  * A lead is considered "reactivated" if:
- *  - convState is anything other than 'new_lead' (they've progressed), OR
- *  - lastMessageAt is set (they've had message activity indicating engagement)
  *  - reactivatedFromMigration flag is set (explicit re-engagement marker)
+ *  - convState is anything other than 'new_lead' (they've progressed)
  */
-export function isMigratedEmailOnly(lead: { source?: string | null; convState?: string | null; lastMessageAt?: Date | null; reactivatedFromMigration?: number | null }): boolean {
-  if (lead.source !== MIGRATED_SOURCE) return false;
+export function isMigratedEmailOnly(lead: MigrationGuardLead): boolean {
+  if (!isMigratedContact(lead)) return false;
   // Already reactivated via explicit inbound re-engagement
   if (lead.reactivatedFromMigration === 1) return false;
   // Has progressed beyond new_lead state (engaged in conversation)
@@ -35,10 +64,10 @@ export function isMigratedEmailOnly(lead: { source?: string | null; convState?: 
  * Returns 'Email' if the lead is migrated and not yet reactivated,
  * otherwise returns the original channel unchanged.
  */
-export function enforceMigratedChannel(lead: { source?: string | null; convState?: string | null; lastMessageAt?: Date | null; reactivatedFromMigration?: number | null }, requestedChannel: string): string {
+export function enforceMigratedChannel(lead: MigrationGuardLead, requestedChannel: string): string {
   if (isMigratedEmailOnly(lead)) {
     if (requestedChannel !== "Email") {
-      console.log(`[MigratedLead] Channel forced Email (was ${requestedChannel}) for migrated lead — email-only until re-engagement`);
+      console.log(`[MigratedLead] Channel forced Email (was ${requestedChannel}) for migrated lead (source=${lead.source}) — email-only until re-engagement`);
     }
     return "Email";
   }

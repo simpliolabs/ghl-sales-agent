@@ -68,6 +68,7 @@ export interface StrategyDecision {
   avoidPoints: string[];
   nextEngagementHours: number;
   reasoning: string;
+  conversationStage?: "introduction" | "qualification" | "value_proposition" | "objection_handling" | "negotiation" | "closing" | "post_sale" | "reactivation" | "lost";
 }
 
 export interface ResearchResult {
@@ -133,6 +134,8 @@ export interface BrainCouncilOutput {
   experimentId?: string;  // A/B experiment this message belongs to
   variant?: "A" | "B";   // Which variant was assigned
   persona?: string;       // Normalized persona (church, corporate, etc.)
+  // Module 1: Conversation Stage Detection (SalesGPT pattern)
+  conversationStage?: "introduction" | "qualification" | "value_proposition" | "objection_handling" | "negotiation" | "closing" | "post_sale" | "reactivation" | "lost";
 }
 
 export type ViolationCategory = "irrelevant_research" | "form_data_ignored" | "wrong_business" | "generic_opener" | "missing_framework" | "safety_violation" | "unanswered_question" | "info_not_acknowledged" | "repeated_question" | "repeated_opener" | "ignored_request" | "channel_mismatch" | "unverified_claim" | "context_free_subject" | "passive_reactivation" | "email_formatting" | "channel_switch_unacknowledged" | "referral_ask_in_inquiry" | "fresh_outreach_on_aged_lead" | "wrong_hours";

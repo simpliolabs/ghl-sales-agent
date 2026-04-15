@@ -1141,3 +1141,27 @@
 - [x] Event trigger cleared after successful follow-up send
 - [x] 10 tests for event-driven triggers — all passing
 - [x] Total: 827 tests, 38 test files, 0 failures
+
+## Migration Guard Fix — Apr 15 (source='r' batch)
+- [ ] Fix isMigratedEmailOnly to check transferredContact in researchData, not just source string
+- [ ] Fix enforceMigratedChannel to use same check
+- [ ] DB correction: force all 1001 source='r' leads to preferredChannel=Email
+- [ ] Update QC isTransferred check to also cover source='r' with transferredContact data
+- [ ] Update strategist/composer/researcher transferred contact detection
+- [ ] Write/update tests for the expanded migration guard
+
+## Migrated Contact SMS Leak Fix — Apr 15, 2026
+- [x] Expanded isMigratedEmailOnly to check researchData.transferredContact (not just source string)
+- [x] Expanded QC isTransferred detection to cover source='r' leads
+- [x] DB correction: 639 source='r' leads forced to Email channel
+- [x] DB correction: 8 leads with lastOutboundChannel=SMS corrected
+
+## Module 1: Conversation Stage Detection — Apr 15, 2026
+- [x] Added conversationStage to Strategist prompt (9 stages: introduction, qualification, value_proposition, needs_analysis, objection_handling, closing, post_sale, reactivation, graceful_exit)
+- [x] Added conversationStage to JSON schema output
+- [x] Added conversationStage to StrategyDecision and BrainCouncilOutput types
+- [x] Added conversationStage to brain_council_audit table (migration applied)
+- [x] All audit insert paths carry conversationStage (approved, blocked, graceful_exit, fallback)
+- [x] QC receives conversationStage in strategy directive
+- [x] 4 new stage-aware QC hard constraints (stage_mismatch, fresh_outreach_on_aged_lead)
+- [x] 17 tests for conversation stage detection — all passing

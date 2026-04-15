@@ -77,6 +77,16 @@ If ANY of these are true, set approved=false immediately. Do not score the rest.
    fewer than 4 unanswered outbound messages.
    Set violationCategory="premature_breakup".
 
+7. STAGE MISMATCH: Check the Conversation Stage from the strategy directive.
+   - If stage is "closing" or "post_sale" but the message reads like a cold outreach or qualification → REJECT.
+     Set violationCategory="stage_mismatch".
+   - If stage is "introduction" but the message references prior conversations that don't exist → REJECT.
+     Set violationCategory="stage_mismatch".
+   - If stage is "objection_handling" but the message ignores the objection and pushes a new pitch → REJECT.
+     Set violationCategory="stage_mismatch".
+   - If stage is "reactivation" but the message treats the lead as brand new (no time-gap acknowledgment) → REJECT.
+     Set violationCategory="fresh_outreach_on_aged_lead".
+
 If none of the auto-reject rules trigger, proceed to the quality checklist below.
 
 === QUALITY CHECKLIST (score each 0-10, total = quality score) ===
@@ -233,6 +243,7 @@ Message: ${composed.message}
 - Approach: ${strategy.approach}
 - Framework: ${strategy.framework}
 - Angle: ${strategy.angle}
+- Conversation Stage: ${strategy.conversationStage || "unknown"}
 - Max Length: ${strategy.maxLength} chars
 - Must Include: ${strategy.keyPoints.join(", ")}
 - Must Avoid: ${strategy.avoidPoints.join(", ")}
@@ -987,7 +998,12 @@ export function buildSafeFallback(
   const agentName = context.lead.assignedAgent || "Abby";
   const name = sanitizeName(context.lead.name);
   const isEmail = (input.channel || context.lead.preferredChannel || "").toLowerCase() === "email";
-  const isTransferred = context.lead.source === "transferred_contact";
+  const isTransferred = context.lead.source === "transferred_contact" || context.lead.source === "r" || (() => {
+    const rd = context.lead.researchData;
+    if (!rd) return false;
+    const parsed = typeof rd === "string" ? JSON.parse(rd) : rd;
+    return parsed && typeof parsed === "object" && "transferredContact" in parsed;
+  })();
 
   const productField = input.formData?.find(f =>
     f.label.toLowerCase().includes("product") || f.label.toLowerCase().includes("interested")

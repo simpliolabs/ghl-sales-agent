@@ -527,6 +527,8 @@ export async function addBrainCouncilAudit(data: {
   experimentId?: string;
   variant?: string;
   persona?: string;
+  // Module 1: Conversation Stage Detection
+  conversationStage?: string;
 }) {
   const db = await getDb();
   if (!db) return;
