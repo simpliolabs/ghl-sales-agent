@@ -248,6 +248,8 @@ export async function runLookback(options?: {
       and(
         eq(leads.humanTakeover, 0),
         sql`COALESCE(${leads.pipelineStage}, 'new_lead') NOT IN ('not_qualified', 'lost')`,
+        // HARD GATE: Skip imported/transferred contacts until they send an inbound message
+        sql`NOT (COALESCE(${leads.source}, '') IN ('transferred_contact', 'r', 'n', 'bulk_import') AND COALESCE(${leads.reactivatedFromMigration}, 0) = 0)`,
         or(
           isNull(leads.lastResearchSummary),
           sql`${leads.lastResearchSummary} NOT LIKE '%[LOOKBACK]%'`
@@ -259,6 +261,8 @@ export async function runLookback(options?: {
       and(
         eq(leads.humanTakeover, 0),
         sql`COALESCE(${leads.pipelineStage}, 'new_lead') NOT IN ('not_qualified', 'lost')`,
+        // HARD GATE: Skip imported/transferred contacts until they send an inbound message
+        sql`NOT (COALESCE(${leads.source}, '') IN ('transferred_contact', 'r', 'n', 'bulk_import') AND COALESCE(${leads.reactivatedFromMigration}, 0) = 0)`,
         leads.nextFollowUpAt ? lte(leads.nextFollowUpAt, new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)) : undefined,
       )
     ).orderBy(leads.nextFollowUpAt).limit(maxLeads);

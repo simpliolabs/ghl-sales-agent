@@ -119,6 +119,14 @@ export async function getLeadsDueForFollowUp() {
     sql`${leads.nextFollowUpAt} <= NOW()`,
     eq(leads.humanTakeover, 0),
     sql`COALESCE(${leads.pipelineStage}, 'new_lead') NOT IN ('not_qualified', 'lost')`,
+    // HARD GATE: Never send AI outreach to imported/transferred contacts until they
+    // send an inbound message first (reactivatedFromMigration = 1).
+    // Sources covered: 'transferred_contact' (bulk import), 'r' (old import batch),
+    // 'n' (GHL bulk import with no source), 'bulk_import'.
+    // This is the ONLY place this gate needs to exist — all 4 outbound paths
+    // (follow-up-trigger, webhook-contact, webhook-message, lookback-engine) call
+    // this function or check reactivatedFromMigration downstream.
+    sql`NOT (COALESCE(${leads.source}, '') IN ('transferred_contact', 'r', 'n', 'bulk_import') AND COALESCE(${leads.reactivatedFromMigration}, 0) = 0)`,
   ));
 }
 

@@ -1238,3 +1238,9 @@
 ## Bugs Fixed — Apr 15, 2026
 - [x] Ghost lead #240004 (Hudson Grove Ame Zion) — no email/phone/value, dead GHL contact ID LucQ2gQTVMMhGmhUzZOZ — deleted from DB; real lead #240003 intact
 - [x] Human agent outbound messages NOT saved to conversations table — webhook-message.ts now calls addConversation(senderType=human, senderName=agentName) before returning; lead detail page now shows agent name instead of AI for human-sent messages
+
+## Critical Bug — Old Contacts Still Receiving AI Messages — Apr 15, 2026
+- [ ] Investigate David Jones: created date, message count, what scheduling rule allowed Apr 15 send
+- [ ] Identify root cause: age gate not enforced, or transferred_contact flag bypassing gate
+- [ ] Implement hard age gate: no AI outreach to leads created more than X days ago with no prior reply
+- [ ] Audit all leads currently in send queue that are older than the gate threshold and block them
