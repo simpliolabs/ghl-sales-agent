@@ -1140,6 +1140,8 @@ export async function getHumanTakeoverLeadsSilent(silentHours: number): Promise<
   assignedAgent: string | null;
   lastAgentActivityAt: Date | null;
   lastMessageAt: Date | null;
+  lastSlaAlertAt: Date | null;
+  ghlContactId: string | null;
   silentHours: number;
 }>> {
   const db = await getDb();
@@ -1151,6 +1153,8 @@ export async function getHumanTakeoverLeadsSilent(silentHours: number): Promise<
     assignedAgent: leads.assignedAgent,
     lastAgentActivityAt: leads.lastAgentActivityAt,
     lastMessageAt: leads.lastMessageAt,
+    lastSlaAlertAt: leads.lastSlaAlertAt,
+    ghlContactId: leads.ghlContactId,
     humanTakeover: leads.humanTakeover,
   })
     .from(leads)
@@ -1165,6 +1169,8 @@ export async function getHumanTakeoverLeadsSilent(silentHours: number): Promise<
     assignedAgent: string | null;
     lastAgentActivityAt: Date | null;
     lastMessageAt: Date | null;
+    lastSlaAlertAt: Date | null;
+    ghlContactId: string | null;
     silentHours: number;
   }> = [];
   for (const r of rows) {
@@ -1178,6 +1184,8 @@ export async function getHumanTakeoverLeadsSilent(silentHours: number): Promise<
         assignedAgent: r.assignedAgent,
         lastAgentActivityAt: r.lastAgentActivityAt,
         lastMessageAt: r.lastMessageAt,
+        lastSlaAlertAt: r.lastSlaAlertAt ?? null,
+        ghlContactId: r.ghlContactId ?? null,
         silentHours: Math.round(hoursSilent * 10) / 10,
       });
     }

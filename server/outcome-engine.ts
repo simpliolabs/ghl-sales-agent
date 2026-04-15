@@ -653,3 +653,87 @@ function isDncReply(message: string): boolean {
   const lower = message.toLowerCase().trim();
   return DNC_KEYWORDS.some(kw => lower === kw || lower.startsWith(kw + " ") || lower.endsWith(" " + kw) || lower.includes(" " + kw + " "));
 }
+
+// =================================================================
+// 5. ICP WIN/LOSS LEARNING — Conversion rates by lead source and segment
+// =================================================================
+
+/**
+ * Analyzes which lead sources and segments convert to paid orders at the highest rate.
+ * Returns a text block the Strategist can use to prioritize high-value lead profiles.
+ *
+ * This is the ICP (Ideal Customer Profile) self-learning layer.
+ * The system learns from actual paid orders — not just replies — to identify
+ * which lead types are worth more effort and faster follow-up.
+ */
+export async function buildIcpLearningContext(): Promise<string> {
+  const cacheKey = 'icp:win_loss';
+  return cached(patternCache, cacheKey, _buildIcpLearningContextUncached);
+}
+
+async function _buildIcpLearningContextUncached(): Promise<string> {
+  const db = await getDb();
+  if (!db) return "";
+
+  try {
+    // Conversion by lead source (e.g., Facebook, Instagram, Website, Referral)
+    const sourceStats = await db.select({
+      source: leads.source,
+      total: sql<number>`COUNT(*)`,
+      conversions: sql<number>`SUM(CASE WHEN ${leads.pipelineStage} IN ('Paid - Proof Needed', 'Approved + Deposit', 'Delivered', 'paid_proof_needed', 'approved', 'delivered') THEN 1 ELSE 0 END)`,
+    })
+      .from(leads)
+      .where(sql`${leads.source} IS NOT NULL`)
+      .groupBy(leads.source)
+      .having(sql`COUNT(*) >= 3`)
+      .orderBy(sql`conversions DESC`);
+
+    // Conversion by seasonal segment (church, corporate, school, etc.)
+    const segmentStats = await db.select({
+      segment: leads.seasonalSegment,
+      total: sql<number>`COUNT(*)`,
+      conversions: sql<number>`SUM(CASE WHEN ${leads.pipelineStage} IN ('Paid - Proof Needed', 'Approved + Deposit', 'Delivered', 'paid_proof_needed', 'approved', 'delivered') THEN 1 ELSE 0 END)`,
+    })
+      .from(leads)
+      .where(sql`${leads.seasonalSegment} IS NOT NULL`)
+      .groupBy(leads.seasonalSegment)
+      .having(sql`COUNT(*) >= 3`)
+      .orderBy(sql`conversions DESC`);
+
+    const lines: string[] = [];
+
+    const sourceRows = sourceStats.filter(r => r.total >= 3);
+    if (sourceRows.length > 0) {
+      lines.push("ICP WIN/LOSS BY LEAD SOURCE:");
+      for (const r of sourceRows.slice(0, 8)) {
+        const rate = r.total > 0 ? Math.round((r.conversions / r.total) * 100) : 0;
+        const tier = rate >= 20 ? "🟢 HIGH" : rate >= 10 ? "🟡 MED" : "🔴 LOW";
+        lines.push(`  ${r.source}: ${rate}% conversion (${r.conversions}/${r.total}) ${tier}`);
+      }
+    }
+
+    const segRows = segmentStats.filter(r => r.total >= 3);
+    if (segRows.length > 0) {
+      lines.push("");
+      lines.push("ICP WIN/LOSS BY SEGMENT:");
+      for (const r of segRows.slice(0, 8)) {
+        const rate = r.total > 0 ? Math.round((r.conversions / r.total) * 100) : 0;
+        const tier = rate >= 20 ? "🟢 HIGH" : rate >= 10 ? "🟡 MED" : "🔴 LOW";
+        lines.push(`  ${r.segment}: ${rate}% conversion (${r.conversions}/${r.total}) ${tier}`);
+      }
+    }
+
+    if (lines.length === 0) {
+      return "ICP DATA: Insufficient conversion data — fewer than 3 samples per source/segment. Use default prioritization.";
+    }
+
+    lines.unshift("=== ICP PROFILE (who actually buys) ===");
+    lines.push("");
+    lines.push("STRATEGIST INSTRUCTION: Leads from 🟢 HIGH sources/segments deserve faster follow-up and more personalized outreach. Leads from 🔴 LOW sources are lower priority — use lighter-touch cadence.");
+
+    return lines.join("\n");
+  } catch (err) {
+    console.error("[ICP] Error building ICP learning context:", err);
+    return "";
+  }
+}

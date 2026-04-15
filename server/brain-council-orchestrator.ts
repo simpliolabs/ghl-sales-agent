@@ -657,9 +657,31 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
     // ============================================================
     if (strategy.approach === 'graceful_exit') {
       console.log(`[SalesManager] \u{1F6D1} GRACEFUL EXIT — blocking send for lead ${input.leadId}. Reason: ${strategy.reasoning}`);
-      // Set humanTakeover to prevent future automated outreach
+      // Set humanTakeover=1 AND pipelineStage=not_qualified.
+      // CRITICAL: Setting the stage here ensures the terminal stage guard in
+      // handleHumanActive (action-dispatcher.ts) suppresses the Human Handoff
+      // notification. Without this, a soft-declining lead stays in "New Lead"
+      // and the Human Handoff fires as if a human agent took over.
+      // Setting not_qualified also makes the lead eligible for long-term email nurture.
       const { updateLeadFields } = await import("./db");
-      await updateLeadFields(input.leadId, { humanTakeover: 1 });
+      await updateLeadFields(input.leadId, {
+        humanTakeover: 1,
+        pipelineStage: "not_qualified",
+      });
+      // Update GHL opportunity stage to Not Qualified (best effort)
+      try {
+        const leadRow = context.lead;
+        if (leadRow?.ghlOpportunityId && leadRow?.ghlPipelineId) {
+          const { updateOpportunityStage } = await import("./ghl");
+          const { getNqStageId } = await import("../shared/ghl-stages");
+          const nqStageId = getNqStageId(leadRow.ghlPipelineId);
+          if (nqStageId) {
+            await updateOpportunityStage(leadRow.ghlOpportunityId, nqStageId);
+            console.log(`[SalesManager] \u{1F6D1} GRACEFUL EXIT — lead ${input.leadId} GHL stage updated to Not Qualified`);
+          }
+        }
+      } catch { /* best effort GHL update */ }
+      console.log(`[SalesManager] \u{1F6D1} GRACEFUL EXIT — lead ${input.leadId} moved to not_qualified. Eligible for long-term email nurture.`);
       // Log the audit with blocked status
       await addBrainCouncilAudit({
         leadId: input.leadId,

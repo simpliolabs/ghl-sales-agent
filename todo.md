@@ -1086,3 +1086,25 @@
 - [x] handleHumanActive in action-dispatcher.ts: Lost stage guard suppresses Human Handoff notification
 - [x] 17 new tests in server/lost-lead-nurture.test.ts — all passing
 - [x] 806 total tests passing (36 test files)
+
+## Bug Fixes & Upgrades — Apr 15 2026 (Ground-Up)
+
+- [ ] Fix A: graceful_exit sets pipelineStage=not_qualified + GHL opportunity update (Arnita DeShields bug)
+- [ ] Fix B: Stale-lead cap in scheduling-engine core (90+ days silent + 30+ day delay → cap 7 days, cadencePosition=5)
+- [ ] Fix C: DB correction — reschedule all currently-stale leads (Nancy Pollinger + all similar leads)
+- [ ] Fix D: SLA dedup → DB column lastSlaAlertAt + 6h minimum (survives restarts)
+- [ ] Fix E: SLA alert → GHL task for assigned agent ONLY — remove owner email entirely
+- [ ] Fix F: Payment notification dedup (lastPaymentNotifiedAt column, 6h minimum)
+- [ ] Fix G: Hard constraints block in Strategist prompt (absolute rules, not advice)
+- [ ] Fix H: ICP Win/Loss learning — track conversion by segment, inject into Strategist
+
+## Bug Fixes & Upgrades — Apr 15, 2026
+
+- [x] Fix A: graceful_exit → set pipelineStage=not_qualified + GHL stage update (suppresses Human Handoff notification)
+- [x] Fix B: Stale-lead cap — system-wide rule in scheduling engine (90+ days silent + 30+ day delay → cap at 7 days)
+- [x] Fix C: DB correction — 174 stale leads rescheduled from Jun/Jul 2026 to 7 days out
+- [x] Fix D: SLA dedup → DB-backed (lastSlaAlertAt column), 6h minimum, owner email REMOVED entirely
+- [x] Fix E: SLA alerts → GHL task for assigned agent ONLY (no owner email)
+- [x] Fix F: Payment notification dedup — lastPaymentNotifiedAt column, 6h minimum per lead
+- [x] Fix G: Hard constraints block already in Strategist prompt (confirmed present, no change needed)
+- [x] Fix H: ICP Win/Loss learning — buildIcpLearningContext() added to outcome-engine, injected into Strategist

@@ -43,7 +43,7 @@ function getStageNotification(stage: string, leadName: string, extras?: Record<s
 // --- STAGE AUTOMATION: Team assignments and tasks ---
 export async function handleStageAutomation(
   stage: string,
-  lead: { id: number; ghlContactId: string; name: string | null; businessName: string | null; email: string | null; assignedAgent: string | null; pipelineValue: number | null },
+  lead: { id: number; ghlContactId: string; name: string | null; businessName: string | null; email: string | null; assignedAgent: string | null; pipelineValue: number | null; lastPaymentNotifiedAt?: Date | null },
   opportunityId?: string
 ) {
   const leadLabel = lead.name || lead.businessName || "Lead";
@@ -148,14 +148,24 @@ export async function handleStageAutomation(
         );
       } catch { /* best effort */ }
 
-      // 4. Notify owner
+      // 4. Notify owner — with dedup guard (6h minimum between notifications per lead)
+      // Prevents repeated notifications when GHL re-fires the webhook (e.g., test leads, workflow loops)
       try {
-        const { notifyOwner } = await import("./_core/notification");
-        await notifyOwner({
-          title: `💰 Payment received: ${leadLabel}`,
-          content: `${leadLabel} has paid. Order value: $${lead.pipelineValue || "N/A"}. Design proof assigned to ${DESIGNER}.`,
-          priority: "critical",
-        });
+        const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+        const lastNotified = lead.lastPaymentNotifiedAt ? new Date(lead.lastPaymentNotifiedAt).getTime() : 0;
+        const hoursSinceLast = (Date.now() - lastNotified) / (1000 * 60 * 60);
+        if (hoursSinceLast >= 6) {
+          const { notifyOwner } = await import("./_core/notification");
+          await notifyOwner({
+            title: `💰 Payment received: ${leadLabel}`,
+            content: `${leadLabel} has paid. Order value: $${lead.pipelineValue || "N/A"}. Design proof assigned to ${DESIGNER}.`,
+            priority: "critical",
+          });
+          // Update dedup timestamp
+          await updateLeadFields(lead.id, { lastPaymentNotifiedAt: new Date() });
+        } else {
+          console.log(`[Pipeline] Payment notification dedup: lead ${lead.id} already notified ${hoursSinceLast.toFixed(1)}h ago — skipping`);
+        }
       } catch { /* best effort */ }
       break;
     }

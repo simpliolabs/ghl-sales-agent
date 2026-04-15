@@ -44,6 +44,8 @@ export const leads = mysqlTable("leads", {
   lastReactivationAt: timestamp("lastReactivationAt"),
   lastSeasonalPushAt: timestamp("lastSeasonalPushAt"),
   lastLostNurtureAt: timestamp("lastLostNurtureAt"), // last quarterly re-engagement email sent to a Lost lead
+  lastSlaAlertAt: timestamp("lastSlaAlertAt"), // last SLA breach alert sent — DB-backed dedup (survives restarts), 6h minimum
+  lastPaymentNotifiedAt: timestamp("lastPaymentNotifiedAt"), // last payment notification fired — dedup, 6h minimum
   seasonalSegment: varchar("seasonalSegment", { length: 64 }), // which seasonal campaign last applied
   // Score decay tracking
   lastScoreDecayAt: timestamp("lastScoreDecayAt"),

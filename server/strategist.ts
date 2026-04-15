@@ -15,7 +15,7 @@
 
 import { invokeLLM } from "./_core/llm";
 import type { BrainCouncilInput, StrategyDecision, LeadContext } from "./brain-types";
-import { buildLearningContext } from "./outcome-engine";
+import { buildLearningContext, buildIcpLearningContext } from "./outcome-engine";
 import { getPromotedLearnings, getViolationAvoidanceRules } from "./learning-loop";
 import { getStrategistStageBlock } from "./stage-playbook";
 import { getTrainingCorpus, getPersonaGuidance } from "../shared/sales-training";
@@ -399,6 +399,21 @@ async function getLearningBlock(segment?: string | null): Promise<string> {
 // Cache promoted learnings for 10 minutes
 let _promotedCache: { text: string; expires: number } | null = null;
 
+// Cache ICP context for 15 minutes (changes slowly — only updates when new orders come in)
+let _icpCache: { text: string; expires: number } | null = null;
+
+async function getIcpBlock(): Promise<string> {
+  if (_icpCache && Date.now() < _icpCache.expires) return _icpCache.text;
+  try {
+    const text = await buildIcpLearningContext();
+    _icpCache = { text, expires: Date.now() + 15 * 60 * 1000 };
+    return text;
+  } catch (err) {
+    console.error('[Strategist] Failed to build ICP context:', err);
+    return '';
+  }
+}
+
 async function getViolationAvoidanceBlock(): Promise<string> {
   try {
     const text = await getViolationAvoidanceRules();
@@ -530,6 +545,8 @@ INCOMING MESSAGE:
 ${input.incomingMessage}
 
 ${await getLearningBlock(lead.omnisendSegment)}
+
+${await getIcpBlock()}
 
 ${await getPromotedLearningsBlock()}
 

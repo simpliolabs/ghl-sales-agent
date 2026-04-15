@@ -127,6 +127,13 @@
       "when": 1776261840767,
       "tag": "0017_stormy_korath",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1776264254657,
+      "tag": "0018_stale_silver_fox",
+      "breakpoints": true
     }
   ]
 }

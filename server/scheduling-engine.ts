@@ -662,8 +662,23 @@ export async function calculateNextFollowUp(input: SchedulingInput): Promise<Sch
   // ============================================================
   // PRIORITY 3: Reply Recency Cadence (has conversation, no active reply)
   // ============================================================
-  if (hasConversation && !hasActiveConversation) {
-    const cadence = calculateSilenceCadence(daysSinceLastOutbound, consecutiveUnanswered, score);
+   if (hasConversation && !hasActiveConversation) {
+    let cadence = calculateSilenceCadence(daysSinceLastOutbound, consecutiveUnanswered, score);
+    // ============================================================
+    // STALE LEAD CAP (ground-up rule — applies to ALL leads)
+    // If a lead has been silent for 90+ days AND the cadence would
+    // schedule them 30+ more days out, that compounds the neglect.
+    // Cap the delay to 7 days and use reactivation cadence (position 5).
+    // This prevents dormant leads from being pushed further and further
+    // into the future every time the scheduler runs.
+    // ============================================================
+    if (daysSinceLastOutbound >= 90 && cadence.delayHours >= 30 * 24) {
+      cadence = {
+        delayHours: 7 * 24, // 7 days — reactivation window
+        cadencePosition: 5,
+        reason: `Lead silent ${Math.round(daysSinceLastOutbound)}d — stale-lead cap applied (was ${Math.round(cadence.delayHours / 24)}d delay) → reactivation in 7 days`,
+      };
+    }
     const followUpDate = new Date(Date.now() + cadence.delayHours * 60 * 60 * 1000);
     const adjustedDate = pushToNextBusinessHour(followUpDate, selectChannel(
       cadence.cadencePosition,
@@ -672,7 +687,6 @@ export async function calculateNextFollowUp(input: SchedulingInput): Promise<Sch
       !!lead.phone,
       !!lead.email,
     ));
-
     return {
       nextFollowUpAt: adjustedDate,
       reason: `[P3 Silence Cadence] ${cadence.reason}`,
