@@ -454,29 +454,34 @@ export function getNextBusinessHoursSlot(
   const get = (t: string) => parseInt(parts.find(p => p.type === t)?.value || "0", 10);
   let hour = get("hour");
   let minute = get("minute");
-  let dayOfWeek = fromDate.getDay(); // 0=Sun
+  // Use ET-based day of week (not UTC) to handle midnight ET / early AM UTC edge cases
+  const etDateStr = fromDate.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "short" });
+  const etDayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  let dayOfWeek = etDayMap[etDateStr] ?? fromDate.getDay();
 
   // Clone the date in UTC and compute ET offset
   const d = new Date(fromDate);
 
-  // Helper: advance to 9:00 AM ET on the next business day
+  // Helper: advance to 9:30 AM ET on the next business day
   const advanceToNextBusinessDay = () => {
     do {
       d.setDate(d.getDate() + 1);
       dayOfWeek = d.getDay();
     } while (dayOfWeek === 0 || dayOfWeek === 6); // skip weekends
-    // Set to 9:00 AM ET
+    // Set to 9:30 AM ET (business opens at 9:30 AM)
     const etNow = new Date(d.toLocaleString("en-US", { timeZone: "America/New_York" }));
     const offset = d.getTime() - etNow.getTime();
     const target = new Date(d);
-    target.setHours(9, 0, 0, 0);
+    target.setHours(9, 30, 0, 0);
     const result = new Date(target.getTime() + offset);
     return result;
   };
 
-  // Check if current time is within business hours
+  // Check if current time is within business hours (Mon-Fri 9:30 AM - 5:00 PM ET)
   const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
-  const isBusinessHours = isWeekday && hour >= 9 && hour < 17;
+  const isAfterOpen = hour > 9 || (hour === 9 && minute >= 30); // >= 9:30 AM
+  const isBeforeClose = hour < 17; // < 5:00 PM
+  const isBusinessHours = isWeekday && isAfterOpen && isBeforeClose;
 
   let start: Date;
   if (isBusinessHours) {
@@ -501,12 +506,12 @@ export function getNextBusinessHoursSlot(
     }
   } else {
     // Outside business hours — find next business day at 9 AM
-    if (isWeekday && hour < 9) {
-      // Same day, just set to 9 AM ET
+    if (isWeekday && (hour < 9 || (hour === 9 && minute < 30))) {
+      // Same day, just set to 9:30 AM ET (business opens at 9:30 AM)
       const etNow = new Date(d.toLocaleString("en-US", { timeZone: "America/New_York" }));
       const offset = d.getTime() - etNow.getTime();
       const target = new Date(d);
-      target.setHours(9, 0, 0, 0);
+      target.setHours(9, 30, 0, 0);
       start = new Date(target.getTime() + offset);
     } else {
       start = advanceToNextBusinessDay();
@@ -524,22 +529,44 @@ export function getNextBusinessHoursSlot(
     const pParts = etFormatter.formatToParts(start);
     const pHour = parseInt(pParts.find(p => p.type === "hour")?.value || "0", 10);
     const pMin = parseInt(pParts.find(p => p.type === "minute")?.value || "0", 10);
-    if (pHour >= 17) {
-      // Pointer is at or past end of business day (5 PM) — advance to next business day at 9 AM
+    if (pHour >= 17 || (pHour < 9) || (pHour === 9 && pMin < 30)) {
+      // Pointer is outside business hours — advance to next business day at 9:30 AM
       const dPtr = new Date(start);
-      do { dPtr.setDate(dPtr.getDate() + 1); } while (dPtr.getDay() === 0 || dPtr.getDay() === 6);
+      if (pHour >= 17) {
+        // Past end of day — advance to next business day
+        do { dPtr.setDate(dPtr.getDate() + 1); } while (dPtr.getDay() === 0 || dPtr.getDay() === 6);
+      }
+      // else: before 9:30 AM on a weekday — same day, just set to 9:30 AM
       const etPtr = new Date(dPtr.toLocaleString("en-US", { timeZone: "America/New_York" }));
       const offsetPtr = dPtr.getTime() - etPtr.getTime();
       const targetPtr = new Date(dPtr);
-      targetPtr.setHours(9, 0, 0, 0);
+      targetPtr.setHours(9, 30, 0, 0);
       start = new Date(targetPtr.getTime() + offsetPtr);
     }
+  }
+
+  // SAFETY: Never book before 9:30 AM ET or after 5:00 PM ET (catches any edge case above)
+  const safetyParts = etFormatter.formatToParts(start);
+  const safetyHour = parseInt(safetyParts.find(p => p.type === "hour")?.value || "0", 10);
+  const safetyMin = parseInt(safetyParts.find(p => p.type === "minute")?.value || "0", 10);
+  if (safetyHour < 9 || (safetyHour === 9 && safetyMin < 30) || safetyHour >= 17) {
+    console.warn(`[SlotQueue] ⚠️ Safety clamp: slot ${toETOffsetString(start)} is outside business hours — advancing to 9:30 AM`);
+    const dSafe = new Date(start);
+    if (safetyHour >= 17) {
+      do { dSafe.setDate(dSafe.getDate() + 1); } while (dSafe.getDay() === 0 || dSafe.getDay() === 6);
+    }
+    const etSafe = new Date(dSafe.toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const offsetSafe = dSafe.getTime() - etSafe.getTime();
+    const targetSafe = new Date(dSafe);
+    targetSafe.setHours(9, 30, 0, 0);
+    start = new Date(targetSafe.getTime() + offsetSafe);
   }
 
   const end = new Date(start.getTime() + 10 * 60_000); // 10-minute slot
 
   // Advance the per-agent pointer to the end of this slot
   agentSlotPointers.set(agentKey, end.getTime());
+
   console.log(`[SlotQueue] Agent '${agentKey}' booked slot: ${toETOffsetString(start)} → ${toETOffsetString(end)}`);
 
   // Persist pointer to DB so it survives server restarts

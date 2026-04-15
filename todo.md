@@ -1059,3 +1059,17 @@
 - [x] Fix: Add deterministic QC guard (hallucinated_fact) to block any message containing "The CEO Store"
 - [x] Fix: HORMOZI_ACA context guard now mirrors QC's exact ackTokens logic — requires businessName OR formData OR convHistory (not just lead.name)
 - [x] All 785 tests passing
+
+## CRITICAL BUG: 8 AM Appointment Slot (Apr 15, 2026)
+- [ ] Toni M Hurst got appointment at 8:00 AM EST — before business hours (9:30 AM)
+- [ ] Trace the exact code path that generated the 8 AM slot
+- [ ] Fix slot scheduler to enforce 9:30 AM start time as hard constraint
+- [ ] Add test: no slot should ever be before 9:30 AM ET
+
+## BUG FIX: Slot Scheduler 9:30 AM Start Time (Apr 15, 2026)
+- [x] Fix getNextBusinessHoursSlot: change start time from 9:00 AM to 9:30 AM (Mon-Fri 9:30 AM - 5:00 PM ET)
+- [x] Fix isBusinessHours check: hour > 9 || (hour === 9 && minute >= 30) instead of hour >= 9
+- [x] Fix dayOfWeek to use ET-based day (not UTC) to handle midnight ET / early AM UTC edge cases
+- [x] Add safety clamp: if slot is outside business hours, advance to 9:30 AM (catches all edge cases)
+- [x] Move end time computation and pointer update to AFTER safety clamp
+- [x] Update ghl-slot.test.ts to reflect 9:30 AM start time (789 tests passing)
