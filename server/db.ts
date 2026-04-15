@@ -122,6 +122,29 @@ export async function getLeadsDueForFollowUp() {
   ));
 }
 
+/**
+ * Returns Lost leads that have a valid email and are due for quarterly re-engagement.
+ * Criteria:
+ *   - pipelineStage = 'lost'
+ *   - email is not null/empty
+ *   - emailUnsubscribed = 0
+ *   - dndEmail is null or empty (not blocked)
+ *   - lastLostNurtureAt is NULL (never nurtured) OR older than 90 days
+ * Max 5 per cycle to avoid GHL rate limits.
+ */
+export async function getLostLeadsForNurture(limit = 5) {
+  const db = await getDb();
+  if (!db) return [];
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+  return db.select().from(leads).where(and(
+    sql`COALESCE(${leads.pipelineStage}, 'new_lead') = 'lost'`,
+    sql`${leads.email} IS NOT NULL AND ${leads.email} != ''`,
+    eq(leads.emailUnsubscribed, 0),
+    sql`(${leads.dndEmail} IS NULL OR ${leads.dndEmail} = '')`,
+    sql`(${leads.lastLostNurtureAt} IS NULL OR ${leads.lastLostNurtureAt} < ${ninetyDaysAgo})`,
+  )).limit(limit);
+}
+
 export async function updateLeadScore(leadId: number, score: number) {
   const db = await getDb();
   if (!db) return;

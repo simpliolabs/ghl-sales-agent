@@ -1073,3 +1073,16 @@
 - [x] Add safety clamp: if slot is outside business hours, advance to 9:30 AM (catches all edge cases)
 - [x] Move end time computation and pointer update to AFTER safety clamp
 - [x] Update ghl-slot.test.ts to reflect 9:30 AM start time (789 tests passing)
+
+## Lost Lead Long-Term Nurture Routing (Apr 15, 2026)
+- [x] Confirmed: getLeadsDueForFollowUp() already excludes 'lost' stage (line 121 in db.ts)
+- [x] Added lastLostNurtureAt column to leads table (schema.ts + migration applied)
+- [x] Added getLostLeadsForNurture() to db.ts — queries Lost leads with email, not nurtured in 90+ days
+- [x] Created lost-lead-nurture.ts — email-only quarterly re-engagement engine (no Brain Council, no SMS, no notifications)
+- [x] 3 rotating email templates (social proof / new capability / direct re-engagement) — cycles via reactivationCount % 3
+- [x] Respects email DND and emailUnsubscribed flags
+- [x] Updates lastLostNurtureAt + increments reactivationCount after each successful send
+- [x] Registered daily cron job in index.ts (runs at 8 AM ET)
+- [x] handleHumanActive in action-dispatcher.ts: Lost stage guard suppresses Human Handoff notification
+- [x] 17 new tests in server/lost-lead-nurture.test.ts — all passing
+- [x] 806 total tests passing (36 test files)

@@ -405,9 +405,25 @@ async function handleFulfilled(ctx: DispatchContext): Promise<DispatchResult> {
  * Human agent is managing — ensure humanTakeover is set, ESCALATE existing
  * appointment/task to "Handoff" status.
  */
+// Terminal pipeline stages — no notifications, no tasks, no opportunities.
+const TERMINAL_STAGES_DISPATCH = new Set(["not_qualified", "lost", "dnc", "competitor_won"]);
+function isTerminalStageDispatch(stage: string | null | undefined): boolean {
+  return !!stage && TERMINAL_STAGES_DISPATCH.has(stage.toLowerCase());
+}
+
 async function handleHumanActive(ctx: DispatchContext, reason: string): Promise<DispatchResult> {
   const actions: string[] = [];
   const errors: string[] = [];
+
+  // GUARD: For terminal/lost leads, only set humanTakeover flag — no notifications, no tasks.
+  // Lost leads go to long-term email nurture, not human handoff queue.
+  if (isTerminalStageDispatch(ctx.pipelineStage)) {
+    try {
+      await updateLeadFields(ctx.leadId, { humanTakeover: 1, lastAgentActivityAt: new Date() });
+    } catch { /* best effort */ }
+    console.log(`[ActionDispatcher] Lead ${ctx.leadId}: Suppressing Human Handoff notification — lead is in terminal stage (${ctx.pipelineStage}). Routing to long-term nurture.`);
+    return { actionsExecuted: [`Suppressed handoff — lead is ${ctx.pipelineStage} (long-term nurture)`], errors: [], skipped: false };
+  }
 
   // 1. Set humanTakeover flag
   try {

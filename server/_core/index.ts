@@ -12,6 +12,7 @@ import { recalculateStaleSchedules } from "../scheduling-engine";
 import { runSlaCheck } from "../sla-timer";
 import { processPostDeliverySteps } from "../post-delivery-executor";
 import { processSeasonalCampaigns } from "../seasonal-campaign-executor";
+import { processLostLeadNurture } from "../lost-lead-nurture";
 import { warmSlotPointersFromCalendar } from "../ghl";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -198,6 +199,39 @@ async function startServer() {
       }
     }, STUCK_LOCK_INTERVAL);
     console.log(`[Cron] Stuck processing lock cleaner scheduled every ${STUCK_LOCK_INTERVAL / 60000} minutes`);
+
+    // --- CRON: Lost Lead Quarterly Nurture — runs once daily at 8 AM ET ---
+    // Sends a single re-engagement email to Lost leads not nurtured in 90+ days.
+    // Email-only, no Brain Council, no SMS, no owner notifications.
+    const LOST_NURTURE_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
+    // First run: delay until next 8 AM ET (or 5 minutes after startup if already past 8 AM)
+    const now = new Date();
+    const etHour = parseInt(new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/New_York' }).format(now));
+    const msUntilFirstRun = etHour < 8
+      ? (() => { const next8am = new Date(now); next8am.setHours(now.getHours() + (8 - etHour), 0, 0, 0); return next8am.getTime() - now.getTime(); })()
+      : 5 * 60 * 1000; // already past 8 AM — run in 5 minutes
+    setTimeout(async () => {
+      try {
+        const result = await processLostLeadNurture();
+        if (result.sent > 0 || result.errors > 0) {
+          console.log(`[LostNurture/Timer] Initial run: ${result.sent} sent, ${result.skipped} skipped, ${result.errors} errors`);
+        }
+      } catch (err) {
+        console.error(`[LostNurture/Timer] Initial run error:`, err);
+      }
+      // After first run, repeat every 24 hours
+      setInterval(async () => {
+        try {
+          const result = await processLostLeadNurture();
+          if (result.sent > 0 || result.errors > 0) {
+            console.log(`[LostNurture/Timer] Daily cycle: ${result.sent} sent, ${result.skipped} skipped, ${result.errors} errors`);
+          }
+        } catch (err) {
+          console.error(`[LostNurture/Timer] Daily cycle error:`, err);
+        }
+      }, LOST_NURTURE_INTERVAL);
+    }, msUntilFirstRun);
+    console.log(`[Cron] Lost lead nurture scheduled daily (first run in ${Math.round(msUntilFirstRun / 60000)} minutes)`);
   });
 }
 

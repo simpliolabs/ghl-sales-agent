@@ -43,6 +43,7 @@ export const leads = mysqlTable("leads", {
   reactivationCount: int("reactivationCount").default(0), // how many quarterly reactivation cycles
   lastReactivationAt: timestamp("lastReactivationAt"),
   lastSeasonalPushAt: timestamp("lastSeasonalPushAt"),
+  lastLostNurtureAt: timestamp("lastLostNurtureAt"), // last quarterly re-engagement email sent to a Lost lead
   seasonalSegment: varchar("seasonalSegment", { length: 64 }), // which seasonal campaign last applied
   // Score decay tracking
   lastScoreDecayAt: timestamp("lastScoreDecayAt"),

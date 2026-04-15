@@ -120,6 +120,13 @@
       "when": 1776168698690,
       "tag": "0016_steady_paper_doll",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1776261840767,
+      "tag": "0017_stormy_korath",
+      "breakpoints": true
     }
   ]
 }
