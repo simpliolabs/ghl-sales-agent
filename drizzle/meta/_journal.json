@@ -134,6 +134,20 @@
       "when": 1776264254657,
       "tag": "0018_stale_silver_fox",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "5",
+      "when": 1776267348702,
+      "tag": "0019_flimsy_gamma_corps",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "5",
+      "when": 1776267953389,
+      "tag": "0020_sour_praxagora",
+      "breakpoints": true
     }
   ]
 }

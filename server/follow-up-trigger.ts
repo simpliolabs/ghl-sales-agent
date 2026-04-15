@@ -477,7 +477,7 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
           const currentAiState = await getAiState(leadId);
           const newMsgCount = ((currentAiState as any)?.messageCount || 0) + 1;
           await upsertAiState(leadId, { lastAngleUsed: aiResponse.angle, lastFrameworkUsed: aiResponse.framework, extractedDates: aiResponse.extractedDates as unknown as undefined, messageCount: newMsgCount });
-          await updateLeadFields(leadId, { opportunityScore: aiResponse.score, omnisendSegment: aiResponse.segment, lastMessageAt: new Date(), lastOutboundChannel: actualChannel });
+          await updateLeadFields(leadId, { opportunityScore: aiResponse.score, omnisendSegment: aiResponse.segment, lastMessageAt: new Date(), lastOutboundChannel: actualChannel, lastEventTrigger: null });
           if (sendResult.correctionTaken) {
             console.log(`[FollowUp] ✅ Sent follow-up to lead ${leadId} (${leadName}) via ${actualChannel} [correction: ${sendResult.correctionTaken}]`);
           } else {

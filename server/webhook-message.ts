@@ -42,6 +42,8 @@ import {
 } from "./webhook-helpers";
 import { processInboundState, type ConversationState } from "./conversation-state";
 import { dispatchStateActions, buildDispatchContext } from "./action-dispatcher";
+import { shouldDeferResponse, getDeferredSendAt } from "./deferred-response-processor";
+import { insertDeferredResponse, hasPendingDeferredResponse } from "./db";
 
 export async function handleMessageWebhook(payload: Record<string, unknown>, res: Response) {
   const contactId = payload.contactId as string;
@@ -814,6 +816,46 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
       console.log(`[Webhook] TCPA gate: deferring SMS for lead ${lead!.id}`);
       await updateLeadFields(lead!.id, { nextFollowUpAt: nextSmsWindowStart() });
       res.json({ success: true, action: "tcpa_deferred", leadId: lead!.id });
+      return;
+    }
+  }
+
+  // --- AGENT-FIRST DELAY: Defer response for brand new leads during business hours ---
+  // During Mon-Fri 9am-5pm EST, brand new leads get a 15-minute window for the human agent
+  // to reach out first. The Brain Council has already run (appointment + task created),
+  // but the AI message is stored in deferred_responses instead of being sent immediately.
+  if (shouldDeferResponse(lead!, convHistory.length)) {
+    // Check if there's already a pending deferred response for this lead (prevent duplicates)
+    const alreadyDeferred = await hasPendingDeferredResponse(lead!.id);
+    if (!alreadyDeferred) {
+      const sendAt = getDeferredSendAt();
+      let deferChannel = normalizeChannel(aiResponse.channel || channel);
+      deferChannel = enforceMigratedChannel(lead!, deferChannel);
+      const emailSubject = deferChannel === "Email"
+        ? (aiResponse.subject || buildContextSubject({ name: lead!.name, businessName: lead!.businessName }, aiResponse.fromName))
+        : undefined;
+      const emailHtml = deferChannel === "Email" ? formatEmailHtml(aiResponse.message) : undefined;
+
+      await insertDeferredResponse({
+        leadId: lead!.id,
+        ghlContactId: resolvedContactId,
+        channel: deferChannel,
+        messageBody: aiResponse.message,
+        emailSubject,
+        emailHtml,
+        fromName: aiResponse.fromName || lead!.assignedAgent || undefined,
+        sendAt,
+        brainCouncilOutput: {
+          score: aiResponse.score,
+          segment: aiResponse.segment,
+          angle: aiResponse.angle,
+          framework: aiResponse.framework,
+          nextEngagementHours: aiResponse.nextEngagementHours,
+        },
+      });
+
+      console.log(`[Webhook/AgentFirst] ⏳ Deferred AI response for NEW lead ${lead!.id} (${lead!.name || "Unknown"}) — agent has 15min window until ${sendAt.toISOString()}`);
+      res.json({ success: true, action: "agent_first_deferred", sendAt: sendAt.toISOString() });
       return;
     }
   }

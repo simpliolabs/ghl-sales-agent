@@ -556,6 +556,14 @@ ${getStrategistStageBlock(lead.pipelineStage)}
 
 ${(context as any)._personaLearningBlock || ""}
 
+${(() => {
+  // Event-Driven Trigger context injection (Module 5A)
+  try {
+    const { buildEventTriggerContext } = require("./event-driven-triggers");
+    return buildEventTriggerContext(lead);
+  } catch { return ""; }
+})()}
+
 ${(context as any).tweakInstructions ? `=== ADMIN BEHAVIOR ADJUSTMENTS (MANDATORY — override defaults) ===
 ${(context as any).tweakInstructions}
 ` : ""}

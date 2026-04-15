@@ -686,7 +686,7 @@ async function _buildIcpLearningContextUncached(): Promise<string> {
       .where(sql`${leads.source} IS NOT NULL`)
       .groupBy(leads.source)
       .having(sql`COUNT(*) >= 3`)
-      .orderBy(sql`conversions DESC`);
+      .orderBy(sql`SUM(CASE WHEN ${leads.pipelineStage} IN ('Paid - Proof Needed', 'Approved + Deposit', 'Delivered', 'paid_proof_needed', 'approved', 'delivered') THEN 1 ELSE 0 END) DESC`);
 
     // Conversion by seasonal segment (church, corporate, school, etc.)
     const segmentStats = await db.select({
@@ -698,7 +698,7 @@ async function _buildIcpLearningContextUncached(): Promise<string> {
       .where(sql`${leads.seasonalSegment} IS NOT NULL`)
       .groupBy(leads.seasonalSegment)
       .having(sql`COUNT(*) >= 3`)
-      .orderBy(sql`conversions DESC`);
+      .orderBy(sql`SUM(CASE WHEN ${leads.pipelineStage} IN ('Paid - Proof Needed', 'Approved + Deposit', 'Delivered', 'paid_proof_needed', 'approved', 'delivered') THEN 1 ELSE 0 END) DESC`);
 
     const lines: string[] = [];
 

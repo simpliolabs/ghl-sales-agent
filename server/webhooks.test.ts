@@ -25,6 +25,8 @@ vi.mock("./db", () => ({
   isChannelDnd: vi.fn().mockResolvedValue(false),
   getBlockedChannels: vi.fn().mockResolvedValue([]),
   getAiState: vi.fn().mockResolvedValue({ messageCount: 0 }),
+  hasPendingDeferredResponse: vi.fn().mockResolvedValue(false),
+  insertDeferredResponse: vi.fn().mockResolvedValue({ id: 1 }),
 }));
 
 vi.mock("./ai-brain", () => ({
@@ -78,6 +80,11 @@ vi.mock("./action-dispatcher", () => ({
   dispatchActions: vi.fn().mockResolvedValue(undefined),
   dispatchStateActions: vi.fn().mockResolvedValue({ actions: [], executed: 0 }),
   buildDispatchContext: vi.fn().mockReturnValue({ leadId: 1, channel: "SMS", stage: "new_lead" }),
+}));
+
+vi.mock("./deferred-response-processor", () => ({
+  shouldDeferResponse: vi.fn().mockReturnValue(false),
+  getDeferredSendAt: vi.fn().mockReturnValue(new Date(Date.now() + 15 * 60 * 1000)),
 }));
 
 vi.mock("./learning-loop", () => ({

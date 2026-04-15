@@ -46,6 +46,8 @@ export const leads = mysqlTable("leads", {
   lastLostNurtureAt: timestamp("lastLostNurtureAt"), // last quarterly re-engagement email sent to a Lost lead
   lastSlaAlertAt: timestamp("lastSlaAlertAt"), // last SLA breach alert sent — DB-backed dedup (survives restarts), 6h minimum
   lastPaymentNotifiedAt: timestamp("lastPaymentNotifiedAt"), // last payment notification fired — dedup, 6h minimum
+  lastEventTrigger: varchar("lastEventTrigger", { length: 64 }), // event-driven trigger type that last rescheduled this lead
+  lastEventTriggerAt: timestamp("lastEventTriggerAt"), // when the event trigger last fired for this lead
   seasonalSegment: varchar("seasonalSegment", { length: 64 }), // which seasonal campaign last applied
   // Score decay tracking
   lastScoreDecayAt: timestamp("lastScoreDecayAt"),
@@ -539,3 +541,25 @@ export const postDeliverySequences = mysqlTable("post_delivery_sequences", {
 
 export type PostDeliverySequence = typeof postDeliverySequences.$inferSelect;
 export type InsertPostDeliverySequence = typeof postDeliverySequences.$inferInsert;
+
+// ============================================================
+// DEFERRED RESPONSES — Agent-first delay for new leads during business hours
+// ============================================================
+export const deferredResponses = mysqlTable("deferred_responses", {
+  id: int("id").autoincrement().primaryKey(),
+  leadId: int("leadId").notNull(),
+  ghlContactId: varchar("ghlContactId", { length: 128 }).notNull(),
+  channel: varchar("channel", { length: 32 }).notNull(), // SMS, Email, FB, etc.
+  messageBody: text("messageBody").notNull(),
+  emailSubject: varchar("emailSubject", { length: 512 }),
+  emailHtml: text("emailHtml"),
+  fromName: varchar("fromName", { length: 128 }),
+  sendAt: timestamp("sendAt").notNull(), // When the AI should send if no agent responds
+  status: varchar("status", { length: 16 }).default("pending").notNull(), // pending, sent, cancelled
+  cancelReason: varchar("cancelReason", { length: 128 }), // agent_responded, humanTakeover, etc.
+  brainCouncilOutput: json("brainCouncilOutput"), // Full BC output for post-send processing
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  processedAt: timestamp("processedAt"),
+});
+export type DeferredResponse = typeof deferredResponses.$inferSelect;
+export type InsertDeferredResponse = typeof deferredResponses.$inferInsert;

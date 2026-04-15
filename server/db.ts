@@ -1,6 +1,6 @@
 import { eq, desc, asc, gte, lte, and, or, ne, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, leads, conversations, aiState, pipelineEvents, agentAssignments, knowledgeFiles, aiTweaks, invites, webhookLogs, brainCouncilAudit, systemSettings, hallOfFame, channelPerformance, seasonalCampaigns, postDeliverySequences, messageOutcomes } from "../drizzle/schema";
+import { InsertUser, users, leads, conversations, aiState, pipelineEvents, agentAssignments, knowledgeFiles, aiTweaks, invites, webhookLogs, brainCouncilAudit, systemSettings, hallOfFame, channelPerformance, seasonalCampaigns, postDeliverySequences, messageOutcomes, deferredResponses } from "../drizzle/schema";
 import type { InsertLead } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { cached, conversationCache, contextCache, generalCache, patternCache } from './cache';
@@ -1191,4 +1191,62 @@ export async function getHumanTakeoverLeadsSilent(silentHours: number): Promise<
     }
   }
   return result;
+}
+
+// --- Deferred Responses (Agent-First Delay) ---
+
+export async function insertDeferredResponse(data: {
+  leadId: number;
+  ghlContactId: string;
+  channel: string;
+  messageBody: string;
+  emailSubject?: string;
+  emailHtml?: string;
+  fromName?: string;
+  sendAt: Date;
+  brainCouncilOutput?: unknown;
+}) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.insert(deferredResponses).values({
+    leadId: data.leadId,
+    ghlContactId: data.ghlContactId,
+    channel: data.channel,
+    messageBody: data.messageBody,
+    emailSubject: data.emailSubject || null,
+    emailHtml: data.emailHtml || null,
+    fromName: data.fromName || null,
+    sendAt: data.sendAt,
+    brainCouncilOutput: data.brainCouncilOutput || null,
+  });
+  return { id: result[0].insertId };
+}
+
+export async function getPendingDeferredResponses() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(deferredResponses).where(and(
+    eq(deferredResponses.status, "pending"),
+    sql`${deferredResponses.sendAt} <= NOW()`,
+  ));
+}
+
+export async function updateDeferredResponseStatus(id: number, status: "sent" | "cancelled", cancelReason?: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(deferredResponses).set({
+    status,
+    cancelReason: cancelReason || null,
+    processedAt: new Date(),
+  }).where(eq(deferredResponses.id, id));
+}
+
+export async function hasPendingDeferredResponse(leadId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const result = await db.select({ count: sql<number>`count(*)` }).from(deferredResponses).where(and(
+    eq(deferredResponses.leadId, leadId),
+    eq(deferredResponses.status, "pending"),
+  ));
+  return (result[0]?.count || 0) > 0;
 }

@@ -1108,3 +1108,36 @@
 - [x] Fix F: Payment notification dedup — lastPaymentNotifiedAt column, 6h minimum per lead
 - [x] Fix G: Hard constraints block already in Strategist prompt (confirmed present, no change needed)
 - [x] Fix H: ICP Win/Loss learning — buildIcpLearningContext() added to outcome-engine, injected into Strategist
+
+## Agent-First Delay — Apr 15 2026
+- [ ] 15-min delay for brand new leads during business hours (Mon-Fri 9am-5pm EST)
+- [ ] AI still schedules appointment and does setup, just holds first response
+- [ ] After 15 min, if agent hasn't responded, AI sends the message
+
+## Module 5A — Event-Driven Triggers — Apr 15 2026
+- [ ] Event trigger engine: email-opened-no-reply (48h) → reschedule within 24h
+- [ ] Event trigger engine: link-clicked-no-reply (24h) → reschedule within 4h
+- [ ] Event trigger engine: went-quiet-after-quote (72h) → reschedule within 48h
+- [ ] Register cron job for event trigger engine (every 30 min)
+- [ ] Tests for event-trigger-engine
+
+## Agent-First Delay + Event-Driven Triggers — Apr 15 2026
+
+- [x] 15-minute agent-first delay for brand new leads during business hours (Mon-Fri 9am-5pm EST)
+- [x] deferredResponses table + migration applied
+- [x] shouldDeferResponse() — business hours check, new lead check, humanTakeover check
+- [x] getDeferredSendAt() — 15 minutes from now
+- [x] deferred-response-processor.ts — cron every 2 min, checks for agent activity before sending
+- [x] Integrated into webhook-message.ts — defers instead of immediate send for qualifying leads
+- [x] 11 tests for deferred response processor — all passing
+- [x] Module 5A: Event-Driven Triggers engine
+- [x] lastEventTrigger + lastEventTriggerAt columns + migration applied
+- [x] Trigger 1: Email Opened but No Reply (48h) — reschedules to NOW
+- [x] Trigger 2: Email Link Clicked (4h) — reschedules to NOW (hot intent)
+- [x] Trigger 3: Quote Sent but No Response (48h) — reschedules to NOW
+- [x] Trigger 4: Engaged then Went Silent (72h) — reschedules to NOW
+- [x] buildEventTriggerContext() — injects trigger context into Strategist prompt
+- [x] Cron job registered — every 30 minutes
+- [x] Event trigger cleared after successful follow-up send
+- [x] 10 tests for event-driven triggers — all passing
+- [x] Total: 827 tests, 38 test files, 0 failures

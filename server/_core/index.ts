@@ -232,6 +232,39 @@ async function startServer() {
       }, LOST_NURTURE_INTERVAL);
     }, msUntilFirstRun);
     console.log(`[Cron] Lost lead nurture scheduled daily (first run in ${Math.round(msUntilFirstRun / 60000)} minutes)`);
+
+    // --- CRON: Process deferred responses (agent-first delay) every 2 minutes ---
+    const DEFERRED_INTERVAL = 2 * 60 * 1000; // 2 minutes
+    setInterval(async () => {
+      try {
+        const { processDeferredResponses } = await import("../deferred-response-processor");
+        const result = await processDeferredResponses();
+        if (result.sent > 0 || result.cancelled > 0) {
+          console.log(`[DeferredResponse/Timer] ${result.sent} sent, ${result.cancelled} cancelled, ${result.errors} errors`);
+        }
+      } catch (err) {
+        console.error("[DeferredResponse/Timer] Error:", err);
+      }
+    }, DEFERRED_INTERVAL);
+    console.log(`[Cron] Deferred response processor scheduled every ${DEFERRED_INTERVAL / 60000} minutes`);
+
+    // --- CRON: Event-Driven Triggers (Module 5A) every 30 minutes ---
+    const EVENT_TRIGGER_INTERVAL = 30 * 60 * 1000; // 30 minutes
+    setInterval(async () => {
+      try {
+        const { processEventDrivenTriggers } = await import("../event-driven-triggers");
+        const result = await processEventDrivenTriggers();
+        if (result.triggered > 0 || result.errors > 0) {
+          console.log(`[EventTrigger/Timer] ${result.triggered} triggered, ${result.skipped} skipped, ${result.errors} errors`);
+          for (const d of result.details) {
+            console.log(`  → ${d.trigger}: Lead ${d.leadId} (${d.leadName})`);
+          }
+        }
+      } catch (err) {
+        console.error("[EventTrigger/Timer] Error:", err);
+      }
+    }, EVENT_TRIGGER_INTERVAL);
+    console.log(`[Cron] Event-driven triggers scheduled every ${EVENT_TRIGGER_INTERVAL / 60000} minutes`);
   });
 }
 
