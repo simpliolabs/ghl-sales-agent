@@ -429,9 +429,20 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
       return;
     }
     
-    // Real human agent message — set humanTakeover
-    await updateLeadFields(lead!.id, { humanTakeover: 1, lastAgentActivityAt: new Date() });
-    console.log(`[Webhook] Real human outbound for lead ${lead!.id}: "${effectiveMessageBody.substring(0, 80)}" — humanTakeover=1`);
+    // Real human agent message — save to conversations AND set humanTakeover
+    // Extract agent name from payload if available (GHL sends userId/userName on outbound)
+    const agentName = (payload.userName as string) || (payload.userId as string) || "Agent";
+    await addConversation({
+      leadId: lead!.id,
+      channel: correctedChannel,
+      direction: "outbound",
+      messageBody: effectiveMessageBody,
+      senderType: "human",
+      senderName: agentName,
+      ghlMessageId: payload.messageId as string,
+    });
+    await updateLeadFields(lead!.id, { humanTakeover: 1, lastAgentActivityAt: new Date(), lastMessageAt: new Date() });
+    console.log(`[Webhook] Real human outbound for lead ${lead!.id} by ${agentName}: "${effectiveMessageBody.substring(0, 80)}" — humanTakeover=1, saved to conversations`);
     res.json({ success: true, action: "human_message_logged" });
     return;
   }
