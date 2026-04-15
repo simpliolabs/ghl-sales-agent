@@ -255,6 +255,9 @@ export const brainCouncilAudit = mysqlTable("brain_council_audit", {
   persona: varchar("persona", { length: 64 }),
   // Module 1: Conversation Stage Detection
   conversationStage: varchar("conversationStage", { length: 32 }),
+  // Module 4: Multi-Agent Deliberation
+  deliberationUsed: tinyint("deliberationUsed").default(0),
+  deliberationNote: text("deliberationNote"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

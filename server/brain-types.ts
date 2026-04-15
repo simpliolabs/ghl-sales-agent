@@ -136,6 +136,9 @@ export interface BrainCouncilOutput {
   persona?: string;       // Normalized persona (church, corporate, etc.)
   // Module 1: Conversation Stage Detection (SalesGPT pattern)
   conversationStage?: "introduction" | "qualification" | "value_proposition" | "objection_handling" | "negotiation" | "closing" | "post_sale" | "reactivation" | "lost";
+  // Module 4: Multi-Agent Deliberation
+  deliberationUsed?: boolean;
+  deliberationNote?: string;
 }
 
 export type ViolationCategory = "irrelevant_research" | "form_data_ignored" | "wrong_business" | "generic_opener" | "missing_framework" | "safety_violation" | "unanswered_question" | "info_not_acknowledged" | "repeated_question" | "repeated_opener" | "ignored_request" | "channel_mismatch" | "unverified_claim" | "context_free_subject" | "passive_reactivation" | "email_formatting" | "channel_switch_unacknowledged" | "referral_ask_in_inquiry" | "fresh_outreach_on_aged_lead" | "wrong_hours";
@@ -162,4 +165,6 @@ export type LeadContext = {
   // Original inbound channel — the channel the lead FIRST contacted us on (FB, SMS, Email, etc.)
   // Used for channel-switch context awareness in Composer and QC
   originalInboundChannel?: string | null;
+  // Module 2A: ICP Cadence Multiplier
+  icpTier?: "high" | "medium" | "low" | "unknown";
 };

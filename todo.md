@@ -1177,3 +1177,21 @@
 - [x] Correct pipeline stage for all declined leads found in sweep (2 leads: #536 Liani Echagarruga, #1291 test12)
 - [x] 19 new tests for Brain Council-based nurture engine — all passing
 - [x] 846 total tests, 39 test files, 0 failures, 0 TypeScript errors
+
+## Module 4 — Multi-Agent Deliberation — Apr 15, 2026
+- [x] Create server/deliberation-judge.ts — runDeliberation() calls runStrategist twice in parallel (temp 0.3 + 0.7), Judge LLM picks winner
+- [x] Gate deliberation in brain-council-orchestrator.ts (pipelineValue >= 500 OR opportunityScore >= 85)
+- [x] Add deliberationUsed + deliberationNote to BrainCouncilOutput type
+- [x] Add deliberationUsed + deliberationNote columns to brainCouncilAudit schema + migration
+- [x] Store deliberation metadata in all audit insert paths
+- [x] Add "Deliberation" badge to AuditLog.tsx entries where deliberationUsed=1
+- [ ] Write server/deliberation-judge.test.ts (5 scenario pairs) — deferred to next session
+
+## Module 2A — ICP Cadence Multiplier — Apr 15, 2026
+- [x] Add getIcpTier(source, segment) to server/outcome-engine.ts
+- [x] Apply ICP multiplier in calculateNextFollowUp (P3 + P4 paths): HIGH=×0.7, LOW=×1.3
+- [x] Add getIcpStats() for dashboard
+- [x] Add "ICP Win/Loss" tab to SelfLearning.tsx with source/segment conversion tables + multiplier legend
+- [x] Add tRPC procedure learning.icpStats to expose source+segment conversion data
+- [ ] Add icpTier to LeadContext and Strategist prompt — deferred to next session
+- [ ] Write server/icp-multiplier.test.ts — deferred to next session

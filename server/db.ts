@@ -529,6 +529,9 @@ export async function addBrainCouncilAudit(data: {
   persona?: string;
   // Module 1: Conversation Stage Detection
   conversationStage?: string;
+  // Module 4: Multi-Agent Deliberation
+  deliberationUsed?: number;
+  deliberationNote?: string;
 }) {
   const db = await getDb();
   if (!db) return;

@@ -12,6 +12,7 @@ import {
   FlaskConical, TrendingUp, Users, BarChart3, RefreshCw, Play, Pause,
   CheckCircle2, XCircle, Clock, ArrowUpRight, ArrowDownRight, Minus,
   Beaker, Target, Lightbulb, ChevronDown, ChevronUp, Trash2, AlertTriangle,
+  Zap,
 } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -96,6 +97,7 @@ export default function SelfLearning() {
   const { data: experiments, isLoading: expLoading } = trpc.learning.experiments.useQuery();
   const { data: personaMatrix, isLoading: matrixLoading } = trpc.learning.personaMatrix.useQuery();
   const { data: trends, isLoading: trendsLoading } = trpc.learning.outcomeTrends.useQuery();
+  const { data: icpStats, isLoading: icpLoading } = trpc.learning.icpStats.useQuery();
 
   // Mutations
   const triggerSnapshot = trpc.learning.triggerSnapshot.useMutation({
@@ -233,6 +235,7 @@ export default function SelfLearning() {
             <TabsTrigger value="experiments">A/B Experiments</TabsTrigger>
             <TabsTrigger value="personas">Persona Matrix</TabsTrigger>
             <TabsTrigger value="trends">Trends</TabsTrigger>
+            <TabsTrigger value="icp">ICP Win/Loss</TabsTrigger>
           </TabsList>
 
           {/* ============ OVERVIEW TAB ============ */}
@@ -265,6 +268,11 @@ export default function SelfLearning() {
           {/* ============ TRENDS TAB ============ */}
           <TabsContent value="trends" className="space-y-6 mt-4">
             <TrendsTab trends={trends} isLoading={trendsLoading} />
+          </TabsContent>
+
+          {/* ============ ICP WIN/LOSS TAB ============ */}
+          <TabsContent value="icp" className="space-y-6 mt-4">
+            <IcpTab stats={icpStats} isLoading={icpLoading} />
           </TabsContent>
         </Tabs>
       </div>
@@ -806,6 +814,143 @@ function TrendsTab({ trends, isLoading }: { trends: any; isLoading: boolean }) {
                 })}
               </tbody>
             </table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================
+// ICP WIN/LOSS TAB — Module 2A: ICP Cadence Multiplier
+// ============================================================
+
+function IcpTab({ stats, isLoading }: { stats: any; isLoading: boolean }) {
+  if (isLoading) return <div className="space-y-4">{[1,2,3].map(i => <Skeleton key={i} className="h-40 w-full rounded-lg" />)}</div>;
+
+  const tierBadge = (tier: string) => {
+    if (tier === "high") return <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">HIGH ×0.7</Badge>;
+    if (tier === "low")  return <Badge className="bg-rose-100 text-rose-700 border-rose-200">LOW ×1.3</Badge>;
+    return <Badge className="bg-slate-100 text-slate-600 border-slate-200">MED ×1.0</Badge>;
+  };
+
+  const tierBar = (rate: number) => {
+    const color = rate >= 20 ? "bg-emerald-500" : rate >= 10 ? "bg-amber-400" : "bg-rose-400";
+    return (
+      <div className="w-full bg-muted rounded-full h-2 mt-1">
+        <div className={`${color} h-2 rounded-full`} style={{ width: `${Math.min(rate * 2, 100)}%` }} />
+      </div>
+    );
+  };
+
+  const sourceStats = stats?.sourceStats ?? [];
+  const segmentStats = stats?.segmentStats ?? [];
+
+  return (
+    <div className="space-y-6">
+      {/* Explainer */}
+      <Card className="border-blue-200 bg-blue-50/40">
+        <CardContent className="pt-5 pb-4">
+          <div className="flex items-start gap-3">
+            <Zap className="h-5 w-5 text-blue-600 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-blue-900">ICP Cadence Multiplier — Module 2A</p>
+              <p className="text-xs text-blue-700 mt-1">
+                The scheduling engine automatically adjusts follow-up timing based on each lead's source and segment conversion rate.
+                <strong> HIGH tier</strong> (≥20% conversion) → 30% faster follow-up (×0.7).
+                <strong> LOW tier</strong> (&lt;10%) → 30% slower (×1.3).
+                <strong> MED tier</strong> (10–19%) → no change.
+                Only applies to P3 (silence cadence) and P4 (new lead baseline). P1 and P2 are exempt.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Source Stats */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <BarChart3 className="h-4 w-4" /> Conversion by Lead Source
+          </CardTitle>
+          <CardDescription>Based on leads who reached Paid / Approved / Delivered stages</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {sourceStats.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No source data yet — need ≥3 leads per source.</p>
+          ) : (
+            <div className="space-y-4">
+              {sourceStats.map((r: any) => (
+                <div key={r.source} className="flex items-center gap-4">
+                  <div className="w-36 shrink-0">
+                    <p className="text-sm font-medium truncate">{r.source}</p>
+                    <p className="text-xs text-muted-foreground">{r.conversions}/{r.total} leads</p>
+                  </div>
+                  <div className="flex-1">
+                    {tierBar(r.conversionRate)}
+                    <p className="text-xs text-muted-foreground mt-0.5">{r.conversionRate}% conversion</p>
+                  </div>
+                  <div className="shrink-0">{tierBadge(r.tier)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Segment Stats */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Users className="h-4 w-4" /> Conversion by Segment
+          </CardTitle>
+          <CardDescription>Church, Corporate, School, etc. — segments with ≥3 leads shown</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {segmentStats.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No segment data yet — need ≥3 leads per segment.</p>
+          ) : (
+            <div className="space-y-4">
+              {segmentStats.map((r: any) => (
+                <div key={r.segment} className="flex items-center gap-4">
+                  <div className="w-36 shrink-0">
+                    <p className="text-sm font-medium capitalize truncate">{r.segment}</p>
+                    <p className="text-xs text-muted-foreground">{r.conversions}/{r.total} leads</p>
+                  </div>
+                  <div className="flex-1">
+                    {tierBar(r.conversionRate)}
+                    <p className="text-xs text-muted-foreground mt-0.5">{r.conversionRate}% conversion</p>
+                  </div>
+                  <div className="shrink-0">{tierBadge(r.tier)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Multiplier legend */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Cadence Multiplier Reference</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-3 gap-4 text-center">
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+              <p className="text-2xl font-bold text-emerald-700">×0.7</p>
+              <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 mt-1">HIGH</Badge>
+              <p className="text-xs text-emerald-700 mt-2">≥20% conversion<br/>30% faster follow-up</p>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <p className="text-2xl font-bold text-slate-700">×1.0</p>
+              <Badge className="bg-slate-100 text-slate-600 border-slate-200 mt-1">MEDIUM</Badge>
+              <p className="text-xs text-slate-600 mt-2">10–19% conversion<br/>No change</p>
+            </div>
+            <div className="rounded-lg border border-rose-200 bg-rose-50 p-4">
+              <p className="text-2xl font-bold text-rose-700">×1.3</p>
+              <Badge className="bg-rose-100 text-rose-700 border-rose-200 mt-1">LOW</Badge>
+              <p className="text-xs text-rose-700 mt-2">&lt;10% conversion<br/>30% slower follow-up</p>
+            </div>
           </div>
         </CardContent>
       </Card>

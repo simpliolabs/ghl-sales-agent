@@ -30,6 +30,7 @@ import { conversations, leads, brainCouncilAudit, aiState } from "../drizzle/sch
 import { eq, desc, and, sql } from "drizzle-orm";
 import { buildLeadContext, invalidateLeadCache } from "./brain-context";
 import { runStrategist } from "./strategist";
+import { shouldUseDeliberation, runDeliberation } from "./deliberation-judge";
 import { runResearcher, emptyResearch } from "./researcher";
 import { runComposer } from "./composer";
 import { runCloser } from "./closer";
@@ -544,9 +545,22 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
       (context as any)._personaLearningBlock = personaLearningBlock;
     }
 
-    // BRAIN 1: STRATEGIST
-    console.log(`[SalesManager] Running Strategist...`);
-    const strategy = await runStrategist(input, context);
+    // BRAIN 1: STRATEGIST (with Module 4 Multi-Agent Deliberation for high-value leads)
+    const useDeliberation = shouldUseDeliberation(context.lead);
+    let deliberationUsed = false;
+    let deliberationNote: string | undefined;
+    let strategy: Awaited<ReturnType<typeof runStrategist>>;
+    if (useDeliberation) {
+      console.log(`[SalesManager] 🎯 HIGH-VALUE LEAD — Running Deliberation (value=$${context.lead.pipelineValue || 0}, score=${context.lead.opportunityScore || 0})...`);
+      const deliberationResult = await runDeliberation(input, context);
+      strategy = deliberationResult.strategy;
+      deliberationUsed = deliberationResult.deliberationUsed;
+      deliberationNote = deliberationResult.deliberationNote;
+      console.log(`[SalesManager] Deliberation: ${deliberationNote}`);
+    } else {
+      console.log(`[SalesManager] Running Strategist...`);
+      strategy = await runStrategist(input, context);
+    }
     console.log(`[SalesManager] Strategy: ${strategy.approach}/${strategy.framework}/${strategy.angle} (tier ${strategy.personalizationTier})`);
 
     // ============================================================
@@ -697,6 +711,9 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
         messageSent: 0,
         ownerNotified: 0,
         conversationStage: strategy.conversationStage,
+        // Module 4: Multi-Agent Deliberation
+        deliberationUsed: deliberationUsed ? 1 : 0,
+        deliberationNote: deliberationNote,
       });
       return {
         message: "",
@@ -1175,6 +1192,9 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
         fallbackUsed: 1,
         fallbackMessage: fallbackMsg,
         conversationStage: strategy.conversationStage,
+        // Module 4: Multi-Agent Deliberation
+        deliberationUsed: deliberationUsed ? 1 : 0,
+        deliberationNote: deliberationNote,
       });
 
       return {
@@ -1274,6 +1294,9 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
         persona,
         // Module 1: Conversation Stage Detection
         conversationStage: strategy.conversationStage,
+        // Module 4: Multi-Agent Deliberation
+        deliberationUsed: deliberationUsed ? 1 : 0,
+        deliberationNote: deliberationNote,
       });
     } catch (auditErr) {
       console.error('[SalesManager] Audit log error (non-fatal):', auditErr);

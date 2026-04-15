@@ -23,6 +23,7 @@ import {
   Bell,
   LifeBuoy,
   Wrench,
+  Zap,
 } from "lucide-react";
 
 type FilterTab = "all" | "approved" | "blocked" | "recomposed" | "violations" | "corrected";
@@ -294,6 +295,12 @@ export default function AuditLog() {
                               <Badge className="bg-yellow-100 text-yellow-700 text-xs shrink-0">
                                 <Bell className="h-3 w-3 mr-1" />
                                 Owner Notified
+                              </Badge>
+                            )}
+                            {(entry as any).deliberationUsed === 1 && (
+                              <Badge className="bg-violet-100 text-violet-700 border-violet-200 text-xs shrink-0" title={(entry as any).deliberationNote || "Dual-Strategist deliberation used"} >
+                                <Zap className="h-3 w-3 mr-1" />
+                                Deliberation
                               </Badge>
                             )}
                             {!isBlocked && (

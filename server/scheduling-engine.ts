@@ -15,6 +15,7 @@
 import { getDb } from "./db";
 import { leads, conversations, aiState } from "../drizzle/schema";
 import { eq, desc, and, sql, gte, lte, isNull } from "drizzle-orm";
+import { getIcpTier } from "./outcome-engine";
 
 // ============================================================
 // TYPES
@@ -679,7 +680,19 @@ export async function calculateNextFollowUp(input: SchedulingInput): Promise<Sch
         reason: `Lead silent ${Math.round(daysSinceLastOutbound)}d — stale-lead cap applied (was ${Math.round(cadence.delayHours / 24)}d delay) → reactivation in 7 days`,
       };
     }
-    const followUpDate = new Date(Date.now() + cadence.delayHours * 60 * 60 * 1000);
+    // ============================================================
+    // MODULE 2A: ICP CADENCE MULTIPLIER
+    // Apply multiplier based on lead source/segment conversion rate.
+    // high (>=20% conv) → ×0.7 (30% faster), low (<10%) → ×1.3 (30% slower)
+    // P1 (customer timeline) and P2 (AI suggested) are exempt.
+    // ============================================================
+    const icpTier = await getIcpTier(lead.source, lead.seasonalSegment);
+    const icpMultiplier = icpTier === "high" ? 0.7 : icpTier === "low" ? 1.3 : 1.0;
+    const icpAdjustedHours = Math.round(cadence.delayHours * icpMultiplier);
+    const icpNote = icpTier !== "unknown" && icpTier !== "medium"
+      ? ` [ICP:${icpTier.toUpperCase()} ×${icpMultiplier}]`
+      : "";
+    const followUpDate = new Date(Date.now() + icpAdjustedHours * 60 * 60 * 1000);
     const adjustedDate = pushToNextBusinessHour(followUpDate, selectChannel(
       cadence.cadencePosition,
       lead.source || null,
@@ -689,7 +702,7 @@ export async function calculateNextFollowUp(input: SchedulingInput): Promise<Sch
     ));
     return {
       nextFollowUpAt: adjustedDate,
-      reason: `[P3 Silence Cadence] ${cadence.reason}`,
+      reason: `[P3 Silence Cadence] ${cadence.reason}${icpNote}`,
       priority: 3,
       channel: selectChannel(cadence.cadencePosition, lead.source || null, lead.preferredChannel || null, !!lead.phone, !!lead.email),
       cadencePosition: cadence.cadencePosition,
@@ -702,12 +715,19 @@ export async function calculateNextFollowUp(input: SchedulingInput): Promise<Sch
   // ============================================================
   if (!hasConversation || input.triggerEvent === "new_lead" || input.triggerEvent === "bulk_backfill") {
     const baseline = calculateAgeScoreBaseline(leadAgeHours, score);
-    const followUpDate = new Date(Date.now() + baseline.delayHours * 60 * 60 * 1000);
+    // MODULE 2A: ICP multiplier also applies to P4 (new leads with no conversation)
+    const icpTierP4 = await getIcpTier(lead.source, lead.seasonalSegment);
+    const icpMultiplierP4 = icpTierP4 === "high" ? 0.7 : icpTierP4 === "low" ? 1.3 : 1.0;
+    const icpAdjustedHoursP4 = Math.round(baseline.delayHours * icpMultiplierP4);
+    const icpNoteP4 = icpTierP4 !== "unknown" && icpTierP4 !== "medium"
+      ? ` [ICP:${icpTierP4.toUpperCase()} ×${icpMultiplierP4}]`
+      : "";
+    const followUpDate = new Date(Date.now() + icpAdjustedHoursP4 * 60 * 60 * 1000);
     const adjustedDate = pushToNextBusinessHour(followUpDate, channel);
 
     return {
       nextFollowUpAt: adjustedDate,
-      reason: `[P4 Age+Score] ${baseline.reason}`,
+      reason: `[P4 Age+Score] ${baseline.reason}${icpNoteP4}`,
       priority: 4,
       channel,
       cadencePosition: 0,

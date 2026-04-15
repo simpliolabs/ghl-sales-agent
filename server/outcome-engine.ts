@@ -737,3 +737,150 @@ async function _buildIcpLearningContextUncached(): Promise<string> {
     return "";
   }
 }
+
+// =================================================================
+// MODULE 2A: ICP CADENCE MULTIPLIER
+// =================================================================
+
+/**
+ * Returns the ICP tier for a lead based on its source and/or segment conversion rate.
+ * Used by the scheduling engine to apply cadence multipliers.
+ *
+ * Multipliers applied in calculateNextFollowUp (P3 + P4 paths):
+ *   high   → ×0.7 (30% faster follow-up)
+ *   medium → ×1.0 (no change)
+ *   low    → ×1.3 (30% slower follow-up)
+ *   unknown → ×1.0 (no change — insufficient data)
+ */
+export async function getIcpTier(
+  source: string | null | undefined,
+  segment: string | null | undefined,
+): Promise<"high" | "medium" | "low" | "unknown"> {
+  const db = await getDb();
+  if (!db) return "unknown";
+
+  const conversionSql = sql<number>`SUM(CASE WHEN ${leads.pipelineStage} IN ('Paid - Proof Needed', 'Approved + Deposit', 'Delivered', 'paid_proof_needed', 'approved', 'delivered') THEN 1 ELSE 0 END)`;
+
+  try {
+    // Check source tier first (more specific signal)
+    if (source) {
+      const sourceRows = await db.select({
+        total: sql<number>`COUNT(*)`,
+        conversions: conversionSql,
+      })
+        .from(leads)
+        .where(sql`${leads.source} = ${source}`);
+      const row = sourceRows[0];
+      if (row && row.total >= 3) {
+        const rate = Math.round((row.conversions / row.total) * 100);
+        if (rate >= 20) return "high";
+        if (rate >= 10) return "medium";
+        return "low";
+      }
+    }
+
+    // Fall back to segment tier
+    if (segment) {
+      const segRows = await db.select({
+        total: sql<number>`COUNT(*)`,
+        conversions: conversionSql,
+      })
+        .from(leads)
+        .where(sql`${leads.seasonalSegment} = ${segment}`);
+      const row = segRows[0];
+      if (row && row.total >= 3) {
+        const rate = Math.round((row.conversions / row.total) * 100);
+        if (rate >= 20) return "high";
+        if (rate >= 10) return "medium";
+        return "low";
+      }
+    }
+
+    return "unknown";
+  } catch (err) {
+    console.error("[ICP] getIcpTier error:", err);
+    return "unknown";
+  }
+}
+
+export interface IcpSourceStat {
+  source: string;
+  total: number;
+  conversions: number;
+  conversionRate: number;
+  tier: "high" | "medium" | "low";
+  multiplier: number;
+}
+
+export interface IcpSegmentStat {
+  segment: string;
+  total: number;
+  conversions: number;
+  conversionRate: number;
+  tier: "high" | "medium" | "low";
+  multiplier: number;
+}
+
+export interface IcpStats {
+  sourceStats: IcpSourceStat[];
+  segmentStats: IcpSegmentStat[];
+  lastUpdated: Date;
+}
+
+/**
+ * Returns structured ICP stats for the dashboard (Self-Learning page ICP tab).
+ */
+export async function getIcpStats(): Promise<IcpStats> {
+  const db = await getDb();
+  if (!db) return { sourceStats: [], segmentStats: [], lastUpdated: new Date() };
+
+  const conversionSql = sql<number>`SUM(CASE WHEN ${leads.pipelineStage} IN ('Paid - Proof Needed', 'Approved + Deposit', 'Delivered', 'paid_proof_needed', 'approved', 'delivered') THEN 1 ELSE 0 END)`;
+
+  try {
+    const [rawSources, rawSegments] = await Promise.all([
+      db.select({
+        source: leads.source,
+        total: sql<number>`COUNT(*)`,
+        conversions: conversionSql,
+      })
+        .from(leads)
+        .where(sql`${leads.source} IS NOT NULL`)
+        .groupBy(leads.source)
+        .having(sql`COUNT(*) >= 3`)
+        .orderBy(sql`${conversionSql} DESC`),
+
+      db.select({
+        segment: leads.seasonalSegment,
+        total: sql<number>`COUNT(*)`,
+        conversions: conversionSql,
+      })
+        .from(leads)
+        .where(sql`${leads.seasonalSegment} IS NOT NULL`)
+        .groupBy(leads.seasonalSegment)
+        .having(sql`COUNT(*) >= 3`)
+        .orderBy(sql`${conversionSql} DESC`),
+    ]);
+
+    const toTier = (rate: number): "high" | "medium" | "low" =>
+      rate >= 20 ? "high" : rate >= 10 ? "medium" : "low";
+    const toMultiplier = (tier: "high" | "medium" | "low") =>
+      tier === "high" ? 0.7 : tier === "low" ? 1.3 : 1.0;
+
+    const sourceStats: IcpSourceStat[] = rawSources.map(r => {
+      const rate = r.total > 0 ? Math.round((r.conversions / r.total) * 100) : 0;
+      const tier = toTier(rate);
+      return { source: r.source!, total: r.total, conversions: r.conversions, conversionRate: rate, tier, multiplier: toMultiplier(tier) };
+    });
+
+    const segmentStats: IcpSegmentStat[] = rawSegments.map(r => {
+      const rate = r.total > 0 ? Math.round((r.conversions / r.total) * 100) : 0;
+      const tier = toTier(rate);
+      return { segment: r.segment!, total: r.total, conversions: r.conversions, conversionRate: rate, tier, multiplier: toMultiplier(tier) };
+    });
+
+    return { sourceStats, segmentStats, lastUpdated: new Date() };
+  } catch (err) {
+    console.error("[ICP] getIcpStats error:", err);
+    return { sourceStats: [], segmentStats: [], lastUpdated: new Date() };
+  }
+}

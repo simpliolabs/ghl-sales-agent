@@ -19,7 +19,7 @@ import { storagePut } from "./storage";
 import { getContacts, getPipelines } from "./ghl";
 import { invokeLLM } from "./_core/llm";
 import { scoreLeadQuick } from "./ai-brain";
-import { getPatternAnalysis, backfillOutcomes } from "./outcome-engine";
+import { getPatternAnalysis, backfillOutcomes, getIcpStats } from "./outcome-engine";
 import {
   createExperiment, listExperiments, evaluateExperiment,
   evaluateAllExperiments, setExperimentStatus,
@@ -471,6 +471,9 @@ export const appRouter = router({
       await generateDailySnapshot();
       return { success: true };
     }),
+
+    // --- Module 2A: ICP Cadence Multiplier Stats ---
+    icpStats: protectedProcedure.query(async () => getIcpStats()),
 
     // --- Combined Dashboard Data ---
     dashboardSummary: protectedProcedure.query(async () => {
