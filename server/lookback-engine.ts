@@ -248,8 +248,21 @@ export async function runLookback(options?: {
       and(
         eq(leads.humanTakeover, 0),
         sql`COALESCE(${leads.pipelineStage}, 'new_lead') NOT IN ('not_qualified', 'lost')`,
-        // HARD GATE: Skip imported/transferred contacts until they send an inbound message
-        sql`NOT (COALESCE(${leads.source}, '') IN ('transferred_contact', 'r', 'n', 'bulk_import') AND COALESCE(${leads.reactivatedFromMigration}, 0) = 0)`,
+        // HARD GATE 1 — Source-based: Skip imported/transferred contacts until they send an inbound message
+        sql`NOT (
+          COALESCE(${leads.source}, '') IN ('transferred_contact', 'r', 'n', 'bulk_import', 'Facebook', 'ghl', 'fb')
+          AND COALESCE(${leads.reactivatedFromMigration}, 0) = 0
+        )`,
+        // HARD GATE 2 — Age-based: Skip ANY lead older than 90 days with no inbound reply
+        sql`NOT (
+          ${leads.createdAt} < DATE_SUB(NOW(), INTERVAL 90 DAY)
+          AND COALESCE(${leads.reactivatedFromMigration}, 0) = 0
+          AND NOT EXISTS (
+            SELECT 1 FROM conversations c
+            WHERE c.leadId = ${leads.id}
+            AND c.direction = 'inbound'
+          )
+        )`,
         or(
           isNull(leads.lastResearchSummary),
           sql`${leads.lastResearchSummary} NOT LIKE '%[LOOKBACK]%'`
@@ -261,8 +274,21 @@ export async function runLookback(options?: {
       and(
         eq(leads.humanTakeover, 0),
         sql`COALESCE(${leads.pipelineStage}, 'new_lead') NOT IN ('not_qualified', 'lost')`,
-        // HARD GATE: Skip imported/transferred contacts until they send an inbound message
-        sql`NOT (COALESCE(${leads.source}, '') IN ('transferred_contact', 'r', 'n', 'bulk_import') AND COALESCE(${leads.reactivatedFromMigration}, 0) = 0)`,
+        // HARD GATE 1 — Source-based: Skip imported/transferred contacts until they send an inbound message
+        sql`NOT (
+          COALESCE(${leads.source}, '') IN ('transferred_contact', 'r', 'n', 'bulk_import', 'Facebook', 'ghl', 'fb')
+          AND COALESCE(${leads.reactivatedFromMigration}, 0) = 0
+        )`,
+        // HARD GATE 2 — Age-based: Skip ANY lead older than 90 days with no inbound reply
+        sql`NOT (
+          ${leads.createdAt} < DATE_SUB(NOW(), INTERVAL 90 DAY)
+          AND COALESCE(${leads.reactivatedFromMigration}, 0) = 0
+          AND NOT EXISTS (
+            SELECT 1 FROM conversations c
+            WHERE c.leadId = ${leads.id}
+            AND c.direction = 'inbound'
+          )
+        )`,
         leads.nextFollowUpAt ? lte(leads.nextFollowUpAt, new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)) : undefined,
       )
     ).orderBy(leads.nextFollowUpAt).limit(maxLeads);

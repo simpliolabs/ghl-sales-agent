@@ -17,7 +17,18 @@ import { updateLeadFields } from "./db";
 
 /** Source values used for contacts imported from the previous GHL account */
 export const MIGRATED_SOURCE = "transferred_contact";
-export const MIGRATED_SOURCES = ["transferred_contact", "r"];
+/**
+ * All source values that indicate a bulk-imported or migrated contact.
+ * These contacts are email-only until they send an inbound message (reactivatedFromMigration=1).
+ * - 'transferred_contact': main GHL account migration batch
+ * - 'r': old import batch (GHL single-letter code)
+ * - 'n': GHL bulk import with no source label
+ * - 'bulk_import': explicit bulk import tag
+ * - 'Facebook': Facebook Lead Ads import
+ * - 'ghl': generic GHL import
+ * - 'fb': Facebook shorthand import
+ */
+export const MIGRATED_SOURCES = ["transferred_contact", "r", "n", "bulk_import", "Facebook", "ghl", "fb"];
 
 /** Type for the lead object accepted by migration guard functions */
 type MigrationGuardLead = {

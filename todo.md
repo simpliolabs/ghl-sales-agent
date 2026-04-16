@@ -1239,13 +1239,15 @@
 - [x] Ghost lead #240004 (Hudson Grove Ame Zion) — no email/phone/value, dead GHL contact ID LucQ2gQTVMMhGmhUzZOZ — deleted from DB; real lead #240003 intact
 - [x] Human agent outbound messages NOT saved to conversations table — webhook-message.ts now calls addConversation(senderType=human, senderName=agentName) before returning; lead detail page now shows agent name instead of AI for human-sent messages
 
-## Critical Bug — Old Contacts Still Receiving AI Messages — Apr 15, 2026
-- [ ] Investigate David Jones: created date, message count, what scheduling rule allowed Apr 15 send
-- [ ] Identify root cause: age gate not enforced, or transferred_contact flag bypassing gate
-- [ ] Implement hard age gate: no AI outreach to leads created more than X days ago with no prior reply
-- [ ] Audit all leads currently in send queue that are older than the gate threshold and block them
+## Critical Bug — Old Contacts Still Receiving AI Messages — Apr 16, 2026
+- [x] Investigate root cause: getLeadsDueForFollowUp() Drizzle gate was not blocking leads because nextFollowUpAt was already set before the gate was added; also Facebook/ghl/fb sources were not in MIGRATED_SOURCES
+- [x] Identify affected leads: 2,409 leads older than 90 days with no inbound replies still in queue (transferred_contact: 1,059, r: 984, Facebook: 260, ghl: 80, fb: 16, others: 10)
+- [x] HARD GATE 1 (Source-based): getLeadsDueForFollowUp() and lookback-engine.ts now block all 7 import sources (transferred_contact, r, n, bulk_import, Facebook, ghl, fb) with reactivatedFromMigration=0
+- [x] HARD GATE 2 (Age-based): Both functions now also block ANY lead older than 90 days with no inbound conversations, regardless of source — catch-all for future import batches
+- [x] MIGRATED_SOURCES in webhook-helpers.ts expanded to include n, bulk_import, Facebook, ghl, fb — email-only channel enforcement now covers all 7 sources
+- [x] Cleared 2,409 leads from follow-up queue via raw SQL (SET nextFollowUpAt=NULL) — queue is now clean
 
-## Monthly Import Nurture — Apr 15, 2026
-- [ ] Add getImportedContactsDueForNurture query in db.ts — 30-day cadence, email only, reactivatedFromMigration=0
-- [ ] Wire monthly import nurture into lost-lead-nurture.ts run loop (separate from lost-lead quarterly)
-- [ ] Confirm enforceMigratedChannel blocks SMS/FB for all imported sources until reactivatedFromMigration=1
+## Monthly Import Nurture — Apr 16, 2026
+- [x] getImportedContactsDueForNurture query added in db.ts — 30-day cadence, email only, reactivatedFromMigration=0
+- [x] Monthly import nurture wired into lost-lead-nurture.ts (processImportedContactNurture) and timer registered in server/_core/index.ts
+- [x] enforceMigratedChannel now covers all 7 import sources (MIGRATED_SOURCES updated)
