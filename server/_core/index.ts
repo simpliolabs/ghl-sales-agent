@@ -12,7 +12,7 @@ import { recalculateStaleSchedules } from "../scheduling-engine";
 import { runSlaCheck } from "../sla-timer";
 import { processPostDeliverySteps } from "../post-delivery-executor";
 import { processSeasonalCampaigns } from "../seasonal-campaign-executor";
-import { processLostLeadNurture } from "../lost-lead-nurture";
+import { processLostLeadNurture, processImportedContactNurture } from "../lost-lead-nurture";
 import { warmSlotPointersFromCalendar } from "../ghl";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -232,6 +232,31 @@ async function startServer() {
       }, LOST_NURTURE_INTERVAL);
     }, msUntilFirstRun);
     console.log(`[Cron] Lost lead nurture scheduled daily (first run in ${Math.round(msUntilFirstRun / 60000)} minutes)`);
+
+    // --- CRON: Monthly import contact nurture (email-only, 30-day cadence) ---
+    // Runs every 6 hours — the DB query enforces the 30-day per-lead cooldown
+    const IMPORT_NURTURE_INTERVAL = 6 * 60 * 60 * 1000; // 6 hours
+    setTimeout(async () => {
+      try {
+        const result = await processImportedContactNurture();
+        if (result.sent > 0 || result.errors > 0) {
+          console.log(`[ImportNurture/Timer] Initial run: ${result.sent} sent, ${result.blocked} blocked, ${result.skipped} skipped, ${result.errors} errors`);
+        }
+      } catch (err) {
+        console.error(`[ImportNurture/Timer] Initial run error:`, err);
+      }
+      setInterval(async () => {
+        try {
+          const result = await processImportedContactNurture();
+          if (result.sent > 0 || result.errors > 0) {
+            console.log(`[ImportNurture/Timer] Cycle: ${result.sent} sent, ${result.blocked} blocked, ${result.skipped} skipped, ${result.errors} errors`);
+          }
+        } catch (err) {
+          console.error(`[ImportNurture/Timer] Cycle error:`, err);
+        }
+      }, IMPORT_NURTURE_INTERVAL);
+    }, 30 * 60 * 1000); // First run 30 minutes after server start
+    console.log(`[Cron] Monthly import contact nurture scheduled (first run in 30 minutes, then every 6 hours)`);
 
     // --- CRON: Process deferred responses (agent-first delay) every 2 minutes ---
     const DEFERRED_INTERVAL = 2 * 60 * 1000; // 2 minutes

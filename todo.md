@@ -1244,3 +1244,8 @@
 - [ ] Identify root cause: age gate not enforced, or transferred_contact flag bypassing gate
 - [ ] Implement hard age gate: no AI outreach to leads created more than X days ago with no prior reply
 - [ ] Audit all leads currently in send queue that are older than the gate threshold and block them
+
+## Monthly Import Nurture — Apr 15, 2026
+- [ ] Add getImportedContactsDueForNurture query in db.ts — 30-day cadence, email only, reactivatedFromMigration=0
+- [ ] Wire monthly import nurture into lost-lead-nurture.ts run loop (separate from lost-lead quarterly)
+- [ ] Confirm enforceMigratedChannel blocks SMS/FB for all imported sources until reactivatedFromMigration=1

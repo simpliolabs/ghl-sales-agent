@@ -131,9 +131,11 @@ export async function getLeadsDueForFollowUp() {
 }
 
 /**
- * Returns Lost leads that have a valid email and are due for quarterly re-engagement.
+ * Returns Lost leads (non-imported) that have a valid email and are due for quarterly re-engagement.
+ * Imported/transferred contacts are handled separately by getImportedContactsDueForNurture.
  * Criteria:
  *   - pipelineStage = 'lost'
+ *   - NOT an imported contact (source NOT IN transferred_contact, r, n, bulk_import)
  *   - email is not null/empty
  *   - emailUnsubscribed = 0
  *   - dndEmail is null or empty (not blocked)
@@ -146,10 +148,41 @@ export async function getLostLeadsForNurture(limit = 5) {
   const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
   return db.select().from(leads).where(and(
     sql`COALESCE(${leads.pipelineStage}, 'new_lead') = 'lost'`,
+    // Exclude imported contacts — they have their own monthly nurture path
+    sql`COALESCE(${leads.source}, '') NOT IN ('transferred_contact', 'r', 'n', 'bulk_import')`,
     sql`${leads.email} IS NOT NULL AND ${leads.email} != ''`,
     eq(leads.emailUnsubscribed, 0),
     sql`(${leads.dndEmail} IS NULL OR ${leads.dndEmail} = '')`,
     sql`(${leads.lastLostNurtureAt} IS NULL OR ${leads.lastLostNurtureAt} < ${ninetyDaysAgo})`,
+  )).limit(limit);
+}
+
+/**
+ * Returns imported/transferred contacts due for monthly re-engagement email.
+ * These contacts have never replied (reactivatedFromMigration=0) and get email-only
+ * outreach once per month until they activate.
+ * Criteria:
+ *   - source IN ('transferred_contact', 'r', 'n', 'bulk_import')
+ *   - reactivatedFromMigration = 0 (never replied)
+ *   - NOT in not_qualified or lost stage
+ *   - email is not null/empty
+ *   - emailUnsubscribed = 0
+ *   - dndEmail is null or empty
+ *   - lastLostNurtureAt is NULL OR older than 30 days
+ * Max 10 per cycle.
+ */
+export async function getImportedContactsDueForNurture(limit = 10) {
+  const db = await getDb();
+  if (!db) return [];
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  return db.select().from(leads).where(and(
+    sql`COALESCE(${leads.source}, '') IN ('transferred_contact', 'r', 'n', 'bulk_import')`,
+    sql`COALESCE(${leads.reactivatedFromMigration}, 0) = 0`,
+    sql`COALESCE(${leads.pipelineStage}, 'new_lead') NOT IN ('not_qualified', 'lost')`,
+    sql`${leads.email} IS NOT NULL AND ${leads.email} != ''`,
+    eq(leads.emailUnsubscribed, 0),
+    sql`(${leads.dndEmail} IS NULL OR ${leads.dndEmail} = '')`,
+    sql`(${leads.lastLostNurtureAt} IS NULL OR ${leads.lastLostNurtureAt} < ${thirtyDaysAgo})`,
   )).limit(limit);
 }
 

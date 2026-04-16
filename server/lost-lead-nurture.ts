@@ -23,6 +23,7 @@
 
 import {
   getLostLeadsForNurture,
+  getImportedContactsDueForNurture,
   updateLeadFields,
   addConversation,
   isAiOffline,
@@ -261,6 +262,130 @@ export async function processLostLeadNurture(): Promise<LostNurtureResult> {
     console.log(`${MODULE} Cycle complete: ${stats.sent} sent, ${stats.blocked} blocked, ${stats.skipped} skipped, ${stats.errors} errors`);
   }
 
+  return stats;
+}
+
+// ─── MONTHLY IMPORT NURTURE ─────────────────────────────────────────────────
+/**
+ * Sends a monthly re-engagement email to imported/transferred contacts that
+ * have never replied (reactivatedFromMigration=0). Email ONLY — no SMS, no FB.
+ * Uses the same Brain Council pipeline as lost-lead nurture.
+ */
+export async function processImportedContactNurture(): Promise<LostNurtureResult> {
+  const stats: LostNurtureResult = { processed: 0, sent: 0, skipped: 0, errors: 0, blocked: 0 };
+
+  try {
+    if (await isAiOffline()) {
+      console.log(`${MODULE}[Import] AI offline — skipping monthly import nurture cycle`);
+      return stats;
+    }
+  } catch {
+    console.warn(`${MODULE}[Import] isAiOffline check failed — skipping`);
+    return stats;
+  }
+
+  let importLeads: Awaited<ReturnType<typeof getImportedContactsDueForNurture>>;
+  try {
+    importLeads = await getImportedContactsDueForNurture(10);
+  } catch (err) {
+    console.error(`${MODULE}[Import] DB query failed:`, err);
+    return stats;
+  }
+
+  if (importLeads.length === 0) return stats;
+
+  console.log(`${MODULE}[Import] Found ${importLeads.length} imported contacts due for monthly email`);
+
+  for (const lead of importLeads) {
+    stats.processed++;
+    const leadId = lead.id;
+    const ghlContactId = lead.ghlContactId;
+    const leadName = lead.name || "Unknown";
+
+    if (!ghlContactId || !lead.email) {
+      stats.skipped++;
+      continue;
+    }
+
+    try {
+      // Load conversation history
+      const convHistory = await getConversationHistory(leadId, 50);
+      let historyStr = convHistory.map((c: any) =>
+        `[${c.senderType === "ai" ? "ai" : c.direction === "inbound" ? "lead" : "agent"}/${c.channel}] ${c.messageBody}`
+      ).join("\n");
+
+      // Fast-path: skip if lead explicitly declined
+      const allMessages = convHistory.map((c: any) => c.messageBody || "").join(" ");
+      if (NOT_INTERESTED_PATTERNS.some(p => p.test(allMessages))) {
+        console.log(`${MODULE}[Import] Lead ${leadId} (${leadName}) — not-interested detected, skipping`);
+        stats.blocked++;
+        await updateLeadFields(leadId, { lastLostNurtureAt: new Date() });
+        continue;
+      }
+
+      // Run Brain Council — email only, monthly import context
+      const triggerContext = `[SYSTEM] This is a monthly re-engagement email for an imported contact who has not yet replied. ` +
+        `Channel: Email ONLY. Do NOT use SMS or WhatsApp. ` +
+        `Be warm, curiosity-driven, and value-focused. Do NOT be pushy or salesy. ` +
+        `Reference Adorb's work with similar businesses if possible. Keep it short — 3-4 sentences max. ` +
+        `If the lead previously declined or expressed disinterest, respond with graceful_exit.`;
+      const brainResult = await runBrainCouncil({
+        leadId,
+        incomingMessage: triggerContext,
+        channel: "Email",
+        externalHistory: historyStr,
+      });
+
+      if (!brainResult || brainResult.blocked) {
+        console.log(`${MODULE}[Import] Lead ${leadId} (${leadName}) — Brain Council blocked send: ${brainResult?.blockReason || "unknown"}`);
+        stats.blocked++;
+        await updateLeadFields(leadId, { lastLostNurtureAt: new Date() });
+        continue;
+      }
+
+      // Send email via GHL
+      const subject = brainResult.subject || `A quick note from Adorb Custom Printing`;
+      const htmlBody = formatEmailHtml(brainResult.message || "");
+      const sendResult = await sendMessage(ghlContactId, {
+        type: "Email",
+        subject,
+        html: htmlBody,
+        fromName: BRAND.defaultAgentName,
+      });
+
+      if (sendResult.blocked) {
+        console.warn(`${MODULE}[Import] Lead ${leadId} (${leadName}) email blocked: ${sendResult.reason}`);
+        stats.skipped++;
+        continue;
+      }
+
+      // Update lastLostNurtureAt so it won't fire again for 30 days
+      await updateLeadFields(leadId, {
+        lastLostNurtureAt: new Date(),
+        reactivationCount: ((lead as any).reactivationCount ?? 0) + 1,
+        lastOutboundChannel: "Email",
+      });
+
+      // Log to conversations
+      await addConversation({
+        leadId,
+        channel: "Email",
+        direction: "outbound",
+        messageBody: brainResult.message || "",
+        senderType: "ai",
+        senderName: BRAND.defaultAgentName,
+        emailMessageId: (sendResult as any).messageId || undefined,
+      });
+
+      stats.sent++;
+      console.log(`${MODULE}[Import] ✅ Sent monthly email to lead ${leadId} (${leadName}) — subject: "${subject}"`);
+    } catch (err) {
+      console.error(`${MODULE}[Import] Error processing lead ${leadId}:`, err);
+      stats.errors++;
+    }
+  }
+
+  console.log(`${MODULE}[Import] Cycle complete: ${stats.sent} sent, ${stats.blocked} blocked, ${stats.skipped} skipped, ${stats.errors} errors`);
   return stats;
 }
 
