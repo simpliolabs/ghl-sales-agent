@@ -989,7 +989,8 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
     if (strategy.channel === "Email" && composed.message) {
       const msg = composed.message;
       const hasNewlines = msg.includes("\n");
-      const hasSignature = msg.includes("---") || msg.includes("Adorb Custom Printing");
+      // Anchor on brand domain/name only — "---" is too generic and can appear in message body
+      const hasSignature = msg.includes("adorbcustomtees.com") || msg.includes("Adorb Custom Printing");
       
       if (!hasNewlines && msg.length > 80) {
         // Email is one long paragraph — structurally break it up

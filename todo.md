@@ -1251,3 +1251,8 @@
 - [x] getImportedContactsDueForNurture query added in db.ts — 30-day cadence, email only, reactivatedFromMigration=0
 - [x] Monthly import nurture wired into lost-lead-nurture.ts (processImportedContactNurture) and timer registered in server/_core/index.ts
 - [x] enforceMigratedChannel now covers all 7 import sources (MIGRATED_SOURCES updated)
+
+## Bugs — Apr 22, 2026
+- [x] BUG FIX: Facebook-sourced leads receiving first-contact via Email instead of FB — root cause: hintChannel fallback in follow-up-trigger.ts defaulted to SMS when preferredChannel/lastOutboundChannel were null; enforceMigratedChannel blocked SMS, triggering Email fallback. Fix: added exported sourceToChannel() to webhook-helpers.ts as single source of truth; updated follow-up-trigger.ts and lookback-engine.ts to use it.
+- [x] BUG FIX: Outbound emails missing agent signature block — root cause: follow-up-trigger.ts called formatEmailHtml() directly, bypassing ensureEmailSignature(). Fix: now calls ensureEmailSignature() + {AGENT} replacement before formatEmailHtml(). Also tightened hasSignature check in brain-council-orchestrator.ts to anchor on brand domain/name only (removed generic '---' anchor).
+- [x] Unit tests: 19 new tests in server/channel-routing.test.ts covering sourceToChannel(), ensureEmailSignature(), and full email send path

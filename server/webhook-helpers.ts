@@ -703,13 +703,26 @@ export const MAX_LLM_RETRIES = 10;
  * - Preserves existing HTML if the message already contains tags
  */
 /**
+ * Maps a GHL contact source string to the correct first-contact outbound channel.
+ * Single source of truth — used by follow-up-trigger and lookback-engine.
+ */
+export function sourceToChannel(source: string | null | undefined): string {
+  if (!source) return "SMS";
+  const s = source.toLowerCase();
+  if (s.includes("facebook") || s === "fb" || s.includes("lead_form")) return "FB";
+  if (s.includes("instagram") || s === "ig") return "IG";
+  if (s.includes("email")) return "Email";
+  if (s.includes("whatsapp")) return "WhatsApp";
+  return "SMS";
+}
+
+/**
  * Ensures the plain-text message contains the Adorb email signature block.
- * If the signature separator (---) is missing, appends the full signature.
  */
 export function ensureEmailSignature(message: string): string {
   if (!message) return message;
-  // Check if signature already present (look for the --- separator + brand name)
-  if (message.includes('---') && (message.includes('Adorb Custom Printing') || message.includes('adorbcustomtees.com'))) {
+  // Anchor on brand domain/name only — "---" alone is too generic
+  if (message.includes('adorbcustomtees.com') || message.includes('Adorb Custom Printing')) {
     return message;
   }
   // Append standard signature

@@ -29,7 +29,7 @@ import {
 import { runResearcher, emptyResearch } from "./researcher";
 import { buildLeadContext } from "./brain-context";
 import { calculateNextFollowUp } from "./scheduling-engine";
-import { enforceMigratedChannel } from "./webhook-helpers";
+import { enforceMigratedChannel, sourceToChannel } from "./webhook-helpers";
 import { leads, aiState } from "../drizzle/schema";
 import { eq, isNull, and, or, lte, sql, isNotNull } from "drizzle-orm";
 
@@ -403,13 +403,11 @@ export async function runLookback(options?: {
         // originally came through a Facebook lead form.
         let resolvedChannel = analysis.recommendedChannel;
         if (!historyStr && lead.source) {
-          const src = (lead.source as string).toLowerCase();
-          if (src.includes("facebook") || src.includes("fb") || src.includes("lead_form")) {
-            resolvedChannel = "FB";
-            console.log(`[Lookback] SOURCE CHANNEL OVERRIDE for lead ${leadId}: source='${lead.source}' → channel=FB (no conversation history)`);
-          } else if (src.includes("instagram") || src.includes("ig")) {
-            resolvedChannel = "IG";
-            console.log(`[Lookback] SOURCE CHANNEL OVERRIDE for lead ${leadId}: source='${lead.source}' → channel=IG (no conversation history)`);
+          // Use the centralised sourceToChannel() — single source of truth in webhook-helpers
+          const srcChannel = sourceToChannel(lead.source as string);
+          if (srcChannel !== "SMS") {
+            resolvedChannel = srcChannel;
+            console.log(`[Lookback] SOURCE CHANNEL OVERRIDE for lead ${leadId}: source='${lead.source}' → channel=${srcChannel} (no conversation history)`);
           }
         }
         // MIGRATED LEAD RESTRICTION: Force email-only for transferred contacts until they re-engage

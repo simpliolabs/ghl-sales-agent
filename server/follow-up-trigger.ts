@@ -18,7 +18,7 @@ import { getLeadsDueForFollowUp, getConversationHistory, updateLeadFields, addCo
 import { runBrainCouncil } from "./brain-council-orchestrator";
 import { calculateNextFollowUp, checkRateLimits, capDate, checkDnc } from "./scheduling-engine";
 import { sendMessage, addNote, fetchGhlConversationHistory, getContact } from "./ghl";
-import { sendMessageWithRetry, normalizeChannel, extractFormData, isLlmExhausted, LLM_RETRY_DELAY_MS, formatEmailHtml, buildContextSubject, enforceMigratedChannel } from "./webhook-helpers";
+import { sendMessageWithRetry, normalizeChannel, extractFormData, isLlmExhausted, LLM_RETRY_DELAY_MS, formatEmailHtml, buildContextSubject, enforceMigratedChannel, sourceToChannel, ensureEmailSignature } from "./webhook-helpers";
 import { shouldHandoffToAgent, estimateOrderValue, generateContactNotes } from "./ai-brain";
 import { notifyOwner } from "./_core/notification";
 import { handleChannelDnc, detectDncChannel } from "./channel-fallback";
@@ -230,10 +230,21 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
             hintChannel = normalizeChannel(bestChannel);
             console.log(`[FollowUp] Lead ${leadId}: Channel intelligence recommends ${hintChannel} (based on reply history)`);
           } else {
-            hintChannel = normalizeChannel((lead as any).preferredChannel || (lead as any).lastOutboundChannel || "SMS");
+            // sourceToChannel() is the single source of truth — imported from webhook-helpers.
+            // For brand-new leads with no preferredChannel/lastOutboundChannel, map source → channel
+            // so Facebook leads get FB, Instagram leads get IG, etc.
+            hintChannel = (lead as any).preferredChannel
+              ? normalizeChannel((lead as any).preferredChannel)
+              : (lead as any).lastOutboundChannel
+              ? normalizeChannel((lead as any).lastOutboundChannel)
+              : normalizeChannel(sourceToChannel((lead as any).source));
           }
         } catch {
-          hintChannel = normalizeChannel((lead as any).preferredChannel || (lead as any).lastOutboundChannel || "SMS");
+          hintChannel = (lead as any).preferredChannel
+            ? normalizeChannel((lead as any).preferredChannel)
+            : (lead as any).lastOutboundChannel
+              ? normalizeChannel((lead as any).lastOutboundChannel)
+              : normalizeChannel(sourceToChannel((lead as any).source));
         }
         if (isDormant) {
           console.log(`[FollowUp] Lead ${leadId} dormant ${Math.round(daysSinceLastActivity)}d (${dormancyTier}) — Brain Council will decide channel`);
@@ -462,8 +473,12 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
           // Use the prior subject with Re: prefix (unless it already has one)
           normalSubject = priorEmailSubject.startsWith("Re:") ? priorEmailSubject : `Re: ${priorEmailSubject}`;
         }
+        // BUG FIX: always run ensureEmailSignature before HTML conversion so the
+        // signature block is guaranteed present even if the Composer forgot it.
+        const agentFirst = (aiResponse.fromName || assignedAgent || "").split(" ")[0];
+        const signedMsg = ensureEmailSignature(aiResponse.message).replace(/\{AGENT\}/g, agentFirst);
         const msgOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
-          ? { type: "Email", subject: normalSubject, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName, ...(emailThreadId ? { threadId: emailThreadId, replyMessageId: emailThreadId } : {}) }
+          ? { type: "Email", subject: normalSubject, html: formatEmailHtml(signedMsg), fromName: aiResponse.fromName, ...(emailThreadId ? { threadId: emailThreadId, replyMessageId: emailThreadId } : {}) }
           : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
         const sendResult = await sendMessageWithRetry(ghlContactId, msgOpts, { email: (lead as any).email, phone: (lead as any).phone, id: leadId });
 
