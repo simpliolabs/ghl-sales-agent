@@ -876,6 +876,208 @@ function getViolationFixAdvice(category: string): string {
 }
 
 // =================================================================
+// 8. AGENT SUCCESS LEARNING — Extract patterns from human agent wins
+// =================================================================
+
+import { invokeLLM } from "./_core/llm";
+
+interface AgentPattern {
+  patternKey: string;
+  description: string;
+  details: string;
+  suggestedAction: string;
+}
+
+/**
+ * When a lead with human agent messages reaches a "won" terminal stage,
+ * extract the agent's conversation patterns and record them as learnings.
+ * The AI can then learn from what Abby/Chris do when they close deals.
+ */
+export async function extractAgentPatterns(leadId: number): Promise<AgentPattern[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  try {
+    // Get the lead info
+    const [lead] = await db.select()
+      .from(leads)
+      .where(eq(leads.id, leadId))
+      .limit(1);
+    if (!lead) return [];
+
+    // Get all conversation messages for this lead
+    const allConvos = await db.select({
+      direction: conversations.direction,
+      messageBody: conversations.messageBody,
+      senderType: conversations.senderType,
+      senderName: conversations.senderName,
+      channel: conversations.channel,
+      timestamp: conversations.timestamp,
+    })
+      .from(conversations)
+      .where(eq(conversations.leadId, leadId))
+      .orderBy(conversations.timestamp);
+
+    // Filter to only human agent outbound + lead inbound messages
+    const agentMessages = allConvos.filter(c => c.senderType === "human" && c.direction === "outbound");
+    const leadMessages = allConvos.filter(c => c.senderType === "lead" && c.direction === "inbound");
+
+    if (agentMessages.length === 0) return [];
+
+    // Build conversation transcript for LLM analysis
+    const transcript = allConvos
+      .filter(c => c.senderType === "human" || c.senderType === "lead")
+      .map(c => {
+        const role = c.senderType === "human" ? `Agent (${c.senderName || "Agent"})` : "Customer";
+        const time = c.timestamp ? new Date(c.timestamp).toLocaleString() : "";
+        return `[${time}] ${role} (${c.channel}): ${(c.messageBody || "").substring(0, 500)}`;
+      })
+      .join("\n");
+
+    if (transcript.length < 50) return []; // Too short to analyze
+
+    // Use LLM to extract patterns
+    const response = await invokeLLM({
+      messages: [
+        {
+          role: "system",
+          content: `You are a sales pattern analyst for Adorb Custom Printing (custom t-shirts, apparel, DTF transfers).
+Analyze this successful sales conversation between a human agent and a customer that resulted in a CLOSED DEAL.
+Extract the specific patterns that led to the successful close.
+
+Return a JSON array of patterns, each with:
+- patternKey: a stable snake_case identifier (e.g., "agent.opener.reference_specific_product", "agent.close.confirm_timeline")
+- description: one-sentence description of the pattern
+- details: 2-3 sentences explaining what the agent did and why it worked
+- suggestedAction: actionable instruction the AI should follow to replicate this pattern
+
+Focus on:
+1. Opening approach — how did the agent start the conversation?
+2. Objection handling — how did they handle pushback or silence?
+3. Closing technique — what sealed the deal?
+4. Tone and style — formal/casual, message length, emoji use
+5. Key phrases or value propositions that resonated
+6. Channel strategy — did they switch channels effectively?
+
+Return 3-6 patterns maximum. Only extract clear, replicable patterns.`,
+        },
+        {
+          role: "user",
+          content: `Lead: ${lead.name || "Unknown"} (${(lead as any).companyName || "Unknown company"})
+Product interest: ${(lead as any).productInterest || "custom apparel"}
+Pipeline stage: ${lead.pipelineStage || "delivered"}
+Agent messages: ${agentMessages.length}, Customer messages: ${leadMessages.length}
+
+Full conversation transcript:
+${transcript}`,
+        },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "agent_patterns",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: {
+              patterns: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    patternKey: { type: "string", description: "Stable snake_case identifier" },
+                    description: { type: "string", description: "One-sentence description" },
+                    details: { type: "string", description: "2-3 sentence explanation" },
+                    suggestedAction: { type: "string", description: "Actionable instruction for AI" },
+                  },
+                  required: ["patternKey", "description", "details", "suggestedAction"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ["patterns"],
+            additionalProperties: false,
+          },
+        },
+      },
+    });
+
+    const content = response.choices?.[0]?.message?.content;
+    if (!content) return [];
+
+    const parsed = JSON.parse(String(content));
+    const patterns: AgentPattern[] = (parsed.patterns || []).slice(0, 6);
+
+    console.log(`[LearningLoop/Agent] Extracted ${patterns.length} patterns from agent success for lead ${leadId}`);
+    return patterns;
+  } catch (err) {
+    console.error(`[LearningLoop/Agent] Error extracting agent patterns for lead ${leadId}:`, err);
+    return [];
+  }
+}
+
+/**
+ * Record agent-extracted patterns into the learnings table.
+ * These patterns will be picked up by runPromotionScan() and promoted
+ * alongside AI-discovered patterns when they recur across multiple deals.
+ */
+export async function recordAgentLearning(leadId: number, patterns: AgentPattern[]): Promise<number> {
+  const db = await getDb();
+  if (!db || patterns.length === 0) return 0;
+
+  let recorded = 0;
+  const now = Date.now();
+
+  for (const pattern of patterns) {
+    try {
+      // Check if this pattern already exists
+      const [existing] = await db.select()
+        .from(learnings)
+        .where(eq(learnings.patternKey, pattern.patternKey))
+        .limit(1);
+
+      if (existing) {
+        // Increment recurrence + positive outcomes (agent wins are always positive)
+        await db.update(learnings)
+          .set({
+            recurrenceCount: sql`${learnings.recurrenceCount} + 1`,
+            positiveOutcomes: sql`${learnings.positiveOutcomes} + 1`,
+            updatedAt: now,
+            // Boost priority faster for agent-sourced patterns (they are proven in the field)
+            priority: (existing.recurrenceCount || 0) + 1 >= 2 ? "high" : "medium",
+          })
+          .where(eq(learnings.id, existing.id));
+        console.log(`[LearningLoop/Agent] Updated pattern: ${pattern.patternKey} (recurrence=${(existing.recurrenceCount || 0) + 1})`);
+      } else {
+        // Create new agent-sourced pattern
+        const record: InsertLearning = {
+          patternKey: pattern.patternKey,
+          category: "best_practice",
+          description: pattern.description,
+          details: pattern.details,
+          suggestedAction: pattern.suggestedAction,
+          recurrenceCount: 1,
+          positiveOutcomes: 1,
+          negativeOutcomes: 0,
+          priority: "medium", // Start at medium since agent patterns are pre-validated
+          source: "agent_success",
+          createdAt: now,
+          updatedAt: now,
+        };
+        await db.insert(learnings).values(record);
+        console.log(`[LearningLoop/Agent] New agent pattern: ${pattern.patternKey}`);
+      }
+      recorded++;
+    } catch (err) {
+      console.error(`[LearningLoop/Agent] Error recording pattern ${pattern.patternKey}:`, err);
+    }
+  }
+
+  console.log(`[LearningLoop/Agent] Recorded ${recorded}/${patterns.length} agent patterns from lead ${leadId}`);
+  return recorded;
+}
+
+// =================================================================
 // EXPORTS for testing
 // =================================================================
 export { generatePatternKeys, PROMOTION_THRESHOLD, DEMOTION_THRESHOLD, MIN_SAMPLE_SIZE, MAX_PROMOTED_RULES, getViolationFixAdvice };

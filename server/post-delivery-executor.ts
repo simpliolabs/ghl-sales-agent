@@ -152,12 +152,18 @@ export async function processPostDeliverySteps(): Promise<{ processed: number; s
           stats.errors++;
           // Self-healing: record send failure into error-memory
           try {
-            const { recordError } = await import("./error-memory");
+            const { recordError, tryApplyKnownFix } = await import("./error-memory");
             await recordError({
               errorType: "post_delivery_error",
               errorMessage: `Post-delivery ${step.stepType} send failed for lead ${step.leadId}: ${sendResult.error}`,
               context: `leadId=${step.leadId} stepType=${step.stepType} channel=${channel} error=${sendResult.error}`,
             });
+            const heal = await tryApplyKnownFix("post_delivery_error", `${sendResult.error}`, `channel=${channel}`);
+            if (heal.action === "switch_channel" && heal.channel) {
+              console.log(`[PostDelivery/Heal] Auto-heal: switching to ${heal.channel} for lead ${step.leadId}`);
+            } else if (heal.action !== "none") {
+              console.log(`[PostDelivery/Heal] Auto-heal: ${heal.action} for lead ${step.leadId}`);
+            }
           } catch { /* best effort */ }
         }
       } catch (err) {
@@ -166,12 +172,16 @@ export async function processPostDeliverySteps(): Promise<{ processed: number; s
         stats.errors++;
         // Self-healing: record processing error into error-memory
         try {
-          const { recordError } = await import("./error-memory");
+          const { recordError, tryApplyKnownFix } = await import("./error-memory");
           await recordError({
             errorType: "post_delivery_error",
             errorMessage: `Post-delivery step ${step.id} processing error: ${err instanceof Error ? err.message : String(err)}`,
             context: `stepId=${step.id} leadId=${step.leadId} stepType=${step.stepType}`,
           });
+          const heal = await tryApplyKnownFix("post_delivery_error", `${err instanceof Error ? err.message : String(err)}`, `stepType=${step.stepType}`);
+          if (heal.action !== "none") {
+            console.log(`[PostDelivery/Heal] Auto-heal: ${heal.action} for step ${step.id}`);
+          }
         } catch { /* best effort */ }
       }
     }

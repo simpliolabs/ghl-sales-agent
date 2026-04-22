@@ -497,6 +497,83 @@ export async function getErrorStats(): Promise<{
 }
 
 // =================================================================
+// 7. AUTO-HEAL — Look up known fix and return corrective action
+// =================================================================
+
+export type HealAction = "none" | "wait_and_retry" | "switch_channel" | "retry_with_instruction" | "skip";
+
+export interface HealResult {
+  action: HealAction;
+  waitMs?: number;
+  channel?: string;
+  instruction?: string;
+  fixDescription?: string;
+}
+
+const HEAL_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour — max 1 auto-heal per error per hour
+const recentHeals = new Map<string, number>(); // signature → last heal timestamp
+
+/**
+ * Before retrying a failed operation, check if there is a known fix and return
+ * a corrective action the caller can apply. Safe to call from any error path —
+ * wrapped in try/catch, returns { action: "none" } on any failure.
+ *
+ * Callers should:
+ *   const heal = await tryApplyKnownFix(type, msg, ctx);
+ *   if (heal.action === "wait_and_retry") await sleep(heal.waitMs);
+ *   if (heal.action === "switch_channel") channel = heal.channel;
+ *   if (heal.action === "skip") continue;
+ */
+export async function tryApplyKnownFix(
+  errorType: ErrorType,
+  errorMessage: string,
+  context?: string
+): Promise<HealResult> {
+  const none: HealResult = { action: "none" };
+  try {
+    const lookup = await getKnownFix(errorType, errorMessage, context);
+    if (!lookup.found || !lookup.knownFix) return none;
+
+    // Cooldown guard — prevent heal loops
+    const lastHeal = recentHeals.get(lookup.signature);
+    if (lastHeal && Date.now() - lastHeal < HEAL_COOLDOWN_MS) {
+      console.log(`[ErrorMemory/Heal] Cooldown active for ${lookup.signature} — skipping auto-heal`);
+      return none;
+    }
+
+    const fix = lookup.knownFix.toLowerCase();
+    let result: HealResult;
+
+    if (fix.includes("wait") || fix.includes("backoff") || fix.includes("retry after")) {
+      const waitMatch = fix.match(/(\d+)\s*second/);
+      const waitMs = waitMatch ? parseInt(waitMatch[1]) * 1000 : 60_000;
+      result = { action: "wait_and_retry", waitMs, fixDescription: lookup.knownFix };
+    } else if (fix.includes("fall back") || fix.includes("fallback") || fix.includes("alternate channel") || fix.includes("channel")) {
+      // Determine alternate channel from context
+      const channel = context?.includes("SMS") ? "Email" : context?.includes("Email") ? "SMS" : "Email";
+      result = { action: "switch_channel", channel, fixDescription: lookup.knownFix };
+    } else if (fix.includes("re-run") || fix.includes("rerun") || fix.includes("instruction") || fix.includes("explicit")) {
+      result = { action: "retry_with_instruction", instruction: lookup.knownFix, fixDescription: lookup.knownFix };
+    } else if (fix.includes("skip") || fix.includes("mark") || fix.includes("ignore")) {
+      result = { action: "skip", fixDescription: lookup.knownFix };
+    } else {
+      // Known fix exists but no actionable pattern — log it for visibility
+      console.log(`[ErrorMemory/Heal] Known fix found but no auto-action: ${lookup.knownFix}`);
+      return none;
+    }
+
+    // Record the heal attempt
+    recentHeals.set(lookup.signature, Date.now());
+    await markFixApplied(lookup.signature);
+    console.log(`[ErrorMemory/Heal] Auto-healing: ${result.action} for ${errorType} (${lookup.signature})`);
+    return result;
+  } catch (err) {
+    console.error("[ErrorMemory/Heal] tryApplyKnownFix error (non-fatal):", err);
+    return none;
+  }
+}
+
+// =================================================================
 // HELPERS
 // =================================================================
 

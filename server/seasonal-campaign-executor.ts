@@ -90,12 +90,18 @@ export async function processSeasonalCampaigns(): Promise<{ campaignsProcessed: 
             stats.errors++;
             // Self-healing: record into error-memory
             try {
-              const { recordError } = await import("./error-memory");
+              const { recordError, tryApplyKnownFix } = await import("./error-memory");
               await recordError({
                 errorType: "campaign_error",
                 errorMessage: `Seasonal campaign scheduling failed for lead ${lead.id}: ${err instanceof Error ? err.message : String(err)}`,
                 context: `campaignId=${campaign.id} campaignName=${campaign.name} leadId=${lead.id}`,
               });
+              const heal = await tryApplyKnownFix("campaign_error", `${err instanceof Error ? err.message : String(err)}`, `leadId=${lead.id}`);
+              if (heal.action === "skip") {
+                console.log(`[SeasonalCampaign/Heal] Auto-heal: skipping lead ${lead.id}: ${heal.fixDescription}`);
+              } else if (heal.action !== "none") {
+                console.log(`[SeasonalCampaign/Heal] Auto-heal: ${heal.action} for lead ${lead.id}`);
+              }
             } catch { /* best effort */ }
           }
         }
@@ -111,6 +117,7 @@ export async function processSeasonalCampaigns(): Promise<{ campaignsProcessed: 
           await notifyOwner({
             title: `Seasonal Campaign "${campaign.name}": ${scheduled} leads activated`,
             content: `Campaign "${campaign.name}" activated ${scheduled} stale leads for outreach.\n\nAngle: ${campaign.angle}\n\nThese leads will be contacted within the next 2 hours with the campaign-specific messaging.`,
+            priority: "standard",
           }).catch(() => {});
         }
       } catch (err) {
@@ -118,12 +125,16 @@ export async function processSeasonalCampaigns(): Promise<{ campaignsProcessed: 
         stats.errors++;
         // Self-healing: record campaign-level error
         try {
-          const { recordError } = await import("./error-memory");
+          const { recordError, tryApplyKnownFix } = await import("./error-memory");
           await recordError({
             errorType: "campaign_error",
             errorMessage: `Seasonal campaign ${campaign.id} processing error: ${err instanceof Error ? err.message : String(err)}`,
             context: `campaignId=${campaign.id} campaignName=${campaign.name}`,
           });
+          const heal = await tryApplyKnownFix("campaign_error", `${err instanceof Error ? err.message : String(err)}`, `campaignId=${campaign.id}`);
+          if (heal.action !== "none") {
+            console.log(`[SeasonalCampaign/Heal] Auto-heal: ${heal.action} for campaign ${campaign.id}`);
+          }
         } catch { /* best effort */ }
       }
     }

@@ -53,7 +53,7 @@ import { assignVariant } from "./ab-testing";
 import { normalizePersona, getPersonaLearningContext } from "./persona-learning";
 import { recordViolationLearning, recordReformulationSuccess } from "./learning-loop";
 import { computeCadence, normalizeStageName } from "./cadence-engine";
-import { recordError, addKnownFix } from "./error-memory";
+import { recordError, addKnownFix, tryApplyKnownFix } from "./error-memory";
 import { runExpertPanel } from "./expert-panel";
 import { updateLeadMemoryAfterRun } from "./lead-memory";
 import { selectSkill, applySkillToContext } from "./skill-registry";
@@ -1140,6 +1140,15 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
           rootCause: violation.reason || `QC score ${qc.score}`,
           prevention: `Avoid ${violation.category || "low_qc_score"} patterns for ${persona} leads using ${strategy.framework}`,
         });
+        // Auto-heal: check if there is a known fix for this hallucination pattern
+        const heal = await tryApplyKnownFix("llm_hallucination", `${violation.category || "low_qc_score"}: ${(violation.reason || "").substring(0, 100)}`, `framework:${strategy.framework} persona:${persona}`);
+        if (heal.action === "retry_with_instruction" && heal.instruction) {
+          console.log(`[SalesManager/Heal] Auto-heal suggests re-compose with instruction: ${heal.instruction.substring(0, 80)}`);
+          // Store the heal instruction so the fallback composer can use it
+          (context as any).__healInstruction = heal.instruction;
+        } else if (heal.action !== "none") {
+          console.log(`[SalesManager/Heal] Auto-heal action: ${heal.action} for lead ${input.leadId}`);
+        }
       } catch (learnErr) {
         console.error(`[SalesManager] Self-learning record error (non-fatal):`, learnErr);
       }

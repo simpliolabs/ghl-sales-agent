@@ -5,10 +5,10 @@
 import { Response } from "express";
 import { getLeadByGhlContactId, addPipelineEvent, getPipelineEvents, updateLeadFields, addConversation, addAgentAssignment, getAgentWorkload, isAiOffline } from "./db";
 import { calculateNextFollowUp } from "./scheduling-engine";
-import { createTask, addNote, createAppointment, getNextBusinessHoursSlot, AGENT_CALENDAR_IDS, AGENT_GHL_USER_IDS } from "./ghl";
+import { createTask, addNote, createAppointment, getNextBusinessHoursSlot, toETOffsetString, AGENT_CALENDAR_IDS, AGENT_GHL_USER_IDS } from "./ghl";
 import { getConversationHistory } from "./db";
 import { attributeStageAdvance } from "./outcome-engine";
-import { buildJourneyFromLead, recordConversationOutcome } from "./learning-loop";
+import { buildJourneyFromLead, recordConversationOutcome, extractAgentPatterns, recordAgentLearning } from "./learning-loop";
 import {
   SALES_AGENTS,
   DESIGNER,
@@ -43,7 +43,7 @@ function getStageNotification(stage: string, leadName: string, extras?: Record<s
 // --- STAGE AUTOMATION: Team assignments and tasks ---
 export async function handleStageAutomation(
   stage: string,
-  lead: { id: number; ghlContactId: string; name: string | null; businessName: string | null; email: string | null; assignedAgent: string | null; pipelineValue: number | null },
+  lead: { id: number; ghlContactId: string; name: string | null; businessName: string | null; email: string | null; assignedAgent: string | null; pipelineValue: number | null; lastPaymentNotifiedAt?: Date | null },
   opportunityId?: string
 ) {
   const leadLabel = lead.name || lead.businessName || "Lead";
@@ -130,8 +130,8 @@ export async function handleStageAutomation(
             `Order Value: $${lead.pipelineValue || "N/A"}`,
             ...(designSummary ? [``, `--- Order Details from Conversation ---`, designSummary] : []),
           ].join("\n"),
-          startTime: slot.start.toISOString(),
-          endTime: endTime.toISOString(),
+          startTime: toETOffsetString(slot.start),
+          endTime: toETOffsetString(endTime),
           assignedUserId: cesarUserId,
         });
       } catch { /* best effort */ }
@@ -148,13 +148,24 @@ export async function handleStageAutomation(
         );
       } catch { /* best effort */ }
 
-      // 4. Notify owner
+      // 4. Notify owner — with dedup guard (6h minimum between notifications per lead)
+      // Prevents repeated notifications when GHL re-fires the webhook (e.g., test leads, workflow loops)
       try {
-        const { notifyOwner } = await import("./_core/notification");
-        await notifyOwner({
-          title: `💰 Payment received: ${leadLabel}`,
-          content: `${leadLabel} has paid. Order value: $${lead.pipelineValue || "N/A"}. Design proof assigned to ${DESIGNER}.`,
-        });
+        const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+        const lastNotified = lead.lastPaymentNotifiedAt ? new Date(lead.lastPaymentNotifiedAt).getTime() : 0;
+        const hoursSinceLast = (Date.now() - lastNotified) / (1000 * 60 * 60);
+        if (hoursSinceLast >= 6) {
+          const { notifyOwner } = await import("./_core/notification");
+          await notifyOwner({
+            title: `💰 Payment received: ${leadLabel}`,
+            content: `${leadLabel} has paid. Order value: $${lead.pipelineValue || "N/A"}. Design proof assigned to ${DESIGNER}.`,
+            priority: "critical",
+          });
+          // Update dedup timestamp
+          await updateLeadFields(lead.id, { lastPaymentNotifiedAt: new Date() });
+        } else {
+          console.log(`[Pipeline] Payment notification dedup: lead ${lead.id} already notified ${hoursSinceLast.toFixed(1)}h ago — skipping`);
+        }
       } catch { /* best effort */ }
       break;
     }
@@ -276,15 +287,28 @@ export async function handlePipelineWebhook(payload: Record<string, unknown>, re
   }
 
   // --- LEARNING LOOP: Record conversation outcome on terminal stages ---
-  const TERMINAL_WON_STAGES: string[] = [STAGES.DELIVERED];
+  const TERMINAL_WON_STAGES: string[] = [STAGES.DELIVERED, "Proof Approved", "In Production", "Approved + Deposit"];
   const TERMINAL_LOST_STAGES = ["Not Qualified", "Lost"];
-  const isTerminalWon = TERMINAL_WON_STAGES.includes(toStage);
+  const isTerminalWon = TERMINAL_WON_STAGES.some(s => toStage.toLowerCase() === s.toLowerCase());
   const isTerminalLost = TERMINAL_LOST_STAGES.some(s => toStage.toLowerCase().includes(s.toLowerCase()));
   if (isTerminalWon || isTerminalLost) {
     try {
       const outcome = isTerminalWon ? "won" as const : "lost" as const;
       const journey = await buildJourneyFromLead(lead.id, outcome, toStage);
       if (journey) await recordConversationOutcome(journey);
+
+      // --- AGENT SUCCESS LEARNING: Extract patterns from human agent wins ---
+      if (isTerminalWon) {
+        try {
+          const patterns = await extractAgentPatterns(lead.id);
+          if (patterns.length > 0) {
+            const recorded = await recordAgentLearning(lead.id, patterns);
+            console.log(`[Webhook/AgentLearn] Extracted ${patterns.length} patterns, recorded ${recorded} for lead ${lead.id} (stage: ${toStage})`);
+          }
+        } catch (agentErr) {
+          console.error('[Webhook/AgentLearn] Agent pattern extraction error (non-fatal):', agentErr);
+        }
+      }
     } catch (err) {
       console.error('[Webhook/Learn] Conversation outcome recording error (non-fatal):', err);
     }
