@@ -29,7 +29,7 @@ import {
 import { runResearcher, emptyResearch } from "./researcher";
 import { buildLeadContext } from "./brain-context";
 import { calculateNextFollowUp } from "./scheduling-engine";
-import { enforceMigratedChannel } from "./webhook-helpers";
+import { enforceMigratedChannel, sourceToChannel } from "./webhook-helpers";
 import { leads, aiState } from "../drizzle/schema";
 import { eq, isNull, and, or, lte, sql, isNotNull } from "drizzle-orm";
 
@@ -248,6 +248,21 @@ export async function runLookback(options?: {
       and(
         eq(leads.humanTakeover, 0),
         sql`COALESCE(${leads.pipelineStage}, 'new_lead') NOT IN ('not_qualified', 'lost')`,
+        // HARD GATE 1 — Source-based: Skip imported/transferred contacts until they send an inbound message
+        sql`NOT (
+          COALESCE(${leads.source}, '') IN ('transferred_contact', 'r', 'n', 'bulk_import', 'Facebook', 'ghl', 'fb')
+          AND COALESCE(${leads.reactivatedFromMigration}, 0) = 0
+        )`,
+        // HARD GATE 2 — Age-based: Skip ANY lead older than 90 days with no inbound reply
+        sql`NOT (
+          ${leads.createdAt} < DATE_SUB(NOW(), INTERVAL 90 DAY)
+          AND COALESCE(${leads.reactivatedFromMigration}, 0) = 0
+          AND NOT EXISTS (
+            SELECT 1 FROM conversations c
+            WHERE c.leadId = ${leads.id}
+            AND c.direction = 'inbound'
+          )
+        )`,
         or(
           isNull(leads.lastResearchSummary),
           sql`${leads.lastResearchSummary} NOT LIKE '%[LOOKBACK]%'`
@@ -259,6 +274,21 @@ export async function runLookback(options?: {
       and(
         eq(leads.humanTakeover, 0),
         sql`COALESCE(${leads.pipelineStage}, 'new_lead') NOT IN ('not_qualified', 'lost')`,
+        // HARD GATE 1 — Source-based: Skip imported/transferred contacts until they send an inbound message
+        sql`NOT (
+          COALESCE(${leads.source}, '') IN ('transferred_contact', 'r', 'n', 'bulk_import', 'Facebook', 'ghl', 'fb')
+          AND COALESCE(${leads.reactivatedFromMigration}, 0) = 0
+        )`,
+        // HARD GATE 2 — Age-based: Skip ANY lead older than 90 days with no inbound reply
+        sql`NOT (
+          ${leads.createdAt} < DATE_SUB(NOW(), INTERVAL 90 DAY)
+          AND COALESCE(${leads.reactivatedFromMigration}, 0) = 0
+          AND NOT EXISTS (
+            SELECT 1 FROM conversations c
+            WHERE c.leadId = ${leads.id}
+            AND c.direction = 'inbound'
+          )
+        )`,
         leads.nextFollowUpAt ? lte(leads.nextFollowUpAt, new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)) : undefined,
       )
     ).orderBy(leads.nextFollowUpAt).limit(maxLeads);
@@ -373,13 +403,11 @@ export async function runLookback(options?: {
         // originally came through a Facebook lead form.
         let resolvedChannel = analysis.recommendedChannel;
         if (!historyStr && lead.source) {
-          const src = (lead.source as string).toLowerCase();
-          if (src.includes("facebook") || src.includes("fb") || src.includes("lead_form")) {
-            resolvedChannel = "FB";
-            console.log(`[Lookback] SOURCE CHANNEL OVERRIDE for lead ${leadId}: source='${lead.source}' → channel=FB (no conversation history)`);
-          } else if (src.includes("instagram") || src.includes("ig")) {
-            resolvedChannel = "IG";
-            console.log(`[Lookback] SOURCE CHANNEL OVERRIDE for lead ${leadId}: source='${lead.source}' → channel=IG (no conversation history)`);
+          // Use the centralised sourceToChannel() — single source of truth in webhook-helpers
+          const srcChannel = sourceToChannel(lead.source as string);
+          if (srcChannel !== "SMS") {
+            resolvedChannel = srcChannel;
+            console.log(`[Lookback] SOURCE CHANNEL OVERRIDE for lead ${leadId}: source='${lead.source}' → channel=${srcChannel} (no conversation history)`);
           }
         }
         // MIGRATED LEAD RESTRICTION: Force email-only for transferred contacts until they re-engage

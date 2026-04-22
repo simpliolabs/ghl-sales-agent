@@ -30,6 +30,7 @@ import { conversations, leads, brainCouncilAudit, aiState } from "../drizzle/sch
 import { eq, desc, and, sql } from "drizzle-orm";
 import { buildLeadContext, invalidateLeadCache } from "./brain-context";
 import { runStrategist } from "./strategist";
+import { shouldUseDeliberation, runDeliberation } from "./deliberation-judge";
 import { runResearcher, emptyResearch } from "./researcher";
 import { runComposer } from "./composer";
 import { runCloser } from "./closer";
@@ -53,6 +54,9 @@ import { normalizePersona, getPersonaLearningContext } from "./persona-learning"
 import { recordViolationLearning, recordReformulationSuccess } from "./learning-loop";
 import { computeCadence, normalizeStageName } from "./cadence-engine";
 import { recordError, addKnownFix } from "./error-memory";
+import { runExpertPanel } from "./expert-panel";
+import { updateLeadMemoryAfterRun } from "./lead-memory";
+import { selectSkill, applySkillToContext } from "./skill-registry";
 
 // Re-export types so callers only need one import
 export type { BrainCouncilInput, BrainCouncilOutput } from "./brain-types";
@@ -544,10 +548,63 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
       (context as any)._personaLearningBlock = personaLearningBlock;
     }
 
-    // BRAIN 1: STRATEGIST
-    console.log(`[SalesManager] Running Strategist...`);
-    const strategy = await runStrategist(input, context);
+    // BRAIN 1: STRATEGIST (with Module 4 Multi-Agent Deliberation for high-value leads)
+    const useDeliberation = shouldUseDeliberation(context.lead);
+    let deliberationUsed = false;
+    let deliberationNote: string | undefined;
+    let strategy: Awaited<ReturnType<typeof runStrategist>>;
+    if (useDeliberation) {
+      console.log(`[SalesManager] 🎯 HIGH-VALUE LEAD — Running Deliberation (value=$${context.lead.pipelineValue || 0}, score=${context.lead.opportunityScore || 0})...`);
+      const deliberationResult = await runDeliberation(input, context);
+      strategy = deliberationResult.strategy;
+      deliberationUsed = deliberationResult.deliberationUsed;
+      deliberationNote = deliberationResult.deliberationNote;
+      console.log(`[SalesManager] Deliberation: ${deliberationNote}`);
+    } else {
+      console.log(`[SalesManager] Running Strategist...`);
+      strategy = await runStrategist(input, context);
+    }
     console.log(`[SalesManager] Strategy: ${strategy.approach}/${strategy.framework}/${strategy.angle} (tier ${strategy.personalizationTier})`);
+
+    // ============================================================
+    // PROGRAMMATIC DORMANT LEAD CHANNEL OVERRIDE (PRE-FRAMEWORK)
+    // Leads dormant >60 days MUST be re-engaged via Email, not SMS.
+    // The Strategist prompt says this but LLMs ignore it. Enforce here.
+    // ============================================================
+    if (strategy.channel === 'SMS' && context.leadAgeDays > 60) {
+      const hasEmail = !!(context.lead.email && context.lead.email.includes('@'));
+      if (hasEmail) {
+        console.log(`[SalesManager] ⚠️ DORMANT CHANNEL OVERRIDE: lead ${input.leadId} is ${context.leadAgeDays}d dormant — SMS → Email (has email: ${context.lead.email})`);
+        (strategy as any).channel = 'Email';
+        (strategy as any).reasoning = `[DORMANT CHANNEL OVERRIDE: ${context.leadAgeDays}d dormant, SMS→Email] ${strategy.reasoning}`;
+      } else {
+        console.log(`[SalesManager] ⚠️ DORMANT CHANNEL: lead ${input.leadId} is ${context.leadAgeDays}d dormant but has no email — keeping SMS (no alternative)`);
+      }
+    }
+
+    // ============================================================
+    // PROGRAMMATIC HORMOZI_ACA CONTEXT GUARD
+    // HORMOZI_ACA requires Acknowledge+Compliment+Ask — it MUST reference
+    // the lead's business, product, event, or conversation topic.
+    // If context is empty/none, the LLM will hallucinate acknowledgment.
+    // Override to CURIOSITY_HOOK (works without specific context) or
+    // SOCIAL_PROOF (works with just product/industry knowledge).
+    // ============================================================
+    if (strategy.framework === 'HORMOZI_ACA') {
+      // Mirror the QC's exact ackTokens logic: HORMOZI_ACA requires acknowledgment tokens
+      // from (a) formData, (b) businessName, or (c) convHistory product/event keywords.
+      // Lead name alone is NOT sufficient (QC treats it as weak acknowledgment).
+      const hasFormData = !!(input.formData && input.formData.some(f => f.value && f.value.trim().length > 2));
+      const hasBusinessName = !!(context.lead.businessName && context.lead.businessName.trim().length > 2);
+      const hasConvHistory = !!(context.convHistory && context.convHistory.length > 0);
+      const hasLeadContext = hasFormData || hasBusinessName || hasConvHistory;
+      if (!hasLeadContext) {
+        const acacFallback = context.leadAgeDays > 60 ? 'SOCIAL_PROOF' : 'CURIOSITY_HOOK';
+        console.log(`[SalesManager] ⚠️ HORMOZI_ACA CONTEXT GUARD: no ack tokens available for lead ${input.leadId} (formData=${hasFormData}, bizName=${hasBusinessName}, convHistory=${hasConvHistory}) — overriding to ${acacFallback}`);
+        (strategy as any).framework = acacFallback;
+        (strategy as any).reasoning = `[HORMOZI_ACA CONTEXT GUARD: no ack tokens, using ${acacFallback}] ${strategy.reasoning}`;
+      }
+    }
 
     // ============================================================
     // PROGRAMMATIC EMB_COLD / BREAKUP MINIMUM DAYS GATE
@@ -617,9 +674,31 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
     // ============================================================
     if (strategy.approach === 'graceful_exit') {
       console.log(`[SalesManager] \u{1F6D1} GRACEFUL EXIT — blocking send for lead ${input.leadId}. Reason: ${strategy.reasoning}`);
-      // Set humanTakeover to prevent future automated outreach
+      // Set humanTakeover=1 AND pipelineStage=not_qualified.
+      // CRITICAL: Setting the stage here ensures the terminal stage guard in
+      // handleHumanActive (action-dispatcher.ts) suppresses the Human Handoff
+      // notification. Without this, a soft-declining lead stays in "New Lead"
+      // and the Human Handoff fires as if a human agent took over.
+      // Setting not_qualified also makes the lead eligible for long-term email nurture.
       const { updateLeadFields } = await import("./db");
-      await updateLeadFields(input.leadId, { humanTakeover: 1 });
+      await updateLeadFields(input.leadId, {
+        humanTakeover: 1,
+        pipelineStage: "not_qualified",
+      });
+      // Update GHL opportunity stage to Not Qualified (best effort)
+      try {
+        const leadRow = context.lead;
+        if (leadRow?.ghlOpportunityId && leadRow?.ghlPipelineId) {
+          const { updateOpportunityStage } = await import("./ghl");
+          const { getNqStageId } = await import("../shared/ghl-stages");
+          const nqStageId = getNqStageId(leadRow.ghlPipelineId);
+          if (nqStageId) {
+            await updateOpportunityStage(leadRow.ghlOpportunityId, nqStageId);
+            console.log(`[SalesManager] \u{1F6D1} GRACEFUL EXIT — lead ${input.leadId} GHL stage updated to Not Qualified`);
+          }
+        }
+      } catch { /* best effort GHL update */ }
+      console.log(`[SalesManager] \u{1F6D1} GRACEFUL EXIT — lead ${input.leadId} moved to not_qualified. Eligible for long-term email nurture.`);
       // Log the audit with blocked status
       await addBrainCouncilAudit({
         leadId: input.leadId,
@@ -634,6 +713,10 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
         violationCategory: "graceful_exit_retired",
         messageSent: 0,
         ownerNotified: 0,
+        conversationStage: strategy.conversationStage,
+        // Module 4: Multi-Agent Deliberation
+        deliberationUsed: deliberationUsed ? 1 : 0,
+        deliberationNote: deliberationNote,
       });
       return {
         message: "",
@@ -651,6 +734,7 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
         blocked: true,
         blockReason: `Graceful exit — lead retired from automated outreach`,
         fallbackUsed: false,
+        conversationStage: strategy.conversationStage || "lost",
       };
     }
 
@@ -770,6 +854,16 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
       : await runResearcher(input, context, strategy);
     console.log(`[SalesManager] Research: ${research.summary.substring(0, 100)}...`);
 
+    // MODULE 3A: SKILL SELECTION — pick best skill before Composer runs
+    let selectedSkillId: string | undefined;
+    const selectedSkill = selectSkill(strategy, context, input);
+    if (selectedSkill) {
+      const { skillId, promptOverlay } = applySkillToContext(selectedSkill);
+      selectedSkillId = skillId;
+      // Inject skill overlay into context for Composer to pick up
+      (context as any)._skillOverlay = promptOverlay;
+    }
+
     // BRAIN 3: COMPOSER (or specialized Sales Brain based on convState)
     let composed;
     const useCloser = context.convState === "committed";
@@ -790,6 +884,103 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
     }
 
     // ============================================================
+    // POST-COMPOSE OPENER AUTO-FIX (SOURCE-LEVEL)
+    // If the Composer generated a repeated opener (same first 4 words as any
+    // prior outbound message), surgically replace JUST the opener with a
+    // diverse alternative. This prevents circuit breaker accumulation for
+    // what is fundamentally a formatting issue, not a content problem.
+    // The message content (business name, CTA, context) is preserved.
+    // ============================================================
+    if (context.priorOutbound && context.priorOutbound.length > 0 && composed.message) {
+      const composedWords = composed.message.trim().split(/\s+/);
+      const composedOpener4 = composedWords.slice(0, 4).join(" ").toLowerCase().replace(/[!.,?]/g, "");
+      const composedOpener3 = composedWords.slice(0, 3).join(" ").toLowerCase().replace(/[!.,?]/g, "");
+      let openerMatched = false;
+      for (const prior of context.priorOutbound) {
+        const priorWords = (prior.messageBody || "").trim().split(/\s+/);
+        const priorOpener4 = priorWords.slice(0, 4).join(" ").toLowerCase().replace(/[!.,?]/g, "");
+        const priorOpener3 = priorWords.slice(0, 3).join(" ").toLowerCase().replace(/[!.,?]/g, "");
+        if ((priorOpener4.length > 8 && composedOpener4 === priorOpener4) ||
+            (priorOpener3.length > 5 && composedOpener3 === priorOpener3)) {
+          openerMatched = true;
+          break;
+        }
+      }
+      // Also check for distinctive phrase repetition (e.g., "hey larry" 2+ times)
+      // This mirrors the QC distinctive phrase check so we can auto-fix before QC blocks.
+      if (!openerMatched && context.priorOutbound.length >= 2) {
+        const composedLower = composed.message.toLowerCase().replace(/[!.,?]/g, "");
+        const composedWords2 = composed.message.trim().split(/\s+/);
+        // Check 2-word opener (e.g., "hey larry")
+        const composedOpener2 = composedWords2.slice(0, 2).join(" ").toLowerCase().replace(/[!.,?]/g, "");
+        if (composedOpener2.length >= 5) {
+          let distinctiveMatchCount = 0;
+          for (const prior of context.priorOutbound) {
+            const priorLower = (prior.messageBody || "").toLowerCase().replace(/[!.,?]/g, "");
+            if (priorLower.startsWith(composedOpener2) || priorLower.includes(`\n${composedOpener2}`)) {
+              distinctiveMatchCount++;
+            }
+          }
+          if (distinctiveMatchCount >= 2) {
+            openerMatched = true;
+            console.log(`[SalesManager] 🔄 DISTINCTIVE PHRASE MATCH: "${composedOpener2}" found in ${distinctiveMatchCount} prior messages — triggering opener auto-fix`);
+          }
+        }
+      }
+
+      if (openerMatched) {
+        // Extract the body after the greeting line (everything after the first newline or sentence)
+        const leadFirstName = (context.lead.name || "").split(" ")[0] || "there";
+        const msgBody = composed.message.trim();
+        // Find where the greeting ends (first \n or first sentence boundary after greeting)
+        const greetingEndIdx = msgBody.indexOf("\n");
+        const bodyAfterGreeting = greetingEndIdx > -1 ? msgBody.slice(greetingEndIdx).trimStart() : msgBody;
+        // Pool of diverse openers — rotate based on unanswered count for escalation
+        const unanswered = context.unansweredCount || 0;
+        const diverseOpeners = unanswered >= 3
+          ? [
+              `Quick question —`,
+              `Honest question —`,
+              `Real talk —`,
+              `Between us —`,
+              `${leadFirstName}, real talk —`,
+              `Straight up —`,
+              `One honest question —`,
+            ]
+          : unanswered >= 2
+          ? [
+              `${leadFirstName}, just checking in —`,
+              `Circling back on this —`,
+              `One more thing —`,
+              `Still thinking about this —`,
+              `${leadFirstName}, wanted to follow up —`,
+            ]
+          : [
+              `${leadFirstName},`,
+              `Quick update —`,
+              `Good news:`,
+              `So,`,
+              `Checking in —`,
+              `Just wanted to share —`,
+              `One thing —`,
+            ];
+        const openerIdx = Math.floor(Math.random() * diverseOpeners.length);
+        const newOpener = diverseOpeners[openerIdx];
+        // Reconstruct: new opener + body (preserving content)
+        // If body already starts with the content (no greeting line), prepend opener
+        // If body has a greeting line, replace it
+        const hasGreetingLine = /^(hey|hi|hello|yo)\s+\S+/i.test(msgBody.split("\n")[0]);
+        if (hasGreetingLine && greetingEndIdx > -1) {
+          composed.message = `${newOpener}\n\n${bodyAfterGreeting}`;
+        } else {
+          // No clear greeting line — prepend opener to full message
+          composed.message = `${newOpener}\n\n${msgBody}`;
+        }
+        console.log(`[SalesManager] 🔄 OPENER AUTO-FIX: Replaced repeated opener with "${newOpener}" for lead ${input.leadId} (unanswered=${unanswered})`);
+      }
+    }
+
+    // ============================================================
     // POST-COMPOSE EMAIL FORMATTING ENFORCEMENT (SOURCE-LEVEL)
     // If the Composer returned an email as one long paragraph without
     // proper line breaks or signature, fix it structurally here.
@@ -798,7 +989,8 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
     if (strategy.channel === "Email" && composed.message) {
       const msg = composed.message;
       const hasNewlines = msg.includes("\n");
-      const hasSignature = msg.includes("---") || msg.includes("Adorb Custom Printing");
+      // Anchor on brand domain/name only — "---" is too generic and can appear in message body
+      const hasSignature = msg.includes("adorbcustomtees.com") || msg.includes("Adorb Custom Printing");
       
       if (!hasNewlines && msg.length > 80) {
         // Email is one long paragraph — structurally break it up
@@ -860,6 +1052,23 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
         const agentFirst = (composed.fromName || context.lead.assignedAgent || "Abby").split(" ")[0];
         composed.message = composed.message.trimEnd() + `\n\n---\nBest,\n${agentFirst} | Adorb Custom Printing\n(954) 932-8543\nprint@adorbcustomtees.com\nadorbcustomtees.com\n⭐ 4.9 Stars · 867+ Verified Reviews\nSee our reviews: https://adorbcustomtees.com/pages/reviews`;
       }
+    }
+
+    // MODULE 2B: EXPERT PANEL SCORING — runs after Composer, before QC
+    // Three parallel experts (Brand Voice, Conversion, Compliance) score the draft.
+    // If any expert scores < 60, the Composer is called once more with panel notes.
+    let expertPanel: Awaited<ReturnType<typeof runExpertPanel>> | null = null;
+    try {
+      expertPanel = await runExpertPanel(composed, strategy, context, input);
+      if (!expertPanel.allPassed) {
+        console.log(`[SalesManager] Expert Panel failed (composite=${expertPanel.compositeScore}) — requesting revision...`);
+        // Inject panel notes into context for Composer revision
+        const revisionContext = { ...context, tweakInstructions: (context.tweakInstructions || "") + `\n\n=== EXPERT PANEL REVISION REQUEST ===\nThe following experts flagged issues with your draft. Revise to address them:\n${expertPanel.panelNotes}` };
+        composed = await runComposer(input, revisionContext, strategy, research);
+        console.log(`[SalesManager] Revised after Expert Panel: "${composed.message.substring(0, 80)}..."`);
+      }
+    } catch (epErr) {
+      console.error(`[SalesManager] Expert Panel error (non-fatal):`, epErr);
     }
 
     // ============================================================
@@ -968,6 +1177,7 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
           blocked: true, blockReason: `${violation.reason} [Fallback suppressed — ${context.priorOutbound.length} prior messages]`,
           violationCategory: violation.category || "missing_framework",
           fallbackUsed: false,
+          conversationStage: strategy.conversationStage,
         };
       }
 
@@ -1012,6 +1222,10 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
         ownerNotified: notified ? 1 : 0,
         fallbackUsed: 1,
         fallbackMessage: fallbackMsg,
+        conversationStage: strategy.conversationStage,
+        // Module 4: Multi-Agent Deliberation
+        deliberationUsed: deliberationUsed ? 1 : 0,
+        deliberationNote: deliberationNote,
       });
 
       return {
@@ -1033,6 +1247,7 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
         violationCategory: effectiveViolationCategory || "missing_framework",
         fallbackUsed: true,
         fallbackMessage: fallbackMsg,
+        conversationStage: strategy.conversationStage,
       };
     }
 
@@ -1108,6 +1323,19 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
         experimentId: experimentAssignment?.experimentId,
         variant: experimentAssignment?.variant,
         persona,
+        // Module 1: Conversation Stage Detection
+        conversationStage: strategy.conversationStage,
+        // Module 4: Multi-Agent Deliberation
+        deliberationUsed: deliberationUsed ? 1 : 0,
+        deliberationNote: deliberationNote,
+        // Module 2B: Expert Panel Scoring
+        expertPanelBrandScore: expertPanel?.brandScore?.score ?? null,
+        expertPanelConversionScore: expertPanel?.conversionScore?.score ?? null,
+        expertPanelComplianceScore: expertPanel?.complianceScore?.score ?? null,
+        expertPanelCompositeScore: expertPanel?.compositeScore ?? null,
+        expertPanelNotes: expertPanel?.panelNotes || null,
+        // Module 3A: Skill Catalog
+        skillUsed: selectedSkillId || null,
       });
     } catch (auditErr) {
       console.error('[SalesManager] Audit log error (non-fatal):', auditErr);
@@ -1123,6 +1351,12 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
     } catch (summaryErr) {
       console.error('[SalesManager] Interaction summary error (non-fatal):', summaryErr);
     }
+
+    // --- MODULE 5B: PRIVATE MEMORY UPDATE (non-blocking) ---
+    const leadName = context.lead?.name || context.lead?.email || `Lead ${input.leadId}`;
+    updateLeadMemoryAfterRun(input.leadId, leadName, context.historyStr).catch(memErr => {
+      console.error('[SalesManager] Private memory update error (non-fatal):', memErr);
+    });
 
     console.log(`[SalesManager] === COMPLETE for lead ${input.leadId}: approved, QC=${qc.score} ===`);
 
@@ -1146,6 +1380,8 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
       experimentId: experimentAssignment?.experimentId,
       variant: experimentAssignment?.variant,
       persona,
+      // Module 1: Conversation Stage Detection
+      conversationStage: strategy.conversationStage,
     };
   } finally {
     // ALWAYS release the DB lock, no matter what happened

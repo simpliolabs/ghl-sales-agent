@@ -881,3 +881,378 @@
 - [x] BUG: Composer appends "No design needed yet for a ballpark quote!" AFTER already giving the ballpark quote — FIXED: Added explicit rule to Composer: NEVER append this phrase after already giving a price estimate in the same message.
 - [x] BUG: 'Thank you' after ballpark quote should NOT trigger committed state — FIXED: Intent classifier now explicitly states 'Thank you' after receiving a ballpark quote = general_chat (closingSignal=FALSE). Only 'Thank you' after CONFIRMED specific order details (qty, design, date) = thank_you_close.
 - [x] BUG: 'hired someone else' triggered agent appointment instead of lost/not-qualified — FIXED: Added competitor_won intent type. Keyword fallback detects 'hired someone', 'already ordered', 'went with another vendor' etc. conversation-state maps competitor_won → dnc_all (Not Qualified, all outreach stops). JSON schema enum updated. Fallback keywords added.
+
+## Owner Notification Spam (Apr 13 2026)
+- [ ] BUG: Owner receiving multiple emails for same lead/event (e.g., "New Contact: Test Lead" fired 4+ times at 1:53 PM) — needs deduplication/batching so only 1 email per lead per event type
+- [ ] BUG: Appointment creation for new contacts — "Heads-up appointment + task created in GHL" message in notification — clarify if new contact appointments should still be created
+
+## Full GHL Contact Enrichment Pipeline
+
+- [ ] BUILD: enrichContactFromGHL() — pull ALL GHL data for a contact: full conversation history (all messages), all custom fields (with field name resolution), all internal notes, all tags, opportunity history (pipeline stage, value, created/updated dates), contact attribution (source, campaign, UTM data), and store structured in leads.researchData
+- [ ] WIRE: Call enrichContactFromGHL() in webhook-contact.ts when a transferred_contact arrives (before Brain Council runs)
+- [ ] WIRE: Call enrichContactFromGHL() in lookback-engine.ts for any lead older than 3 days with no enrichment
+- [ ] FEED: Pass full enrichment data (custom fields, notes, tags, opportunity history, GHL conversation history) into Brain Council Strategist prompt
+- [ ] FEED: Pass full enrichment data into Researcher brain so it synthesizes real context instead of guessing
+- [ ] FIX: Johnny Saif Marshall and all transferred contacts — re-enrich now so next outreach is personalized
+- [ ] TEST: Verify enriched data appears in Brain Council audit log for a transferred contact
+
+## Full GHL Enrichment + Omnisend Sync for All Transferred Contacts
+
+- [ ] AUDIT: Count how many of the 1800+ transferred contacts have enriched researchData, classified omnisendSegment, and are synced to Omnisend
+- [ ] BUILD: enrichContactFromGHL(contactId) — pull ALL data from GHL API: full conversation history (all messages), all custom fields (with field name resolution from location custom fields schema), all internal notes, all tags, opportunity history (pipeline stage, value, dates), contact attribution (source, campaign, UTM medium/content/source), website, company name
+- [ ] BUILD: classifyContactSegment(enrichedData) — LLM classification into: Church, Sports, School, Trades, Event, Brand, Nonprofit, Other — based on business name, tags, custom fields, conversation history, form data
+- [ ] BUILD: syncContactToOmnisend(lead, segment) — upsert contact to Omnisend with correct segment tag, email, phone, name, tags
+- [ ] BUILD: bulkEnrichAndSync runner — process all 1800+ transferred contacts in batches of 20, with rate limiting, progress tracking, and error recovery
+- [ ] WIRE: Auto-enrich + classify + sync on every new transferred_contact webhook arrival
+- [ ] FEED: Pass enriched custom fields, notes, tags, opportunity history, and GHL conversation history into Brain Council Strategist prompt context
+- [ ] FEED: Pass enriched data into Researcher brain as ground truth (not guesswork)
+- [ ] RUN: Execute bulk enrichment + Omnisend sync for all existing transferred contacts
+- [ ] VERIFY: Confirm enriched data appears in Brain Council audit log; confirm contacts appear in Omnisend with correct segments
+
+## Bulk Enrichment from Old GHL Account (Completed Apr 13 2026)
+
+- [x] COMPLETED: Enriched ALL 3,232 contacts (1,554 transferred + 1,001 source='r' + 517 source='Facebook' + 160 other) from old GHL account (aWJyvzTN1mCxBzkgSFYK)
+- [x] COMPLETED: Pulled custom fields from old GHL API, resolved field IDs to names (45 field definitions loaded)
+- [x] COMPLETED: Pulled notes from old GHL API for each contact
+- [x] COMPLETED: Classified all contacts using rule-based + LLM classification
+- [x] COMPLETED: Final segments: Other=1960, Brand=451, Church=330, Sports=261, Nonprofit=225, School=5
+- [x] COMPLETED: Synced 2,454 contacts to Omnisend with correct segment tags
+- [x] COMPLETED: Updated Brain Council Strategist prompt to surface resolved custom fields, notes, tags, segment
+- [x] COMPLETED: Updated Brain Council Composer prompt to include enrichment context
+- [x] COMPLETED: Lost-lead appointment guard (blocks appointment creation for Lost/DNC/competitor_won leads)
+- [x] COMPLETED: Notification deduplication (5-min in-memory dedup cache for notifyOwner)
+
+## Time-Aware Reactivation Framing for Aged Leads (Apr 13 2026)
+
+- [x] FIX: Strategist urgencyStage only has "Day 30+ dormant" — no distinction between 1-month and 1-year-old leads. Add granular tiers: 90+ days, 180+ days, 365+ days
+- [x] FIX: Strategist must instruct reactivation framing for leads 90+ days old — "You reached out about X months ago" not "Saw you're looking for..."
+- [x] FIX: Composer must acknowledge time gap for aged leads — hard rule: if lead > 90 days old, MUST reference prior interaction timeframe
+- [x] FIX: brain-context.ts urgencyStage needs granular tiers beyond "Day 30+ dormant"
+- [x] FIX: Added fresh_outreach_on_aged_lead QC violation — auto-rejects messages using fresh-outreach phrasing on 90+ day leads
+- [x] FIX: Added ENGAGEMENT STATE block to Composer prompt with leadAgeDays + urgencyStage warning
+
+## createdAt Backfill for Imported Contacts (Apr 14 2026)
+
+- [x] FIX: Set all imported contacts (source IN transferred_contact, r, Facebook, ghl, fb, ghl_import) createdAt to 366 days ago via SQL UPDATE — all 3,458 now show 365+ days
+- [x] VERIFY: Confirmed — all 3,458 imported contacts now in 365+ day bucket, reactivation tiers active
+
+## Notification Tier System — Email Only for Critical Events (Apr 14 2026)
+
+- [x] AUDIT: Identified all 25+ notifyOwner() call sites across 14 files, classified as CRITICAL (5 events) vs STANDARD (10+ events)
+- [x] BUILD: Added notification priority system to notification.ts — CRITICAL sends email, STANDARD logs to portal only. Auto-inference from title patterns + explicit priority parameter
+- [x] VERIFY: 18 vitest tests passing, 740 total tests passing. Only 5 event types send email: Payment, AI Paused, Human Handoff, LLM Exhausted, Circuit Breaker, URGENT SLA breach
+
+## BUG: Appointments always set to 8:00 AM (Apr 14 2026)
+
+- [x] FIX: Appointments auto-created at 8:00 AM AND stacked — root causes identified and fixed
+- [x] FIX: Added toETOffsetString() helper — sends 2026-04-15T09:00:00-04:00 (EDT) instead of UTC Z, GHL now displays correct 9 AM
+- [x] FIX: Slot pointer now persists to DB (system_settings table) on every booking — survives server restarts
+- [x] FIX: warmSlotPointersFromCalendar now loads from DB first (primary), GHL calendar API as secondary fallback
+- [x] VERIFY: 740/740 tests passing, toETOffsetString correctly returns -04:00 EDT / -05:00 EST
+
+## BUG: Duplicate appointments created for same contact (Apr 14 2026)
+
+- [ ] FIX: Two appointments created for Charlena Best (9:30 AM + 9:50 AM) — createHeadsUpNotification called twice for same contact
+- [ ] FIND: Identify which two code paths both trigger createHeadsUpNotification on new contact webhook
+- [ ] FIX: Add deduplication guard — check if appointment already exists before creating a new one
+
+## BUG: Duplicate appointments created for same contact (Apr 14 2026)
+
+- [x] FIX: Race condition — added DB re-fetch of lead in createHeadsUpNotification to get freshest appointmentId before creating
+- [x] FIX: Added DB-level atomic lock (appointmentCreatingAt column) — only one process can hold the lock at a time (30s TTL)
+- [x] FIX: Lock also checks appointmentId IS NULL — if appointment already exists, lock will not be granted
+- [x] FIX: Added real-time GHL calendar availability check — advances slot up to 20 times to find a free window
+- [x] VERIFY: 743/743 tests passing, 3 new dedup tests added
+
+## BUG: Bot not responding to Portuguese/Spanish messages (Apr 14 2026)
+
+- [x] DIAGNOSE: Bot went silent because processingLockedAt was stuck (never released after a prior run crashed) — cleared manually
+- [x] FIX: Added LANGUAGE MIRRORING RULE to ai-brain.ts SYSTEM_PROMPT — bot now detects lead language and responds in Spanish/Portuguese/French/etc.
+- [x] FIX: Added language mirroring rule to QC and Brain Council prompts — non-English responses are now CORRECT behavior, not penalized
+- [x] VERIFY: 743/743 tests passing
+
+## BUG: createdAt backfill too broad — active leads marked as 1 year old (Apr 14 2026)
+
+- [ ] FIX: Backfill set ALL imported contacts to 366 days ago including active/warm leads like Bob Eytcheson
+- [ ] FIX: Restore createdAt to today for contacts with any message activity in the last 30 days
+- [ ] FIX: AI prompt uses createdAt for "a year ago" framing — should use lastMessageAt or conversation recency instead
+- [ ] VERIFY: Bob Eytcheson and other active leads no longer get "a year ago" framing
+
+## BUG: "Hey Nir" greeting + wrong email sender (Apr 14 2026)
+
+- [x] FIX: Root cause — Beni Santibanez's researchData.resolvedCustomFields had "Project Business Point Of Contact: Nir Appleton" (your name) and AI used it as greeting. Added GREETING NAME RULE hard constraint to all 3 AI layers: ONLY use lead.name from LEAD PROFILE, never names from researchData/customFields
+- [x] FIX: Email sender confirmed correct — print@adorbcustomtees.com in GHL message details. "Nir Appelton" shown in GHL UI is just the connected account label, not the actual From address
+- [x] VERIFY: 743/743 tests passing
+
+## FIX: Replace "The CEO Store" with "KAUSE SQUAD Merchandise Store" (Apr 14 2026)
+
+- [x] FIX: Added ONLINE STORE NAMING hard constraint to all 3 AI layers (ai-brain, QC, Brain Council) — "The CEO Store" → "KAUSE SQUAD Merchandise Store" in all outbound messages. Brain Council will REJECT any message containing "The CEO Store"
+
+## BUG: createdAt backfill too broad — new contacts also getting "a year ago" framing (Apr 14 2026)
+
+- [x] FIX: Restored createdAt to today for 298 contacts that had message activity in last 30 days but were incorrectly backfilled to 366 days
+- [x] FIX: Updated brain-context.ts to use lastMessageAt as the recency anchor — if lead has activity in last 60 days, leadAgeDays is computed from lastMessageAt, not createdAt. Truly dormant leads still use createdAt (366 days = correct)
+- [x] FIX: New contacts use createdAt.defaultNow() so they always get today's date — backfill was a one-time SQL UPDATE, not ongoing
+- [x] VERIFY: 743/743 tests passing
+
+## BUG: Circuit Breaker fired for Laura Damian Lead #720001 (Apr 14 2026)
+
+- [ ] REVIEW: Circuit breaker fired after 4 consecutive failures — violation: REPEATED OPENER "hey laura, following up"
+- [ ] FIX: AI reusing exact same opener despite prior outbound messages — anti-repetition rule not working for follow-up openers
+- [ ] FIX: Blocked message references "Rodriguez Family Child Care" — wrong business name for a Church/Ministry lead (context contamination)
+- [ ] FIX: Resume AI for Laura Damian after fixing root causes
+- [ ] FIX: Strengthen anti-repetition rule to compare full opener phrase, not just greeting word
+
+## Repeated Opener Circuit Breaker Bug (Apr 14 2026) — FIXED
+
+- [x] ROOT CAUSE: Composer kept generating "Hey Laura, following up" opener for Laura Damian (lead 720001) despite ANTI-REPETITION RULES in prompt — LLM was ignoring the rule
+- [x] FIX: Added POST-COMPOSE OPENER AUTO-FIX in brain-council-orchestrator.ts (lines 792-864): after Composer runs, deterministically check if first 4 words match any prior outbound opener; if yes, surgically replace just the opener with a diverse alternative (escalation tiers based on unansweredCount)
+- [x] FIX: Opener pool is tiered: unanswered>=3 → "Quick question —" / "Plot twist —" etc; unanswered>=2 → "${name}, just checking in —" etc; base → "${name}," / "Quick update —" etc
+- [x] FIX: Message content (business name, CTA, context) is fully preserved — only the opener word choice changes
+- [x] FIX: Auto-fix prevents circuit breaker accumulation for what is a formatting issue, not a content problem
+- [x] RESET: Laura Damian (lead 720001) circuit breaker reset: consecutiveRejects=0, humanTakeover=0, processingLockedAt=NULL
+- [x] ADDED: Stuck Processing Lock Cleaner cron job (every 5 min) in server/_core/index.ts — clears processingLockedAt values older than 5 min to prevent silent bot failures
+- [x] ADDED: GHL deep-link column in Leads table (Leads.tsx) — ExternalLink icon opens contact directly in GoHighLevel (stops row click propagation)
+- [x] TESTS: 17 new tests in server/opener-autofix.test.ts — all 764 tests passing
+
+## CRITICAL BUG: Saturday Appointment Scheduled for Jimmie/Basoom LLC (Apr 14 2026)
+
+- [ ] BUG: AI scheduled appointment for Apr 15 (Saturday) at 12:30 PM EST — business is CLOSED on weekends (Mon-Fri only)
+- [ ] BUG: Composer confirmed the Saturday appointment ("Awesome, Jimmie! Glad you got it. We're all set for your Saturday visit...") without catching the day-of-week error
+- [ ] ROOT CAUSE 1: getNextBusinessHoursSlot() allows Saturday/Sunday slots
+- [ ] ROOT CAUSE 2: Composer has no day-of-week validation for appointment confirmations
+- [ ] FIX: getNextBusinessHoursSlot() must skip Saturday (day=6) and Sunday (day=0) — advance to Monday
+- [ ] FIX: Business hours are 9:30am-5pm Mon-Fri (NOT 10am-5pm as previously stated)
+- [ ] FIX: Add day-of-week guard to Composer — NEVER confirm weekend appointments
+- [ ] FIX: Cancel the bad Jimmie appointment in GHL and send correction message
+- [ ] TEST: Add weekend slot tests to ghl-slot.test.ts
+
+## CRITICAL BUG FIX: Saturday Hours Hallucination (Apr 14, 2026)
+
+- [x] Root cause: AI told Jimmie "open Saturdays 10am-4pm" on Apr 11-12 (context poisoning from prior AI errors). On Apr 14, Composer read those prior messages and confirmed "your Saturday visit" — treating its own prior errors as ground truth.
+- [x] Fix 1: Strengthen Composer prompt with CONTEXT POISONING WARNING — explicitly tells LLM to ignore hours claims from prior messages and always use BRAND hours
+- [x] Fix 2: Add wrong_hours to ViolationCategory type in brain-types.ts
+- [x] Fix 3: Add wrong_hours deterministic QC guard in qc.ts — blocks any message containing "open Saturdays", "Saturday visit", "see you Saturday", "Mon-Sat", etc.
+- [x] Fix 4: 20 tests written and passing for wrong_hours guard (server/wrong-hours.test.ts)
+
+## Block Rate Reduction Fixes (Apr 14, 2026) — 70% → target <20%
+
+- [x] Audit: 29/41 blocked (70.7%) in last 2h — breakdown: repeated_opener (10), fresh_outreach_on_aged_lead (9), missing_aca_acknowledgment (6), referral_ask (3), other (1)
+- [x] Fix 1: Extend opener auto-fix to handle "Distinctive phrase" repetition (e.g., "hey larry" 2+ times) — was only catching exact 4-word/3-word matches
+- [x] Fix 2: Pre-Strategist dormant channel override — leads >60 days dormant with email get channel forced to Email before Strategist runs (was blocking AFTER Strategist chose SMS)
+- [x] Fix 3: HORMOZI_ACA context guard — if lead has no name/business/product/formData/history, override to SOCIAL_PROOF (dormant) or CURIOSITY_HOOK (fresh) to prevent missing_aca_acknowledgment blocks
+- [x] Fix 4: Remove banned phrases (Random thought —, Plot twist —) from opener auto-fix pool — they were being injected as auto-fix replacements then blocked by QC's referral_ask check
+- [x] Fix 5: Remove banned phrases from Composer prompt (line 400) — replaced with safe alternatives (Real talk —, Straight up —, One honest question —)
+- [x] All 785 tests passing
+
+## BUG: 366-day imported contacts getting SMS as first_contact (Apr 14, 2026)
+
+- [ ] Diagnose why David Rose (366-day dormant) got SMS despite dormancy override
+- [ ] Fix: imported contacts >90 days should be treated as reactivation, not first_contact
+- [ ] Fix: channel for 366-day contacts with no email should default to SMS but with reactivation tone (not fresh inquiry tone)
+- [ ] Fix: Strategist must never choose first_contact approach for leads >90 days old
+
+## BUG FIX: "The CEO Store" Data Migration Contamination (Apr 14-15, 2026)
+
+- [x] Root cause: old GHL sub-account had internal project fields (Project Name, Project Business Name, etc.) with value "The CEO Store" — these got migrated to ALL imported contacts via resolvedCustomFields
+- [x] Fix: Strip ADORB_INTERNAL_FIELDS from resolvedCustomFields in both composer.ts and strategist.ts before injecting into LLM prompts
+- [x] Fix: Add deterministic QC guard (hallucinated_fact) to block any message containing "The CEO Store"
+- [x] Fix: HORMOZI_ACA context guard now mirrors QC's exact ackTokens logic — requires businessName OR formData OR convHistory (not just lead.name)
+- [x] All 785 tests passing
+
+## CRITICAL BUG: 8 AM Appointment Slot (Apr 15, 2026)
+- [ ] Toni M Hurst got appointment at 8:00 AM EST — before business hours (9:30 AM)
+- [ ] Trace the exact code path that generated the 8 AM slot
+- [ ] Fix slot scheduler to enforce 9:30 AM start time as hard constraint
+- [ ] Add test: no slot should ever be before 9:30 AM ET
+
+## BUG FIX: Slot Scheduler 9:30 AM Start Time (Apr 15, 2026)
+- [x] Fix getNextBusinessHoursSlot: change start time from 9:00 AM to 9:30 AM (Mon-Fri 9:30 AM - 5:00 PM ET)
+- [x] Fix isBusinessHours check: hour > 9 || (hour === 9 && minute >= 30) instead of hour >= 9
+- [x] Fix dayOfWeek to use ET-based day (not UTC) to handle midnight ET / early AM UTC edge cases
+- [x] Add safety clamp: if slot is outside business hours, advance to 9:30 AM (catches all edge cases)
+- [x] Move end time computation and pointer update to AFTER safety clamp
+- [x] Update ghl-slot.test.ts to reflect 9:30 AM start time (789 tests passing)
+
+## Lost Lead Long-Term Nurture Routing (Apr 15, 2026)
+- [x] Confirmed: getLeadsDueForFollowUp() already excludes 'lost' stage (line 121 in db.ts)
+- [x] Added lastLostNurtureAt column to leads table (schema.ts + migration applied)
+- [x] Added getLostLeadsForNurture() to db.ts — queries Lost leads with email, not nurtured in 90+ days
+- [x] Created lost-lead-nurture.ts — email-only quarterly re-engagement engine (no Brain Council, no SMS, no notifications)
+- [x] 3 rotating email templates (social proof / new capability / direct re-engagement) — cycles via reactivationCount % 3
+- [x] Respects email DND and emailUnsubscribed flags
+- [x] Updates lastLostNurtureAt + increments reactivationCount after each successful send
+- [x] Registered daily cron job in index.ts (runs at 8 AM ET)
+- [x] handleHumanActive in action-dispatcher.ts: Lost stage guard suppresses Human Handoff notification
+- [x] 17 new tests in server/lost-lead-nurture.test.ts — all passing
+- [x] 806 total tests passing (36 test files)
+
+## Bug Fixes & Upgrades — Apr 15 2026 (Ground-Up)
+
+- [ ] Fix A: graceful_exit sets pipelineStage=not_qualified + GHL opportunity update (Arnita DeShields bug)
+- [ ] Fix B: Stale-lead cap in scheduling-engine core (90+ days silent + 30+ day delay → cap 7 days, cadencePosition=5)
+- [ ] Fix C: DB correction — reschedule all currently-stale leads (Nancy Pollinger + all similar leads)
+- [ ] Fix D: SLA dedup → DB column lastSlaAlertAt + 6h minimum (survives restarts)
+- [ ] Fix E: SLA alert → GHL task for assigned agent ONLY — remove owner email entirely
+- [ ] Fix F: Payment notification dedup (lastPaymentNotifiedAt column, 6h minimum)
+- [ ] Fix G: Hard constraints block in Strategist prompt (absolute rules, not advice)
+- [ ] Fix H: ICP Win/Loss learning — track conversion by segment, inject into Strategist
+
+## Bug Fixes & Upgrades — Apr 15, 2026
+
+- [x] Fix A: graceful_exit → set pipelineStage=not_qualified + GHL stage update (suppresses Human Handoff notification)
+- [x] Fix B: Stale-lead cap — system-wide rule in scheduling engine (90+ days silent + 30+ day delay → cap at 7 days)
+- [x] Fix C: DB correction — 174 stale leads rescheduled from Jun/Jul 2026 to 7 days out
+- [x] Fix D: SLA dedup → DB-backed (lastSlaAlertAt column), 6h minimum, owner email REMOVED entirely
+- [x] Fix E: SLA alerts → GHL task for assigned agent ONLY (no owner email)
+- [x] Fix F: Payment notification dedup — lastPaymentNotifiedAt column, 6h minimum per lead
+- [x] Fix G: Hard constraints block already in Strategist prompt (confirmed present, no change needed)
+- [x] Fix H: ICP Win/Loss learning — buildIcpLearningContext() added to outcome-engine, injected into Strategist
+
+## Agent-First Delay — Apr 15 2026
+- [ ] 15-min delay for brand new leads during business hours (Mon-Fri 9am-5pm EST)
+- [ ] AI still schedules appointment and does setup, just holds first response
+- [ ] After 15 min, if agent hasn't responded, AI sends the message
+
+## Module 5A — Event-Driven Triggers — Apr 15 2026
+- [ ] Event trigger engine: email-opened-no-reply (48h) → reschedule within 24h
+- [ ] Event trigger engine: link-clicked-no-reply (24h) → reschedule within 4h
+- [ ] Event trigger engine: went-quiet-after-quote (72h) → reschedule within 48h
+- [ ] Register cron job for event trigger engine (every 30 min)
+- [ ] Tests for event-trigger-engine
+
+## Agent-First Delay + Event-Driven Triggers — Apr 15 2026
+
+- [x] 15-minute agent-first delay for brand new leads during business hours (Mon-Fri 9am-5pm EST)
+- [x] deferredResponses table + migration applied
+- [x] shouldDeferResponse() — business hours check, new lead check, humanTakeover check
+- [x] getDeferredSendAt() — 15 minutes from now
+- [x] deferred-response-processor.ts — cron every 2 min, checks for agent activity before sending
+- [x] Integrated into webhook-message.ts — defers instead of immediate send for qualifying leads
+- [x] 11 tests for deferred response processor — all passing
+- [x] Module 5A: Event-Driven Triggers engine
+- [x] lastEventTrigger + lastEventTriggerAt columns + migration applied
+- [x] Trigger 1: Email Opened but No Reply (48h) — reschedules to NOW
+- [x] Trigger 2: Email Link Clicked (4h) — reschedules to NOW (hot intent)
+- [x] Trigger 3: Quote Sent but No Response (48h) — reschedules to NOW
+- [x] Trigger 4: Engaged then Went Silent (72h) — reschedules to NOW
+- [x] buildEventTriggerContext() — injects trigger context into Strategist prompt
+- [x] Cron job registered — every 30 minutes
+- [x] Event trigger cleared after successful follow-up send
+- [x] 10 tests for event-driven triggers — all passing
+- [x] Total: 827 tests, 38 test files, 0 failures
+
+## Migration Guard Fix — Apr 15 (source='r' batch)
+- [ ] Fix isMigratedEmailOnly to check transferredContact in researchData, not just source string
+- [ ] Fix enforceMigratedChannel to use same check
+- [ ] DB correction: force all 1001 source='r' leads to preferredChannel=Email
+- [ ] Update QC isTransferred check to also cover source='r' with transferredContact data
+- [ ] Update strategist/composer/researcher transferred contact detection
+- [ ] Write/update tests for the expanded migration guard
+
+## Migrated Contact SMS Leak Fix — Apr 15, 2026
+- [x] Expanded isMigratedEmailOnly to check researchData.transferredContact (not just source string)
+- [x] Expanded QC isTransferred detection to cover source='r' leads
+- [x] DB correction: 639 source='r' leads forced to Email channel
+- [x] DB correction: 8 leads with lastOutboundChannel=SMS corrected
+
+## Module 1: Conversation Stage Detection — Apr 15, 2026
+- [x] Added conversationStage to Strategist prompt (9 stages: introduction, qualification, value_proposition, needs_analysis, objection_handling, closing, post_sale, reactivation, graceful_exit)
+- [x] Added conversationStage to JSON schema output
+- [x] Added conversationStage to StrategyDecision and BrainCouncilOutput types
+- [x] Added conversationStage to brain_council_audit table (migration applied)
+- [x] All audit insert paths carry conversationStage (approved, blocked, graceful_exit, fallback)
+- [x] QC receives conversationStage in strategy directive
+- [x] 4 new stage-aware QC hard constraints (stage_mismatch, fresh_outreach_on_aged_lead)
+- [x] 17 tests for conversation stage detection — all passing
+
+## Lost Lead Nurture Engine Rewrite — Apr 15
+- [x] Rewrite lost-lead-nurture.ts to use Brain Council instead of pre-written templates
+- [x] Every nurture email must go through full Brain Council (Strategist → Researcher → Composer → QC)
+- [x] Brain Council receives full conversation history so it knows if lead declined
+- [x] If Brain detects DECLINING, block the send — no nurture email goes out
+- [x] NOT-INTERESTED fast-path detection BEFORE Brain Council (regex patterns on local + GHL history)
+- [x] graceful_exit detection from Brain Council → moves lead to not_qualified
+- [x] Sweep DB for leads who explicitly declined but are still in active pools
+- [x] Correct pipeline stage for all declined leads found in sweep (2 leads: #536 Liani Echagarruga, #1291 test12)
+- [x] 19 new tests for Brain Council-based nurture engine — all passing
+- [x] 846 total tests, 39 test files, 0 failures, 0 TypeScript errors
+
+## Module 4 — Multi-Agent Deliberation — Apr 15, 2026
+- [x] Create server/deliberation-judge.ts — runDeliberation() calls runStrategist twice in parallel (temp 0.3 + 0.7), Judge LLM picks winner
+- [x] Gate deliberation in brain-council-orchestrator.ts (pipelineValue >= 500 OR opportunityScore >= 85)
+- [x] Add deliberationUsed + deliberationNote to BrainCouncilOutput type
+- [x] Add deliberationUsed + deliberationNote columns to brainCouncilAudit schema + migration
+- [x] Store deliberation metadata in all audit insert paths
+- [x] Add "Deliberation" badge to AuditLog.tsx entries where deliberationUsed=1
+- [ ] Write server/deliberation-judge.test.ts (5 scenario pairs) — deferred to next session
+
+## Module 2A — ICP Cadence Multiplier — Apr 15, 2026
+- [x] Add getIcpTier(source, segment) to server/outcome-engine.ts
+- [x] Apply ICP multiplier in calculateNextFollowUp (P3 + P4 paths): HIGH=×0.7, LOW=×1.3
+- [x] Add getIcpStats() for dashboard
+- [x] Add "ICP Win/Loss" tab to SelfLearning.tsx with source/segment conversion tables + multiplier legend
+- [x] Add tRPC procedure learning.icpStats to expose source+segment conversion data
+- [ ] Add icpTier to LeadContext and Strategist prompt — deferred to next session
+- [ ] Write server/icp-multiplier.test.ts — deferred to next session
+
+## Module 2B — Expert Panel Scoring — Apr 15, 2026
+- [ ] Create server/expert-panel.ts — Brand Voice, Conversion, Compliance experts run in parallel
+- [ ] Integrate into orchestrator: after Composer, before QC — revision pass if any expert < 60
+- [ ] Add expertPanelBrandScore, expertPanelConversionScore, expertPanelComplianceScore to brainCouncilAudit schema
+- [ ] Apply DB migration
+- [ ] Add Expert Panel scores to AuditLog.tsx detail view
+- [ ] Add Expert Panel aggregate score to BrainCouncilOutput type
+- [ ] Wire learning.expertPanelStats tRPC procedure
+- [ ] Add Expert Panel section to /ai-performance page
+- [ ] Write server/expert-panel.test.ts
+
+## Module 5B — Private Memory — Apr 15, 2026
+- [ ] Create server/lead-memory.ts — extract facts after each BC run, store in leadMemory table
+- [ ] Add leadMemory table to drizzle/schema.ts (leadId, factKey, factValue, confidence, learnedAt, lastConfirmedAt)
+- [ ] Apply DB migration
+- [ ] Inject getLeadMemory() into buildLeadContext() as privateMemory field
+- [ ] Add LEAD MEMORY section to Strategist + Composer prompts
+- [ ] Add Lead Memory panel to lead detail page
+- [ ] Wire leads.getMemory tRPC procedure
+- [ ] Write server/lead-memory.test.ts
+
+## Module 3A — Skill Catalog — Apr 15, 2026
+- [ ] Create server/skill-registry.ts — registry of named skills with triggerConditions, systemPrompt, exampleMessages, qcRules
+- [ ] Seed 6 initial skills: church_outreach, corporate_outreach, pricing_objection, reactivation_90d, first_contact_sms, first_contact_email
+- [ ] Update server/composer.ts to call skillRegistry.selectSkill() before composing
+- [ ] Add skillsUsed column to brainCouncilAudit schema
+- [ ] Apply DB migration
+- [ ] Add Skill Used badge to AuditLog.tsx
+- [ ] Write server/skill-registry.test.ts
+
+## Module 3B — Auto-Skill Hunter — Apr 15, 2026
+- [ ] Create server/skill-hunter.ts — weekly scan of violation log, LLM generates skill proposals
+- [ ] Add skillProposals table to drizzle/schema.ts (id, violationCategory, proposedSkillId, proposedPrompt, status, createdAt)
+- [ ] Apply DB migration
+- [ ] Register skill-hunter cron in server/_core/index.ts (weekly, Sunday 2 AM)
+- [ ] Add Skill Proposals panel to /self-learning page
+- [ ] Wire learning.skillProposals + learning.approveSkillProposal + learning.rejectSkillProposal tRPC procedures
+- [ ] Write server/skill-hunter.test.ts
+
+## Bugs Fixed — Apr 15, 2026
+- [x] Ghost lead #240004 (Hudson Grove Ame Zion) — no email/phone/value, dead GHL contact ID LucQ2gQTVMMhGmhUzZOZ — deleted from DB; real lead #240003 intact
+- [x] Human agent outbound messages NOT saved to conversations table — webhook-message.ts now calls addConversation(senderType=human, senderName=agentName) before returning; lead detail page now shows agent name instead of AI for human-sent messages
+
+## Critical Bug — Old Contacts Still Receiving AI Messages — Apr 16, 2026
+- [x] Investigate root cause: getLeadsDueForFollowUp() Drizzle gate was not blocking leads because nextFollowUpAt was already set before the gate was added; also Facebook/ghl/fb sources were not in MIGRATED_SOURCES
+- [x] Identify affected leads: 2,409 leads older than 90 days with no inbound replies still in queue (transferred_contact: 1,059, r: 984, Facebook: 260, ghl: 80, fb: 16, others: 10)
+- [x] HARD GATE 1 (Source-based): getLeadsDueForFollowUp() and lookback-engine.ts now block all 7 import sources (transferred_contact, r, n, bulk_import, Facebook, ghl, fb) with reactivatedFromMigration=0
+- [x] HARD GATE 2 (Age-based): Both functions now also block ANY lead older than 90 days with no inbound conversations, regardless of source — catch-all for future import batches
+- [x] MIGRATED_SOURCES in webhook-helpers.ts expanded to include n, bulk_import, Facebook, ghl, fb — email-only channel enforcement now covers all 7 sources
+- [x] Cleared 2,409 leads from follow-up queue via raw SQL (SET nextFollowUpAt=NULL) — queue is now clean
+
+## Monthly Import Nurture — Apr 16, 2026
+- [x] getImportedContactsDueForNurture query added in db.ts — 30-day cadence, email only, reactivatedFromMigration=0
+- [x] Monthly import nurture wired into lost-lead-nurture.ts (processImportedContactNurture) and timer registered in server/_core/index.ts
+- [x] enforceMigratedChannel now covers all 7 import sources (MIGRATED_SOURCES updated)
+
+## Bugs — Apr 22, 2026
+- [x] BUG FIX: Facebook-sourced leads receiving first-contact via Email instead of FB — root cause: hintChannel fallback in follow-up-trigger.ts defaulted to SMS when preferredChannel/lastOutboundChannel were null; enforceMigratedChannel blocked SMS, triggering Email fallback. Fix: added exported sourceToChannel() to webhook-helpers.ts as single source of truth; updated follow-up-trigger.ts and lookback-engine.ts to use it.
+- [x] BUG FIX: Outbound emails missing agent signature block — root cause: follow-up-trigger.ts called formatEmailHtml() directly, bypassing ensureEmailSignature(). Fix: now calls ensureEmailSignature() + {AGENT} replacement before formatEmailHtml(). Also tightened hasSignature check in brain-council-orchestrator.ts to anchor on brand domain/name only (removed generic '---' anchor).
+- [x] Unit tests: 19 new tests in server/channel-routing.test.ts covering sourceToChannel(), ensureEmailSignature(), and full email send path

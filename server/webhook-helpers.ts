@@ -6,23 +6,63 @@ import { getContact, searchContacts, sendMessage, updateContactCustomField } fro
 import { updateLeadFields } from "./db";
 
 // --- MIGRATED LEAD CHANNEL RESTRICTION ---
-// Contacts migrated from the old GHL account (source='transferred_contact') should
-// ONLY be reached via Email until they re-engage by sending an inbound message.
+// Contacts migrated from the old GHL account should ONLY be reached via Email
+// until they re-engage by sending an inbound message.
 // Once they reply, they become active leads and all channels are unlocked.
+//
+// IMPORTANT: Two batches of migrated contacts exist:
+//   1. source='transferred_contact' (1,554 leads)
+//   2. source='r' (1,001 leads) — these also have transferredContact in researchData
+// The guard MUST check BOTH the source string AND the researchData to catch all migrated contacts.
 
-/** Source value used for contacts imported from the previous GHL account */
+/** Source values used for contacts imported from the previous GHL account */
 export const MIGRATED_SOURCE = "transferred_contact";
+/**
+ * All source values that indicate a bulk-imported or migrated contact.
+ * These contacts are email-only until they send an inbound message (reactivatedFromMigration=1).
+ * - 'transferred_contact': main GHL account migration batch
+ * - 'r': old import batch (GHL single-letter code)
+ * - 'n': GHL bulk import with no source label
+ * - 'bulk_import': explicit bulk import tag
+ * - 'Facebook': Facebook Lead Ads import
+ * - 'ghl': generic GHL import
+ * - 'fb': Facebook shorthand import
+ */
+export const MIGRATED_SOURCES = ["transferred_contact", "r", "n", "bulk_import", "Facebook", "ghl", "fb"];
+
+/** Type for the lead object accepted by migration guard functions */
+type MigrationGuardLead = {
+  source?: string | null;
+  convState?: string | null;
+  lastMessageAt?: Date | null;
+  reactivatedFromMigration?: number | null;
+  researchData?: unknown;
+};
+
+/**
+ * Returns true if the lead is a migrated contact from either import batch.
+ * Checks both the source field AND the presence of transferredContact in researchData.
+ */
+function isMigratedContact(lead: MigrationGuardLead): boolean {
+  // Check source string (covers both 'transferred_contact' and 'r')
+  if (lead.source && MIGRATED_SOURCES.includes(lead.source)) return true;
+  // Check researchData for transferredContact (catches any batch regardless of source)
+  if (lead.researchData) {
+    const rd = typeof lead.researchData === "string" ? JSON.parse(lead.researchData) : lead.researchData;
+    if (rd && typeof rd === "object" && "transferredContact" in rd) return true;
+  }
+  return false;
+}
 
 /**
  * Returns true if the lead is a migrated contact that hasn't re-engaged yet.
  * Migrated leads are email-only until they send an inbound message.
  * A lead is considered "reactivated" if:
- *  - convState is anything other than 'new_lead' (they've progressed), OR
- *  - lastMessageAt is set (they've had message activity indicating engagement)
  *  - reactivatedFromMigration flag is set (explicit re-engagement marker)
+ *  - convState is anything other than 'new_lead' (they've progressed)
  */
-export function isMigratedEmailOnly(lead: { source?: string | null; convState?: string | null; lastMessageAt?: Date | null; reactivatedFromMigration?: number | null }): boolean {
-  if (lead.source !== MIGRATED_SOURCE) return false;
+export function isMigratedEmailOnly(lead: MigrationGuardLead): boolean {
+  if (!isMigratedContact(lead)) return false;
   // Already reactivated via explicit inbound re-engagement
   if (lead.reactivatedFromMigration === 1) return false;
   // Has progressed beyond new_lead state (engaged in conversation)
@@ -35,10 +75,10 @@ export function isMigratedEmailOnly(lead: { source?: string | null; convState?: 
  * Returns 'Email' if the lead is migrated and not yet reactivated,
  * otherwise returns the original channel unchanged.
  */
-export function enforceMigratedChannel(lead: { source?: string | null; convState?: string | null; lastMessageAt?: Date | null; reactivatedFromMigration?: number | null }, requestedChannel: string): string {
+export function enforceMigratedChannel(lead: MigrationGuardLead, requestedChannel: string): string {
   if (isMigratedEmailOnly(lead)) {
     if (requestedChannel !== "Email") {
-      console.log(`[MigratedLead] Channel forced Email (was ${requestedChannel}) for migrated lead — email-only until re-engagement`);
+      console.log(`[MigratedLead] Channel forced Email (was ${requestedChannel}) for migrated lead (source=${lead.source}) — email-only until re-engagement`);
     }
     return "Email";
   }
@@ -663,13 +703,26 @@ export const MAX_LLM_RETRIES = 10;
  * - Preserves existing HTML if the message already contains tags
  */
 /**
+ * Maps a GHL contact source string to the correct first-contact outbound channel.
+ * Single source of truth — used by follow-up-trigger and lookback-engine.
+ */
+export function sourceToChannel(source: string | null | undefined): string {
+  if (!source) return "SMS";
+  const s = source.toLowerCase();
+  if (s.includes("facebook") || s === "fb" || s.includes("lead_form")) return "FB";
+  if (s.includes("instagram") || s === "ig") return "IG";
+  if (s.includes("email")) return "Email";
+  if (s.includes("whatsapp")) return "WhatsApp";
+  return "SMS";
+}
+
+/**
  * Ensures the plain-text message contains the Adorb email signature block.
- * If the signature separator (---) is missing, appends the full signature.
  */
 export function ensureEmailSignature(message: string): string {
   if (!message) return message;
-  // Check if signature already present (look for the --- separator + brand name)
-  if (message.includes('---') && (message.includes('Adorb Custom Printing') || message.includes('adorbcustomtees.com'))) {
+  // Anchor on brand domain/name only — "---" alone is too generic
+  if (message.includes('adorbcustomtees.com') || message.includes('Adorb Custom Printing')) {
     return message;
   }
   // Append standard signature
