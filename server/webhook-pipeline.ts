@@ -8,7 +8,7 @@ import { calculateNextFollowUp } from "./scheduling-engine";
 import { createTask, addNote, createAppointment, getNextBusinessHoursSlot, toETOffsetString, AGENT_CALENDAR_IDS, AGENT_GHL_USER_IDS } from "./ghl";
 import { getConversationHistory } from "./db";
 import { attributeStageAdvance } from "./outcome-engine";
-import { buildJourneyFromLead, recordConversationOutcome } from "./learning-loop";
+import { buildJourneyFromLead, recordConversationOutcome, extractAgentPatterns, recordAgentLearning } from "./learning-loop";
 import {
   SALES_AGENTS,
   DESIGNER,
@@ -287,15 +287,28 @@ export async function handlePipelineWebhook(payload: Record<string, unknown>, re
   }
 
   // --- LEARNING LOOP: Record conversation outcome on terminal stages ---
-  const TERMINAL_WON_STAGES: string[] = [STAGES.DELIVERED];
+  const TERMINAL_WON_STAGES: string[] = [STAGES.DELIVERED, "Proof Approved", "In Production", "Approved + Deposit"];
   const TERMINAL_LOST_STAGES = ["Not Qualified", "Lost"];
-  const isTerminalWon = TERMINAL_WON_STAGES.includes(toStage);
+  const isTerminalWon = TERMINAL_WON_STAGES.some(s => toStage.toLowerCase() === s.toLowerCase());
   const isTerminalLost = TERMINAL_LOST_STAGES.some(s => toStage.toLowerCase().includes(s.toLowerCase()));
   if (isTerminalWon || isTerminalLost) {
     try {
       const outcome = isTerminalWon ? "won" as const : "lost" as const;
       const journey = await buildJourneyFromLead(lead.id, outcome, toStage);
       if (journey) await recordConversationOutcome(journey);
+
+      // --- AGENT SUCCESS LEARNING: Extract patterns from human agent wins ---
+      if (isTerminalWon) {
+        try {
+          const patterns = await extractAgentPatterns(lead.id);
+          if (patterns.length > 0) {
+            const recorded = await recordAgentLearning(lead.id, patterns);
+            console.log(`[Webhook/AgentLearn] Extracted ${patterns.length} patterns, recorded ${recorded} for lead ${lead.id} (stage: ${toStage})`);
+          }
+        } catch (agentErr) {
+          console.error('[Webhook/AgentLearn] Agent pattern extraction error (non-fatal):', agentErr);
+        }
+      }
     } catch (err) {
       console.error('[Webhook/Learn] Conversation outcome recording error (non-fatal):', err);
     }

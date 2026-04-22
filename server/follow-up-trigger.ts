@@ -22,6 +22,7 @@ import { sendMessageWithRetry, normalizeChannel, extractFormData, isLlmExhausted
 import { shouldHandoffToAgent, estimateOrderValue, generateContactNotes } from "./ai-brain";
 import { notifyOwner } from "./_core/notification";
 import { handleChannelDnc, detectDncChannel } from "./channel-fallback";
+import { buildJourneyFromLead, recordConversationOutcome } from "./learning-loop";
 
 const MAX_PER_CYCLE = 10;
 const MIN_MINUTES_BETWEEN_AI = 5;
@@ -145,6 +146,11 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
                 }
               } catch { /* best effort GHL update */ }
               console.log(`[FollowUp] \u{1F6AB} DNC on ${dncChannel} — ALL channels exhausted for lead ${leadId} (${leadName}) → Not Qualified`);
+              // Record "dnc" outcome for learning loop
+              try {
+                const journey = await buildJourneyFromLead(leadId, "dnc", "all_channels_exhausted");
+                if (journey) await recordConversationOutcome(journey);
+              } catch { /* best effort */ }
             } else {
               console.log(`[FollowUp] \u{1F504} DNC on ${dncChannel} — escalated lead ${leadId} (${leadName}) to ${result.nextChannel}`);
             }
@@ -555,14 +561,26 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
 
           // Transient or unknown — reschedule 1 hour and count as error
           stats.errors++;
-          // Self-healing: record all send failures into error-memory
+          // Self-healing: record error AND attempt auto-heal
           try {
-            const { recordError } = await import("./error-memory");
+            const { recordError, tryApplyKnownFix } = await import("./error-memory");
             await recordError({
               errorType: "send_failure",
               errorMessage: `Follow-up send failed for lead ${leadId}: ${sendResult.error}`,
               context: `leadId=${leadId} channel=${channel} errType=${errType} correction=${correction}`,
             });
+            // Auto-heal: check if there is a known fix for this error
+            const heal = await tryApplyKnownFix("send_failure", `${sendResult.error}`, `channel=${channel}`);
+            if (heal.action === "wait_and_retry") {
+              console.log(`[FollowUp/Heal] Waiting ${heal.waitMs}ms before retry for lead ${leadId}: ${heal.fixDescription}`);
+              // Reschedule with the wait time instead of default 1hr
+              await updateLeadFields(leadId, { nextFollowUpAt: new Date(Date.now() + (heal.waitMs || 60_000)) });
+            } else if (heal.action === "switch_channel" && heal.channel) {
+              console.log(`[FollowUp/Heal] Switching channel to ${heal.channel} for lead ${leadId}: ${heal.fixDescription}`);
+              await updateLeadFields(leadId, { preferredChannel: heal.channel, nextFollowUpAt: new Date(Date.now() + 5 * 60 * 1000) });
+            } else if (heal.action === "skip") {
+              console.log(`[FollowUp/Heal] Skipping lead ${leadId}: ${heal.fixDescription}`);
+            }
           } catch { /* best effort */ }
         }
 

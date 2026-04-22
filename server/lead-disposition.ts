@@ -43,6 +43,7 @@ interface DispositionStats {
   dncDisposed: number;
   takeoverExpired: number;
   emailEscalated: number;
+  staleRecorded: number;
   errors: number;
 }
 
@@ -137,7 +138,7 @@ async function escalateToEmail(leadId: number, reason: string): Promise<boolean>
  * Main disposition sweep — runs periodically to clean up stuck leads
  */
 export async function runDispositionSweep(): Promise<DispositionStats> {
-  const stats: DispositionStats = { processed: 0, dncDisposed: 0, takeoverExpired: 0, emailEscalated: 0, errors: 0 };
+  const stats: DispositionStats = { processed: 0, dncDisposed: 0, takeoverExpired: 0, emailEscalated: 0, staleRecorded: 0, errors: 0 };
   const db = await getDb();
   if (!db) return stats;
 
@@ -353,12 +354,67 @@ export async function runDispositionSweep(): Promise<DispositionStats> {
       }
     }
 
+    // ─── PASS 4: AUTO-STALE OUTCOME RECORDING ───
+    // Detect leads with 3+ AI outbound messages, 0 inbound replies, oldest outbound > 14 days
+    // Record as "stale" outcome for the learning loop to analyze
+    try {
+      const STALE_THRESHOLD_DAYS = 14;
+      const staleThreshold = new Date(Date.now() - STALE_THRESHOLD_DAYS * 24 * 60 * 60 * 1000);
+      const staleLeads = await db.select({
+        id: leads.id,
+        ghlContactId: leads.ghlContactId,
+      })
+        .from(leads)
+        .where(and(
+          // Not already in terminal state
+          sql`${leads.pipelineStage} NOT IN ('not_qualified', 'Not Qualified', 'Lost', 'delivered', 'Delivered', 'completed', 'Completed')`,
+          // Has been around for a while
+          sql`${leads.createdAt} < ${staleThreshold}`,
+          // Not already recorded as stale (check via lastLostNurtureAt as proxy — if null, never recorded)
+          sql`${leads.id} NOT IN (
+            SELECT DISTINCT CAST(JSON_UNQUOTE(JSON_EXTRACT(journeyData, '$.leadId')) AS UNSIGNED)
+            FROM conversation_outcomes
+            WHERE outcome = 'stale'
+          )`,
+        ))
+        .limit(20); // Cap per cycle
+
+      for (const staleLead of staleLeads) {
+        try {
+          // Verify: 3+ AI outbound, 0 inbound
+          const [outboundCount] = await db.execute(sql`
+            SELECT COUNT(*) as cnt FROM conversations
+            WHERE leadId = ${staleLead.id} AND senderType = 'ai' AND direction = 'outbound'
+          `);
+          const [inboundCount] = await db.execute(sql`
+            SELECT COUNT(*) as cnt FROM conversations
+            WHERE leadId = ${staleLead.id} AND senderType = 'lead' AND direction = 'inbound'
+          `);
+          const aiOut = Number((outboundCount as any)?.[0]?.cnt || 0);
+          const leadIn = Number((inboundCount as any)?.[0]?.cnt || 0);
+
+          if (aiOut >= 3 && leadIn === 0) {
+            const journey = await buildJourneyFromLead(staleLead.id, "stale", "no_reply_14d");
+            if (journey) {
+              await recordConversationOutcome(journey);
+              stats.staleRecorded++;
+              console.log(`[Disposition] Stale outcome recorded for lead ${staleLead.id}: ${aiOut} AI outbound, 0 inbound, >14d old`);
+            }
+          }
+        } catch (err) {
+          console.error(`[Disposition] Error recording stale for lead ${staleLead.id}:`, err);
+        }
+      }
+    } catch (err) {
+      console.error("[Disposition] Error in stale outcome detection:", err);
+    }
+
     // Notify owner if significant dispositions happened
-    if (stats.dncDisposed > 0 || stats.emailEscalated > 0 || stats.takeoverExpired > 0) {
+    if (stats.dncDisposed > 0 || stats.emailEscalated > 0 || stats.takeoverExpired > 0 || stats.staleRecorded > 0) {
       try {
         await notifyOwner({
-          title: `Lead Disposition: ${stats.dncDisposed} DNC, ${stats.emailEscalated} email escalated, ${stats.takeoverExpired} takeover expired`,
-          content: `Disposition sweep completed:\n- ${stats.dncDisposed} DNC leads moved to Not Qualified\n- ${stats.emailEscalated} leads escalated to email outreach\n- ${stats.takeoverExpired} stale takeovers expired\n- ${stats.errors} errors\n\nTotal processed: ${stats.processed}`,
+          title: `Lead Disposition: ${stats.dncDisposed} DNC, ${stats.emailEscalated} email escalated, ${stats.takeoverExpired} takeover expired, ${stats.staleRecorded} stale recorded`,
+          content: `Disposition sweep completed:\n- ${stats.dncDisposed} DNC leads moved to Not Qualified\n- ${stats.emailEscalated} leads escalated to email outreach\n- ${stats.takeoverExpired} stale takeovers expired\n- ${stats.staleRecorded} stale outcomes recorded for learning\n- ${stats.errors} errors\n\nTotal processed: ${stats.processed}`,
           priority: "standard",
         });
       } catch { /* best effort notification */ }

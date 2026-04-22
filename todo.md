@@ -1256,3 +1256,15 @@
 - [x] BUG FIX: Facebook-sourced leads receiving first-contact via Email instead of FB — root cause: hintChannel fallback in follow-up-trigger.ts defaulted to SMS when preferredChannel/lastOutboundChannel were null; enforceMigratedChannel blocked SMS, triggering Email fallback. Fix: added exported sourceToChannel() to webhook-helpers.ts as single source of truth; updated follow-up-trigger.ts and lookback-engine.ts to use it.
 - [x] BUG FIX: Outbound emails missing agent signature block — root cause: follow-up-trigger.ts called formatEmailHtml() directly, bypassing ensureEmailSignature(). Fix: now calls ensureEmailSignature() + {AGENT} replacement before formatEmailHtml(). Also tightened hasSignature check in brain-council-orchestrator.ts to anchor on brand domain/name only (removed generic '---' anchor).
 - [x] Unit tests: 19 new tests in server/channel-routing.test.ts covering sourceToChannel(), ensureEmailSignature(), and full email send path
+
+## Self-Learning Improvements — Apr 22, 2026
+- [x] Wire getKnownFix() into error handling paths so Error Memory auto-heals — added tryApplyKnownFix() to error-memory.ts, wired into 4 error paths
+- [x] Expand Conversation Outcomes recording triggers — added auto-stale in disposition sweep + DNC in follow-up-trigger + expanded terminal won stages
+- [x] Add automatic outcome detection for stale leads (no reply in 14+ days after 3+ AI messages) — Pass 4 in lead-disposition.ts
+- [x] Add automatic outcome detection for won leads — expanded TERMINAL_WON_STAGES to include Proof Approved, In Production, Approved + Deposit
+- [x] Add automatic outcome detection for DNC leads — channel exhaustion in follow-up-trigger now records dnc outcome
+- [x] Add automatic outcome detection for lost leads — already existed in webhook-pipeline.ts (TERMINAL_LOST_STAGES)
+- [x] Wire auto-healing retry into follow-up-trigger, brain-council-orchestrator, post-delivery-executor, seasonal-campaign-executor
+- [x] Add live agent success learning: extractAgentPatterns() + recordAgentLearning() in learning-loop.ts, wired in webhook-pipeline.ts on terminal won stages
+- [x] Record agent conversation outcomes (won/lost) alongside AI outcomes — same recordConversationOutcome() path used for both
+- [x] Extract winning agent patterns via LLM analysis of agent conversation transcripts → stored as source="agent_success" learnings → auto-promoted by runPromotionScan()
