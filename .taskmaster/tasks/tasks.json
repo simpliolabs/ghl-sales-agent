@@ -1,0 +1,49 @@
+{
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Fix Facebook-sourced leads getting Email instead of FB as first-contact channel",
+      "description": "sourceToChannel() centralised in webhook-helpers.ts; wired into follow-up-trigger.ts and lookback-engine.ts",
+      "status": "done",
+      "priority": "high",
+      "created_at": "2026-04-22T20:00:00Z",
+      "updated_at": "2026-04-23T21:25:33.542913Z"
+    },
+    {
+      "id": 2,
+      "title": "Fix outbound emails missing agent signature block",
+      "description": "ensureEmailSignature() now called before formatEmailHtml() in follow-up-trigger.ts; orchestrator hasSignature tightened",
+      "status": "done",
+      "priority": "high",
+      "created_at": "2026-04-22T20:00:00Z",
+      "updated_at": "2026-04-23T21:25:33.543354Z"
+    },
+    {
+      "id": 3,
+      "title": "Wire Error Memory auto-healing into production error paths",
+      "description": "tryApplyKnownFix() added to error-memory.ts; wired into follow-up-trigger, brain-council-orchestrator, post-delivery-executor, seasonal-campaign-executor",
+      "status": "done",
+      "priority": "high",
+      "created_at": "2026-04-22T21:00:00Z",
+      "updated_at": "2026-04-23T21:25:33.543359Z"
+    },
+    {
+      "id": 4,
+      "title": "Expand Conversation Outcomes coverage and add agent success learning",
+      "description": "Auto-stale detection in disposition sweep; DNC recording on channel exhaustion; expanded terminal won stages; extractAgentPatterns() + recordAgentLearning() in learning-loop.ts",
+      "status": "done",
+      "priority": "high",
+      "created_at": "2026-04-22T21:00:00Z",
+      "updated_at": "2026-04-23T21:25:33.543361Z"
+    },
+    {
+      "id": 5,
+      "title": "Fix Self-Learning page A/B experiments: auto-seeding, Evaluate All button, Create Experiment dialog",
+      "description": "autoSeedExperiments() added to ab-testing.ts; 6-hour timer in index.ts; Evaluate All moved to A/B tab (only shown when experiments exist); New Experiment dialog added",
+      "status": "done",
+      "priority": "medium",
+      "created_at": "2026-04-23T21:00:00Z",
+      "updated_at": "2026-04-23T21:25:33.543363Z"
+    }
+  ]
+}

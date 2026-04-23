@@ -12,11 +12,16 @@ import {
   FlaskConical, TrendingUp, Users, BarChart3, RefreshCw, Play, Pause,
   CheckCircle2, XCircle, Clock, ArrowUpRight, ArrowDownRight, Minus,
   Beaker, Target, Lightbulb, ChevronDown, ChevronUp, Trash2, AlertTriangle,
+  Zap, BookOpen, Wand2, ThumbsUp, ThumbsDown, Eye, Plus,
 } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 
 // ============================================================
 // HELPER COMPONENTS
@@ -96,6 +101,7 @@ export default function SelfLearning() {
   const { data: experiments, isLoading: expLoading } = trpc.learning.experiments.useQuery();
   const { data: personaMatrix, isLoading: matrixLoading } = trpc.learning.personaMatrix.useQuery();
   const { data: trends, isLoading: trendsLoading } = trpc.learning.outcomeTrends.useQuery();
+  const { data: icpStats, isLoading: icpLoading } = trpc.learning.icpStats.useQuery();
 
   // Mutations
   const triggerSnapshot = trpc.learning.triggerSnapshot.useMutation({
@@ -144,10 +150,7 @@ export default function SelfLearning() {
                   <RefreshCw className={`h-3.5 w-3.5 mr-1 ${triggerSnapshot.isPending ? "animate-spin" : ""}`} />
                   Snapshot
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => evaluateAll.mutate()} disabled={evaluateAll.isPending}>
-                  <Beaker className={`h-3.5 w-3.5 mr-1 ${evaluateAll.isPending ? "animate-spin" : ""}`} />
-                  Evaluate All
-                </Button>
+
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button size="sm" variant="outline" className="text-destructive border-destructive/40 hover:bg-destructive/10">
@@ -233,6 +236,9 @@ export default function SelfLearning() {
             <TabsTrigger value="experiments">A/B Experiments</TabsTrigger>
             <TabsTrigger value="personas">Persona Matrix</TabsTrigger>
             <TabsTrigger value="trends">Trends</TabsTrigger>
+            <TabsTrigger value="icp">ICP Win/Loss</TabsTrigger>
+            <TabsTrigger value="skills">Skill Catalog</TabsTrigger>
+            <TabsTrigger value="proposals">Skill Proposals</TabsTrigger>
           </TabsList>
 
           {/* ============ OVERVIEW TAB ============ */}
@@ -248,6 +254,8 @@ export default function SelfLearning() {
               isAdmin={isAdmin}
               onPause={(id) => pauseExp.mutate({ experimentId: id })}
               onResume={(id) => resumeExp.mutate({ experimentId: id })}
+              onEvaluateAll={() => evaluateAll.mutate()}
+              evaluateAllPending={evaluateAll.isPending}
             />
           </TabsContent>
 
@@ -265,6 +273,21 @@ export default function SelfLearning() {
           {/* ============ TRENDS TAB ============ */}
           <TabsContent value="trends" className="space-y-6 mt-4">
             <TrendsTab trends={trends} isLoading={trendsLoading} />
+          </TabsContent>
+
+          {/* ============ ICP WIN/LOSS TAB ============ */}
+          <TabsContent value="icp" className="space-y-6 mt-4">
+            <IcpTab stats={icpStats} isLoading={icpLoading} />
+          </TabsContent>
+
+          {/* ============ SKILL CATALOG TAB ============ */}
+          <TabsContent value="skills" className="space-y-6 mt-4">
+            <SkillCatalogTab isAdmin={isAdmin} />
+          </TabsContent>
+
+          {/* ============ SKILL PROPOSALS TAB ============ */}
+          <TabsContent value="proposals" className="space-y-6 mt-4">
+            <SkillProposalsTab isAdmin={isAdmin} />
           </TabsContent>
         </Tabs>
       </div>
@@ -432,34 +455,144 @@ function OverviewTab({ summary, isLoading }: { summary: any; isLoading: boolean 
 // EXPERIMENTS TAB
 // ============================================================
 
-function ExperimentsTab({ experiments, isLoading, isAdmin, onPause, onResume }: {
+function ExperimentsTab({ experiments, isLoading, isAdmin, onPause, onResume, onEvaluateAll, evaluateAllPending }: {
   experiments: any; isLoading: boolean; isAdmin: boolean;
   onPause: (id: string) => void; onResume: (id: string) => void;
+  onEvaluateAll: () => void; evaluateAllPending: boolean;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState({
+    name: "", hypothesis: "",
+    variantADescription: "", variantBDescription: "",
+    variantAFramework: "", variantBFramework: "",
+    targetSegment: "", sampleSizeTarget: "50",
+  });
+  const createExp = trpc.learning.createExperiment.useMutation({
+    onSuccess: () => {
+      setShowCreate(false);
+      setForm({ name: "", hypothesis: "", variantADescription: "", variantBDescription: "", variantAFramework: "", variantBFramework: "", targetSegment: "", sampleSizeTarget: "50" });
+      toast.success("Experiment created and activated");
+    },
+    onError: (e) => toast.error(`Failed: ${e.message}`),
+  });
+
+  const tabHeader = isAdmin && (
+    <div className="flex items-center justify-between mb-4">
+      <p className="text-sm text-muted-foreground">
+        {experiments?.length || 0} experiment{experiments?.length !== 1 ? "s" : ""} — auto-seeded every 6 hours from competitive framework pairs
+      </p>
+      <div className="flex gap-2">
+        {(experiments?.length || 0) > 0 && (
+          <Button size="sm" variant="outline" onClick={onEvaluateAll} disabled={evaluateAllPending}>
+            <Beaker className={`h-3.5 w-3.5 mr-1 ${evaluateAllPending ? "animate-spin" : ""}`} />
+            Evaluate All
+          </Button>
+        )}
+        <Button size="sm" onClick={() => setShowCreate(true)}>
+          <Plus className="h-3.5 w-3.5 mr-1" /> New Experiment
+        </Button>
+      </div>
+    </div>
+  );
 
   if (isLoading) return <div className="space-y-4">{[1,2,3].map(i => <Skeleton key={i} className="h-32 w-full rounded-lg" />)}</div>;
 
+  const createDialog = (
+    <Dialog open={showCreate} onOpenChange={setShowCreate}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>New A/B Experiment</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-1">
+            <Label>Experiment Name</Label>
+            <Input placeholder="e.g. DIRECT_RESPONSE vs HORMOZI_ACA" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+          </div>
+          <div className="space-y-1">
+            <Label>Hypothesis</Label>
+            <Textarea placeholder="What do you expect to learn?" rows={2} value={form.hypothesis} onChange={e => setForm(f => ({ ...f, hypothesis: e.target.value }))} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>Variant A — Framework</Label>
+              <Input placeholder="e.g. DIRECT_RESPONSE" value={form.variantAFramework} onChange={e => setForm(f => ({ ...f, variantAFramework: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Variant B — Framework</Label>
+              <Input placeholder="e.g. HORMOZI_ACA" value={form.variantBFramework} onChange={e => setForm(f => ({ ...f, variantBFramework: e.target.value }))} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>Variant A Description</Label>
+              <Input placeholder="Describe variant A" value={form.variantADescription} onChange={e => setForm(f => ({ ...f, variantADescription: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Variant B Description</Label>
+              <Input placeholder="Describe variant B" value={form.variantBDescription} onChange={e => setForm(f => ({ ...f, variantBDescription: e.target.value }))} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>Target Segment (optional)</Label>
+              <Input placeholder="e.g. church, nonprofit" value={form.targetSegment} onChange={e => setForm(f => ({ ...f, targetSegment: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Sample Size per Variant</Label>
+              <Input type="number" min={10} max={500} value={form.sampleSizeTarget} onChange={e => setForm(f => ({ ...f, sampleSizeTarget: e.target.value }))} />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
+          <Button
+            disabled={createExp.isPending || !form.name || !form.hypothesis || !form.variantAFramework || !form.variantBFramework}
+            onClick={() => createExp.mutate({
+              name: form.name,
+              hypothesis: form.hypothesis,
+              variantADescription: form.variantADescription || form.variantAFramework,
+              variantBDescription: form.variantBDescription || form.variantBFramework,
+              variantAConfig: { framework: form.variantAFramework },
+              variantBConfig: { framework: form.variantBFramework },
+              targetSegment: form.targetSegment || undefined,
+              sampleSizeTarget: parseInt(form.sampleSizeTarget) || 50,
+              autoAdopt: true,
+            })}
+          >
+            {createExp.isPending ? "Creating..." : "Create Experiment"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+
   if (!experiments || experiments.length === 0) {
     return (
-      <Card>
-        <CardContent className="pt-6">
-          <div className="text-center py-8">
-            <FlaskConical className="h-12 w-12 mx-auto text-muted-foreground/30 mb-3" />
-            <h3 className="text-lg font-medium">No Experiments Yet</h3>
-            <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
-              A/B experiments are created automatically by the Brain Council when it detects competing strategies,
-              or you can create them manually via the API. The system will split traffic between variants and
-              determine a statistically significant winner.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+      <>
+        {tabHeader}
+        {createDialog}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-center py-8">
+              <FlaskConical className="h-12 w-12 mx-auto text-muted-foreground/30 mb-3" />
+              <h3 className="text-lg font-medium">No Experiments Yet</h3>
+              <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
+                The system auto-seeds experiments every 6 hours when it finds competing frameworks with similar reply rates.
+                You can also create one manually using the button above.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <>
+      {tabHeader}
+      {createDialog}
+      <div className="space-y-4">
       {experiments.map((exp: any) => {
         const isExpanded = expandedId === exp.experimentId;
         const totalA = exp.variantASamples || 0;
@@ -591,6 +724,7 @@ function ExperimentsTab({ experiments, isLoading, isAdmin, onPause, onResume }: 
         );
       })}
     </div>
+    </>
   );
 }
 
@@ -809,6 +943,361 @@ function TrendsTab({ trends, isLoading }: { trends: any; isLoading: boolean }) {
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// ============================================================
+// ICP WIN/LOSS TAB — Module 2A: ICP Cadence Multiplier
+// ============================================================
+
+function IcpTab({ stats, isLoading }: { stats: any; isLoading: boolean }) {
+  if (isLoading) return <div className="space-y-4">{[1,2,3].map(i => <Skeleton key={i} className="h-40 w-full rounded-lg" />)}</div>;
+
+  const tierBadge = (tier: string) => {
+    if (tier === "high") return <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">HIGH ×0.7</Badge>;
+    if (tier === "low")  return <Badge className="bg-rose-100 text-rose-700 border-rose-200">LOW ×1.3</Badge>;
+    return <Badge className="bg-slate-100 text-slate-600 border-slate-200">MED ×1.0</Badge>;
+  };
+
+  const tierBar = (rate: number) => {
+    const color = rate >= 20 ? "bg-emerald-500" : rate >= 10 ? "bg-amber-400" : "bg-rose-400";
+    return (
+      <div className="w-full bg-muted rounded-full h-2 mt-1">
+        <div className={`${color} h-2 rounded-full`} style={{ width: `${Math.min(rate * 2, 100)}%` }} />
+      </div>
+    );
+  };
+
+  const sourceStats = stats?.sourceStats ?? [];
+  const segmentStats = stats?.segmentStats ?? [];
+
+  return (
+    <div className="space-y-6">
+      {/* Explainer */}
+      <Card className="border-blue-200 bg-blue-50/40">
+        <CardContent className="pt-5 pb-4">
+          <div className="flex items-start gap-3">
+            <Zap className="h-5 w-5 text-blue-600 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-blue-900">ICP Cadence Multiplier — Module 2A</p>
+              <p className="text-xs text-blue-700 mt-1">
+                The scheduling engine automatically adjusts follow-up timing based on each lead's source and segment conversion rate.
+                <strong> HIGH tier</strong> (≥20% conversion) → 30% faster follow-up (×0.7).
+                <strong> LOW tier</strong> (&lt;10%) → 30% slower (×1.3).
+                <strong> MED tier</strong> (10–19%) → no change.
+                Only applies to P3 (silence cadence) and P4 (new lead baseline). P1 and P2 are exempt.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Source Stats */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <BarChart3 className="h-4 w-4" /> Conversion by Lead Source
+          </CardTitle>
+          <CardDescription>Based on leads who reached Paid / Approved / Delivered stages</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {sourceStats.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No source data yet — need ≥3 leads per source.</p>
+          ) : (
+            <div className="space-y-4">
+              {sourceStats.map((r: any) => (
+                <div key={r.source} className="flex items-center gap-4">
+                  <div className="w-36 shrink-0">
+                    <p className="text-sm font-medium truncate">{r.source}</p>
+                    <p className="text-xs text-muted-foreground">{r.conversions}/{r.total} leads</p>
+                  </div>
+                  <div className="flex-1">
+                    {tierBar(r.conversionRate)}
+                    <p className="text-xs text-muted-foreground mt-0.5">{r.conversionRate}% conversion</p>
+                  </div>
+                  <div className="shrink-0">{tierBadge(r.tier)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Segment Stats */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Users className="h-4 w-4" /> Conversion by Segment
+          </CardTitle>
+          <CardDescription>Church, Corporate, School, etc. — segments with ≥3 leads shown</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {segmentStats.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No segment data yet — need ≥3 leads per segment.</p>
+          ) : (
+            <div className="space-y-4">
+              {segmentStats.map((r: any) => (
+                <div key={r.segment} className="flex items-center gap-4">
+                  <div className="w-36 shrink-0">
+                    <p className="text-sm font-medium capitalize truncate">{r.segment}</p>
+                    <p className="text-xs text-muted-foreground">{r.conversions}/{r.total} leads</p>
+                  </div>
+                  <div className="flex-1">
+                    {tierBar(r.conversionRate)}
+                    <p className="text-xs text-muted-foreground mt-0.5">{r.conversionRate}% conversion</p>
+                  </div>
+                  <div className="shrink-0">{tierBadge(r.tier)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Multiplier legend */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Cadence Multiplier Reference</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-3 gap-4 text-center">
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+              <p className="text-2xl font-bold text-emerald-700">×0.7</p>
+              <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 mt-1">HIGH</Badge>
+              <p className="text-xs text-emerald-700 mt-2">≥20% conversion<br/>30% faster follow-up</p>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <p className="text-2xl font-bold text-slate-700">×1.0</p>
+              <Badge className="bg-slate-100 text-slate-600 border-slate-200 mt-1">MEDIUM</Badge>
+              <p className="text-xs text-slate-600 mt-2">10–19% conversion<br/>No change</p>
+            </div>
+            <div className="rounded-lg border border-rose-200 bg-rose-50 p-4">
+              <p className="text-2xl font-bold text-rose-700">×1.3</p>
+              <Badge className="bg-rose-100 text-rose-700 border-rose-200 mt-1">LOW</Badge>
+              <p className="text-xs text-rose-700 mt-2">&lt;10% conversion<br/>30% slower follow-up</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================
+// SKILL CATALOG TAB — Module 3A
+// ============================================================
+
+function SkillCatalogTab({ isAdmin }: { isAdmin: boolean }) {
+  const { data: skills, isLoading } = trpc.learning.listSkills.useQuery();
+
+  if (isLoading) return <Skeleton className="h-64 w-full rounded-lg" />;
+
+  const channelColors: Record<string, string> = {
+    SMS: "bg-blue-100 text-blue-700 border-blue-200",
+    Email: "bg-purple-100 text-purple-700 border-purple-200",
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <BookOpen className="h-5 w-5" /> Skill Catalog
+          </h2>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {skills?.length || 0} active skills — specialized Composer overlays that activate based on segment, stage, and channel
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {(skills || []).map((skill) => (
+          <Card key={skill.id} className="border border-border/60">
+            <CardHeader className="pb-2">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <CardTitle className="text-base">{skill.name}</CardTitle>
+                  <CardDescription className="text-xs mt-0.5">{skill.description}</CardDescription>
+                </div>
+                <Badge variant="outline" className="text-xs shrink-0 font-mono">{skill.id}</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {skill.triggerConditions.segments?.map(s => (
+                  <Badge key={s} className="bg-amber-100 text-amber-700 border-amber-200 text-xs">{s}</Badge>
+                ))}
+                {skill.triggerConditions.approaches?.map(a => (
+                  <Badge key={a} className="bg-slate-100 text-slate-600 border-slate-200 text-xs">{a}</Badge>
+                ))}
+                {skill.triggerConditions.conversationStages?.map(cs => (
+                  <Badge key={cs} className="bg-violet-100 text-violet-700 border-violet-200 text-xs">{cs}</Badge>
+                ))}
+                {skill.triggerConditions.channels?.map(ch => (
+                  <Badge key={ch} className={`text-xs ${channelColors[ch] || "bg-gray-100 text-gray-700"}`}>{ch}</Badge>
+                ))}
+                {skill.triggerConditions.minLeadAgeDays !== undefined && (
+                  <Badge className="bg-rose-100 text-rose-700 border-rose-200 text-xs">
+                    ≥{skill.triggerConditions.minLeadAgeDays}d old
+                  </Badge>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <Card className="border-dashed border-amber-300 bg-amber-50/40">
+        <CardContent className="pt-4 pb-4">
+          <div className="flex items-start gap-3">
+            <Wand2 className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-amber-800">Auto-Skill Hunter is active</p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                Every 6 hours, the system scans for recurring violation patterns and proposes new skills.
+                Approved proposals are added to this catalog by the developer.
+                Check the <strong>Skill Proposals</strong> tab for pending reviews.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================
+// SKILL PROPOSALS TAB — Module 3B
+// ============================================================
+
+function SkillProposalsTab({ isAdmin }: { isAdmin: boolean }) {
+  const [statusFilter, setStatusFilter] = useState<"pending_review" | "approved" | "rejected" | undefined>(undefined);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const { data: proposals, isLoading, refetch } = trpc.learning.skillProposals.useQuery({ status: statusFilter });
+  const reviewMutation = trpc.learning.reviewSkillProposal.useMutation({
+    onSuccess: () => { toast.success("Proposal updated"); refetch(); },
+    onError: () => toast.error("Failed to update proposal"),
+  });
+  const triggerHunter = trpc.learning.triggerAutoSkillHunter.useMutation({
+    onSuccess: (result) => {
+      toast.success(`Auto-Skill Hunter: ${result.proposalsCreated} new proposal${result.proposalsCreated !== 1 ? "s" : ""} created`);
+      refetch();
+    },
+    onError: () => toast.error("Auto-Skill Hunter failed"),
+  });
+
+  const statusColors: Record<string, string> = {
+    pending_review: "bg-amber-100 text-amber-700 border-amber-200",
+    approved: "bg-emerald-100 text-emerald-700 border-emerald-200",
+    rejected: "bg-rose-100 text-rose-700 border-rose-200",
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <Wand2 className="h-5 w-5" /> Skill Proposals
+          </h2>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Auto-generated skill proposals from recurring violation patterns
+          </p>
+        </div>
+        <div className="flex gap-2">
+          {isAdmin && (
+            <Button size="sm" variant="outline" onClick={() => triggerHunter.mutate()} disabled={triggerHunter.isPending}>
+              <Wand2 className={`h-3.5 w-3.5 mr-1 ${triggerHunter.isPending ? "animate-spin" : ""}`} />
+              Run Hunter Now
+            </Button>
+          )}
+          <div className="flex gap-1">
+            {([undefined, "pending_review", "approved", "rejected"] as const).map(s => (
+              <Button
+                key={String(s)}
+                size="sm"
+                variant={statusFilter === s ? "default" : "outline"}
+                onClick={() => setStatusFilter(s)}
+                className="text-xs"
+              >
+                {s === undefined ? "All" : s.replace("_", " ")}
+              </Button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <Skeleton className="h-64 w-full rounded-lg" />
+      ) : (proposals || []).length === 0 ? (
+        <Card>
+          <CardContent className="pt-8 pb-8 text-center text-muted-foreground">
+            <Wand2 className="h-8 w-8 mx-auto mb-3 opacity-30" />
+            <p className="text-sm">No proposals yet. The Auto-Skill Hunter runs every 6 hours and will propose skills when it detects recurring violation patterns.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {(proposals || []).map((proposal) => (
+            <Card key={proposal.id} className="border border-border/60">
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <CardTitle className="text-base">{proposal.proposedSkillName}</CardTitle>
+                      <Badge variant="outline" className="font-mono text-xs">{proposal.proposedSkillId}</Badge>
+                      <Badge className={`text-xs ${statusColors[proposal.status] || ""}`}>{proposal.status.replace("_", " ")}</Badge>
+                    </div>
+                    <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                      <span>Violation: <strong className="text-foreground">{proposal.violationCategory}</strong></span>
+                      <span>Triggered <strong className="text-foreground">{proposal.occurrenceCount}×</strong> in 7 days</span>
+                      <span>{new Date(proposal.createdAt).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setExpandedId(expandedId === proposal.id ? null : proposal.id)}
+                  >
+                    <Eye className="h-4 w-4" />
+                  </Button>
+                </div>
+              </CardHeader>
+              {expandedId === proposal.id && (
+                <CardContent className="pt-0">
+                  <div className="rounded-md bg-muted/50 p-3 text-xs font-mono whitespace-pre-wrap max-h-48 overflow-y-auto">
+                    {proposal.proposedPrompt}
+                  </div>
+                  {proposal.reviewNote && (
+                    <p className="text-xs text-muted-foreground mt-2 italic">Review note: {proposal.reviewNote}</p>
+                  )}
+                  {isAdmin && proposal.status === "pending_review" && (
+                    <div className="flex gap-2 mt-3">
+                      <Button
+                        size="sm"
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                        onClick={() => reviewMutation.mutate({ id: proposal.id, action: "approved" })}
+                        disabled={reviewMutation.isPending}
+                      >
+                        <ThumbsUp className="h-3.5 w-3.5 mr-1" /> Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-rose-600 border-rose-300 hover:bg-rose-50"
+                        onClick={() => reviewMutation.mutate({ id: proposal.id, action: "rejected", reviewNote: "Rejected from dashboard" })}
+                        disabled={reviewMutation.isPending}
+                      >
+                        <ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              )}
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

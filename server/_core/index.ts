@@ -12,6 +12,7 @@ import { recalculateStaleSchedules } from "../scheduling-engine";
 import { runSlaCheck } from "../sla-timer";
 import { processPostDeliverySteps } from "../post-delivery-executor";
 import { processSeasonalCampaigns } from "../seasonal-campaign-executor";
+import { processLostLeadNurture, processImportedContactNurture } from "../lost-lead-nurture";
 import { warmSlotPointersFromCalendar } from "../ghl";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -170,6 +171,171 @@ async function startServer() {
       }
     }, SC_INTERVAL);
     console.log(`[Cron] Seasonal campaign executor scheduled every ${SC_INTERVAL / 60000} minutes`);
+
+    // --- CRON: Stuck Processing Lock Cleaner every 5 minutes ---
+    // Clears processingLockedAt values older than 5 minutes.
+    // Prevents silent bot failures like the Rosemari incident where a stuck lock
+    // silenced the bot indefinitely. The Brain Council lock TTL is 300s (5 min),
+    // so any lock older than 5 min is definitively stuck (server crash, timeout, etc.).
+    const STUCK_LOCK_INTERVAL = 5 * 60 * 1000; // 5 minutes
+    const STUCK_LOCK_TTL_MS = 5 * 60 * 1000; // 5 minutes
+    setInterval(async () => {
+      try {
+        const { getDb } = await import("../db");
+        const db = await getDb();
+        if (!db) return;
+        const { leads } = await import("../../drizzle/schema");
+        const { sql: sqlFn, isNotNull } = await import("drizzle-orm");
+        const cutoff = new Date(Date.now() - STUCK_LOCK_TTL_MS);
+        const result = await db.update(leads)
+          .set({ processingLockedAt: null })
+          .where(sqlFn`processingLockedAt IS NOT NULL AND processingLockedAt < ${cutoff}`);
+        const affected = (result as any)?.[0]?.affectedRows || 0;
+        if (affected > 0) {
+          console.log(`[StuckLockCleaner] Cleared ${affected} stuck processing lock(s) older than 5 minutes`);
+        }
+      } catch (err) {
+        console.error(`[StuckLockCleaner] Error:`, err);
+      }
+    }, STUCK_LOCK_INTERVAL);
+    console.log(`[Cron] Stuck processing lock cleaner scheduled every ${STUCK_LOCK_INTERVAL / 60000} minutes`);
+
+    // --- CRON: Lost Lead Quarterly Nurture — runs once daily at 8 AM ET ---
+    // Sends a single re-engagement email to Lost leads not nurtured in 90+ days.
+    // Email-only, no Brain Council, no SMS, no owner notifications.
+    const LOST_NURTURE_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
+    // First run: delay until next 8 AM ET (or 5 minutes after startup if already past 8 AM)
+    const now = new Date();
+    const etHour = parseInt(new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/New_York' }).format(now));
+    const msUntilFirstRun = etHour < 8
+      ? (() => { const next8am = new Date(now); next8am.setHours(now.getHours() + (8 - etHour), 0, 0, 0); return next8am.getTime() - now.getTime(); })()
+      : 5 * 60 * 1000; // already past 8 AM — run in 5 minutes
+    setTimeout(async () => {
+      try {
+        const result = await processLostLeadNurture();
+        if (result.sent > 0 || result.errors > 0) {
+          console.log(`[LostNurture/Timer] Initial run: ${result.sent} sent, ${result.skipped} skipped, ${result.errors} errors`);
+        }
+      } catch (err) {
+        console.error(`[LostNurture/Timer] Initial run error:`, err);
+      }
+      // After first run, repeat every 24 hours
+      setInterval(async () => {
+        try {
+          const result = await processLostLeadNurture();
+          if (result.sent > 0 || result.errors > 0) {
+            console.log(`[LostNurture/Timer] Daily cycle: ${result.sent} sent, ${result.skipped} skipped, ${result.errors} errors`);
+          }
+        } catch (err) {
+          console.error(`[LostNurture/Timer] Daily cycle error:`, err);
+        }
+      }, LOST_NURTURE_INTERVAL);
+    }, msUntilFirstRun);
+    console.log(`[Cron] Lost lead nurture scheduled daily (first run in ${Math.round(msUntilFirstRun / 60000)} minutes)`);
+
+    // --- CRON: Monthly import contact nurture (email-only, 30-day cadence) ---
+    // Runs every 6 hours — the DB query enforces the 30-day per-lead cooldown
+    const IMPORT_NURTURE_INTERVAL = 6 * 60 * 60 * 1000; // 6 hours
+    setTimeout(async () => {
+      try {
+        const result = await processImportedContactNurture();
+        if (result.sent > 0 || result.errors > 0) {
+          console.log(`[ImportNurture/Timer] Initial run: ${result.sent} sent, ${result.blocked} blocked, ${result.skipped} skipped, ${result.errors} errors`);
+        }
+      } catch (err) {
+        console.error(`[ImportNurture/Timer] Initial run error:`, err);
+      }
+      setInterval(async () => {
+        try {
+          const result = await processImportedContactNurture();
+          if (result.sent > 0 || result.errors > 0) {
+            console.log(`[ImportNurture/Timer] Cycle: ${result.sent} sent, ${result.blocked} blocked, ${result.skipped} skipped, ${result.errors} errors`);
+          }
+        } catch (err) {
+          console.error(`[ImportNurture/Timer] Cycle error:`, err);
+        }
+      }, IMPORT_NURTURE_INTERVAL);
+    }, 30 * 60 * 1000); // First run 30 minutes after server start
+    console.log(`[Cron] Monthly import contact nurture scheduled (first run in 30 minutes, then every 6 hours)`);
+
+    // --- CRON: Process deferred responses (agent-first delay) every 2 minutes ---
+    const DEFERRED_INTERVAL = 2 * 60 * 1000; // 2 minutes
+    setInterval(async () => {
+      try {
+        const { processDeferredResponses } = await import("../deferred-response-processor");
+        const result = await processDeferredResponses();
+        if (result.sent > 0 || result.cancelled > 0) {
+          console.log(`[DeferredResponse/Timer] ${result.sent} sent, ${result.cancelled} cancelled, ${result.errors} errors`);
+        }
+      } catch (err) {
+        console.error("[DeferredResponse/Timer] Error:", err);
+      }
+    }, DEFERRED_INTERVAL);
+    console.log(`[Cron] Deferred response processor scheduled every ${DEFERRED_INTERVAL / 60000} minutes`);
+
+    // --- CRON: Event-Driven Triggers (Module 5A) every 30 minutes ---
+    const EVENT_TRIGGER_INTERVAL = 30 * 60 * 1000; // 30 minutes
+    setInterval(async () => {
+      try {
+        const { processEventDrivenTriggers } = await import("../event-driven-triggers");
+        const result = await processEventDrivenTriggers();
+        if (result.triggered > 0 || result.errors > 0) {
+          console.log(`[EventTrigger/Timer] ${result.triggered} triggered, ${result.skipped} skipped, ${result.errors} errors`);
+          for (const d of result.details) {
+            console.log(`  → ${d.trigger}: Lead ${d.leadId} (${d.leadName})`);
+          }
+        }
+      } catch (err) {
+        console.error("[EventTrigger/Timer] Error:", err);
+      }
+    }, EVENT_TRIGGER_INTERVAL);
+    console.log(`[Cron] Event-driven triggers scheduled every ${EVENT_TRIGGER_INTERVAL / 60000} minutes`);
+
+    // --- CRON: Auto-Skill Hunter (Module 3B) every 6 hours ---
+    const AUTO_SKILL_INTERVAL = 6 * 60 * 60 * 1000; // 6 hours
+    setInterval(async () => {
+      try {
+        const { runAutoSkillHunter } = await import("../auto-skill-hunter");
+        const result = await runAutoSkillHunter();
+        if (result.proposalsCreated > 0) {
+          console.log(`[AutoSkillHunter/Timer] ${result.patternsFound} patterns, ${result.proposalsCreated} proposed, ${result.skippedCooldown} on cooldown`);
+        }
+      } catch (err) {
+        console.error("[AutoSkillHunter/Timer] Error:", err);
+      }
+    }, AUTO_SKILL_INTERVAL);
+    console.log(`[Cron] Auto-Skill Hunter scheduled every ${AUTO_SKILL_INTERVAL / 3600000} hours`);
+
+    // --- CRON: A/B Experiment Auto-Seeder every 6 hours ---
+    const AB_SEED_INTERVAL = 6 * 60 * 60 * 1000; // 6 hours
+    setTimeout(async () => {
+      try {
+        const { autoSeedExperiments } = await import("../ab-testing");
+        const result = await autoSeedExperiments();
+        if (result.created > 0) {
+          console.log(`[ABTest/AutoSeed] Initial run: ${result.created} created, ${result.skipped} skipped`);
+        }
+      } catch (err) {
+        console.error("[ABTest/AutoSeed] Initial run error:", err);
+      }
+    }, 5 * 60 * 1000); // First run after 5 minutes
+    setInterval(async () => {
+      try {
+        const { autoSeedExperiments, evaluateAllExperiments } = await import("../ab-testing");
+        // Evaluate existing experiments first, then seed new ones
+        const evalResult = await evaluateAllExperiments();
+        if (evalResult.evaluated > 0) {
+          console.log(`[ABTest/Timer] Evaluated ${evalResult.evaluated}, completed ${evalResult.completed}, adopted ${evalResult.adopted}`);
+        }
+        const seedResult = await autoSeedExperiments();
+        if (seedResult.created > 0) {
+          console.log(`[ABTest/AutoSeed] Seeded ${seedResult.created} new experiment(s)`);
+        }
+      } catch (err) {
+        console.error("[ABTest/Timer] Error:", err);
+      }
+    }, AB_SEED_INTERVAL);
+    console.log(`[Cron] A/B experiment auto-seeder + evaluator scheduled every ${AB_SEED_INTERVAL / 3600000} hours`);
   });
 }
 
