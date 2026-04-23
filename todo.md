@@ -1268,3 +1268,10 @@
 - [x] Add live agent success learning: extractAgentPatterns() + recordAgentLearning() in learning-loop.ts, wired in webhook-pipeline.ts on terminal won stages
 - [x] Record agent conversation outcomes (won/lost) alongside AI outcomes — same recordConversationOutcome() path used for both
 - [x] Extract winning agent patterns via LLM analysis of agent conversation transcripts → stored as source="agent_success" learnings → auto-promoted by runPromotionScan()
+
+## Self-Learning Page Issues — Apr 23, 2026
+- [x] Diagnose Self-Learning page issues: Evaluate All had no experiments to evaluate (0 in DB); A/B auto-creation was never implemented despite UI claiming it was automatic
+- [x] Fix broken "Evaluate All" button — moved to A/B Experiments tab only (shown only when experiments exist); improved empty-state feedback
+- [x] Fix: A/B experiments not auto-created — autoSeedExperiments() added to ab-testing.ts; runs 5min after startup + every 6h; seeds experiments from framework performance data (min 20 samples per framework, max 3 active)
+- [x] Add "New Experiment" dialog to A/B tab for manual experiment creation with name, hypothesis, variant A/B, segment, sample size
+- [x] 865 tests passing, 0 TS errors, Taskmaster tasks.json bootstrapped with 5 tasks all marked done

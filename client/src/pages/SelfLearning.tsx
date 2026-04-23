@@ -12,12 +12,16 @@ import {
   FlaskConical, TrendingUp, Users, BarChart3, RefreshCw, Play, Pause,
   CheckCircle2, XCircle, Clock, ArrowUpRight, ArrowDownRight, Minus,
   Beaker, Target, Lightbulb, ChevronDown, ChevronUp, Trash2, AlertTriangle,
-  Zap, BookOpen, Wand2, ThumbsUp, ThumbsDown, Eye,
+  Zap, BookOpen, Wand2, ThumbsUp, ThumbsDown, Eye, Plus,
 } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 
 // ============================================================
 // HELPER COMPONENTS
@@ -146,10 +150,7 @@ export default function SelfLearning() {
                   <RefreshCw className={`h-3.5 w-3.5 mr-1 ${triggerSnapshot.isPending ? "animate-spin" : ""}`} />
                   Snapshot
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => evaluateAll.mutate()} disabled={evaluateAll.isPending}>
-                  <Beaker className={`h-3.5 w-3.5 mr-1 ${evaluateAll.isPending ? "animate-spin" : ""}`} />
-                  Evaluate All
-                </Button>
+
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button size="sm" variant="outline" className="text-destructive border-destructive/40 hover:bg-destructive/10">
@@ -253,6 +254,8 @@ export default function SelfLearning() {
               isAdmin={isAdmin}
               onPause={(id) => pauseExp.mutate({ experimentId: id })}
               onResume={(id) => resumeExp.mutate({ experimentId: id })}
+              onEvaluateAll={() => evaluateAll.mutate()}
+              evaluateAllPending={evaluateAll.isPending}
             />
           </TabsContent>
 
@@ -452,34 +455,144 @@ function OverviewTab({ summary, isLoading }: { summary: any; isLoading: boolean 
 // EXPERIMENTS TAB
 // ============================================================
 
-function ExperimentsTab({ experiments, isLoading, isAdmin, onPause, onResume }: {
+function ExperimentsTab({ experiments, isLoading, isAdmin, onPause, onResume, onEvaluateAll, evaluateAllPending }: {
   experiments: any; isLoading: boolean; isAdmin: boolean;
   onPause: (id: string) => void; onResume: (id: string) => void;
+  onEvaluateAll: () => void; evaluateAllPending: boolean;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState({
+    name: "", hypothesis: "",
+    variantADescription: "", variantBDescription: "",
+    variantAFramework: "", variantBFramework: "",
+    targetSegment: "", sampleSizeTarget: "50",
+  });
+  const createExp = trpc.learning.createExperiment.useMutation({
+    onSuccess: () => {
+      setShowCreate(false);
+      setForm({ name: "", hypothesis: "", variantADescription: "", variantBDescription: "", variantAFramework: "", variantBFramework: "", targetSegment: "", sampleSizeTarget: "50" });
+      toast.success("Experiment created and activated");
+    },
+    onError: (e) => toast.error(`Failed: ${e.message}`),
+  });
+
+  const tabHeader = isAdmin && (
+    <div className="flex items-center justify-between mb-4">
+      <p className="text-sm text-muted-foreground">
+        {experiments?.length || 0} experiment{experiments?.length !== 1 ? "s" : ""} — auto-seeded every 6 hours from competitive framework pairs
+      </p>
+      <div className="flex gap-2">
+        {(experiments?.length || 0) > 0 && (
+          <Button size="sm" variant="outline" onClick={onEvaluateAll} disabled={evaluateAllPending}>
+            <Beaker className={`h-3.5 w-3.5 mr-1 ${evaluateAllPending ? "animate-spin" : ""}`} />
+            Evaluate All
+          </Button>
+        )}
+        <Button size="sm" onClick={() => setShowCreate(true)}>
+          <Plus className="h-3.5 w-3.5 mr-1" /> New Experiment
+        </Button>
+      </div>
+    </div>
+  );
 
   if (isLoading) return <div className="space-y-4">{[1,2,3].map(i => <Skeleton key={i} className="h-32 w-full rounded-lg" />)}</div>;
 
+  const createDialog = (
+    <Dialog open={showCreate} onOpenChange={setShowCreate}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>New A/B Experiment</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-1">
+            <Label>Experiment Name</Label>
+            <Input placeholder="e.g. DIRECT_RESPONSE vs HORMOZI_ACA" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+          </div>
+          <div className="space-y-1">
+            <Label>Hypothesis</Label>
+            <Textarea placeholder="What do you expect to learn?" rows={2} value={form.hypothesis} onChange={e => setForm(f => ({ ...f, hypothesis: e.target.value }))} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>Variant A — Framework</Label>
+              <Input placeholder="e.g. DIRECT_RESPONSE" value={form.variantAFramework} onChange={e => setForm(f => ({ ...f, variantAFramework: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Variant B — Framework</Label>
+              <Input placeholder="e.g. HORMOZI_ACA" value={form.variantBFramework} onChange={e => setForm(f => ({ ...f, variantBFramework: e.target.value }))} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>Variant A Description</Label>
+              <Input placeholder="Describe variant A" value={form.variantADescription} onChange={e => setForm(f => ({ ...f, variantADescription: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Variant B Description</Label>
+              <Input placeholder="Describe variant B" value={form.variantBDescription} onChange={e => setForm(f => ({ ...f, variantBDescription: e.target.value }))} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>Target Segment (optional)</Label>
+              <Input placeholder="e.g. church, nonprofit" value={form.targetSegment} onChange={e => setForm(f => ({ ...f, targetSegment: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Sample Size per Variant</Label>
+              <Input type="number" min={10} max={500} value={form.sampleSizeTarget} onChange={e => setForm(f => ({ ...f, sampleSizeTarget: e.target.value }))} />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
+          <Button
+            disabled={createExp.isPending || !form.name || !form.hypothesis || !form.variantAFramework || !form.variantBFramework}
+            onClick={() => createExp.mutate({
+              name: form.name,
+              hypothesis: form.hypothesis,
+              variantADescription: form.variantADescription || form.variantAFramework,
+              variantBDescription: form.variantBDescription || form.variantBFramework,
+              variantAConfig: { framework: form.variantAFramework },
+              variantBConfig: { framework: form.variantBFramework },
+              targetSegment: form.targetSegment || undefined,
+              sampleSizeTarget: parseInt(form.sampleSizeTarget) || 50,
+              autoAdopt: true,
+            })}
+          >
+            {createExp.isPending ? "Creating..." : "Create Experiment"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+
   if (!experiments || experiments.length === 0) {
     return (
-      <Card>
-        <CardContent className="pt-6">
-          <div className="text-center py-8">
-            <FlaskConical className="h-12 w-12 mx-auto text-muted-foreground/30 mb-3" />
-            <h3 className="text-lg font-medium">No Experiments Yet</h3>
-            <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
-              A/B experiments are created automatically by the Brain Council when it detects competing strategies,
-              or you can create them manually via the API. The system will split traffic between variants and
-              determine a statistically significant winner.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+      <>
+        {tabHeader}
+        {createDialog}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-center py-8">
+              <FlaskConical className="h-12 w-12 mx-auto text-muted-foreground/30 mb-3" />
+              <h3 className="text-lg font-medium">No Experiments Yet</h3>
+              <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
+                The system auto-seeds experiments every 6 hours when it finds competing frameworks with similar reply rates.
+                You can also create one manually using the button above.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <>
+      {tabHeader}
+      {createDialog}
+      <div className="space-y-4">
       {experiments.map((exp: any) => {
         const isExpanded = expandedId === exp.experimentId;
         const totalA = exp.variantASamples || 0;
@@ -611,6 +724,7 @@ function ExperimentsTab({ experiments, isLoading, isAdmin, onPause, onResume }: 
         );
       })}
     </div>
+    </>
   );
 }
 

@@ -305,6 +305,37 @@ async function startServer() {
       }
     }, AUTO_SKILL_INTERVAL);
     console.log(`[Cron] Auto-Skill Hunter scheduled every ${AUTO_SKILL_INTERVAL / 3600000} hours`);
+
+    // --- CRON: A/B Experiment Auto-Seeder every 6 hours ---
+    const AB_SEED_INTERVAL = 6 * 60 * 60 * 1000; // 6 hours
+    setTimeout(async () => {
+      try {
+        const { autoSeedExperiments } = await import("../ab-testing");
+        const result = await autoSeedExperiments();
+        if (result.created > 0) {
+          console.log(`[ABTest/AutoSeed] Initial run: ${result.created} created, ${result.skipped} skipped`);
+        }
+      } catch (err) {
+        console.error("[ABTest/AutoSeed] Initial run error:", err);
+      }
+    }, 5 * 60 * 1000); // First run after 5 minutes
+    setInterval(async () => {
+      try {
+        const { autoSeedExperiments, evaluateAllExperiments } = await import("../ab-testing");
+        // Evaluate existing experiments first, then seed new ones
+        const evalResult = await evaluateAllExperiments();
+        if (evalResult.evaluated > 0) {
+          console.log(`[ABTest/Timer] Evaluated ${evalResult.evaluated}, completed ${evalResult.completed}, adopted ${evalResult.adopted}`);
+        }
+        const seedResult = await autoSeedExperiments();
+        if (seedResult.created > 0) {
+          console.log(`[ABTest/AutoSeed] Seeded ${seedResult.created} new experiment(s)`);
+        }
+      } catch (err) {
+        console.error("[ABTest/Timer] Error:", err);
+      }
+    }, AB_SEED_INTERVAL);
+    console.log(`[Cron] A/B experiment auto-seeder + evaluator scheduled every ${AB_SEED_INTERVAL / 3600000} hours`);
   });
 }
 

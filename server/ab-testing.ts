@@ -509,6 +509,125 @@ export async function evaluateAllExperiments(): Promise<{
 }
 
 // ============================================================
+// 6. AUTO-SEED ENGINE
+// ============================================================
+
+/**
+ * Automatically seed A/B experiments based on competitive framework pairs.
+ * Runs every 6 hours. Finds frameworks with 20+ samples and similar reply rates,
+ * then creates experiments to determine the statistically superior approach.
+ * Caps at MAX_ACTIVE_EXPERIMENTS to avoid splitting traffic too thin.
+ */
+const MAX_ACTIVE_EXPERIMENTS = 3;
+const MIN_SAMPLES_TO_COMPETE = 20;
+const MAX_RATE_DIFF_TO_COMPETE = 0.15; // Within 15% reply rate of each other
+
+export async function autoSeedExperiments(): Promise<{ created: number; skipped: number }> {
+  const db = await getDb();
+  if (!db) return { created: 0, skipped: 0 };
+
+  let created = 0;
+  let skipped = 0;
+
+  try {
+    // Check how many active experiments exist
+    const activeExps = await db.select({ cnt: sql`count(*)` })
+      .from(abExperiments)
+      .where(eq(abExperiments.status, "active"));
+    const activeCount = Number((activeExps[0] as any)?.cnt || 0);
+
+    if (activeCount >= MAX_ACTIVE_EXPERIMENTS) {
+      console.log(`[ABTest/AutoSeed] Already at max active experiments (${activeCount}/${MAX_ACTIVE_EXPERIMENTS}), skipping`);
+      return { created: 0, skipped: 1 };
+    }
+
+    // Query framework performance: reply rates by framework
+    // Uses gotReply (1=replied) and converted (1=reached paid stage) — actual columns in message_outcomes
+    const frameworkStats = await db.execute(sql`
+      SELECT
+        framework,
+        COUNT(*) as total,
+        SUM(CASE WHEN gotReply = 1 OR converted = 1 THEN 1 ELSE 0 END) as successes,
+        ROUND(SUM(CASE WHEN gotReply = 1 OR converted = 1 THEN 1 ELSE 0 END) * 1.0 / COUNT(*), 4) as reply_rate
+      FROM message_outcomes
+      WHERE framework IS NOT NULL AND framework != ''
+      GROUP BY framework
+      HAVING COUNT(*) >= ${MIN_SAMPLES_TO_COMPETE}
+      ORDER BY reply_rate DESC
+    `);
+
+    const rows = (frameworkStats as any[])[0] || frameworkStats;
+    const stats: Array<{ framework: string; total: number; reply_rate: number }> =
+      Array.isArray(rows) ? rows : [];
+
+    if (stats.length < 2) {
+      console.log(`[ABTest/AutoSeed] Not enough frameworks with ${MIN_SAMPLES_TO_COMPETE}+ samples to create experiment`);
+      return { created: 0, skipped: 1 };
+    }
+
+    // Find competitive pairs (within MAX_RATE_DIFF_TO_COMPETE of each other)
+    const slotsAvailable = MAX_ACTIVE_EXPERIMENTS - activeCount;
+
+    for (let i = 0; i < stats.length - 1 && created < slotsAvailable; i++) {
+      for (let j = i + 1; j < stats.length && created < slotsAvailable; j++) {
+        const a = stats[i];
+        const b = stats[j];
+        const rateDiff = Math.abs(a.reply_rate - b.reply_rate);
+
+        if (rateDiff > MAX_RATE_DIFF_TO_COMPETE) continue;
+
+        // Check if an experiment for this pair already exists (active or paused)
+        const pairKey = [a.framework, b.framework].sort().join("_vs_");
+        const existing = await db.execute(sql`
+          SELECT id FROM ab_experiments
+          WHERE status IN ('active', 'paused')
+          AND (
+            (variant_a_config LIKE ${`%${a.framework}%`} AND variant_b_config LIKE ${`%${b.framework}%`})
+            OR
+            (variant_a_config LIKE ${`%${b.framework}%`} AND variant_b_config LIKE ${`%${a.framework}%`})
+          )
+          LIMIT 1
+        `);
+        const existingRows = (existing as any[])[0] || existing;
+        if (Array.isArray(existingRows) && existingRows.length > 0) {
+          skipped++;
+          continue;
+        }
+
+        // Create the experiment
+        const rateAStr = `${Math.round(a.reply_rate * 100)}%`;
+        const rateBStr = `${Math.round(b.reply_rate * 100)}%`;
+        const expId = await createExperiment({
+          name: `${a.framework} vs ${b.framework} — Auto`,
+          hypothesis: `${a.framework} (${rateAStr} reply) and ${b.framework} (${rateBStr} reply) have similar performance. A controlled test will determine the statistically superior framework.`,
+          variantADescription: `${a.framework} messaging framework (current reply rate: ${rateAStr}, n=${a.total})`,
+          variantBDescription: `${b.framework} messaging framework (current reply rate: ${rateBStr}, n=${b.total})`,
+          variantAConfig: { framework: a.framework },
+          variantBConfig: { framework: b.framework },
+          primaryMetric: "reply_rate",
+          sampleSizeTarget: 50,
+          confidenceThreshold: 95,
+          autoAdopt: true,
+        });
+
+        if (expId) {
+          created++;
+          console.log(`[ABTest/AutoSeed] Created experiment: ${pairKey} (rate diff: ${Math.round(rateDiff * 100)}%)`);
+        }
+      }
+    }
+
+    if (created > 0) {
+      console.log(`[ABTest/AutoSeed] Seeded ${created} new experiment(s)`);
+    }
+  } catch (err) {
+    console.error("[ABTest/AutoSeed] Error:", err);
+  }
+
+  return { created, skipped };
+}
+
+// ============================================================
 // EXPORTS for testing
 // ============================================================
 export { deterministicVariant, adoptWinner };
