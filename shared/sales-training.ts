@@ -21,8 +21,53 @@
 export const PRICING_MATRIX = `
 === ADORB CUSTOM TEES — COMPLETE PRICING MATRIX ===
 
-CORE PRODUCT: Gildan Softstyle® Unisex T-Shirt (Style 64000) — DTF Printing
-(See knowledge base for exact per-unit pricing table)
+⚠️ QUOTING RULE #1 — EXACT QUANTITY = EXACT QUOTE (NO RANGES):
+When a customer states an EXACT quantity (e.g. "20 shirts", "50 pieces"), you MUST give the
+EXACT dollar total — not a range. Use the tables below to compute it precisely.
+NEVER say "roughly $X–$Y" when you know the exact count.
+
+⚠️ QUOTING RULE #2 — UNKNOWN QUANTITY = NO PRICE AT ALL:
+If the customer has NOT stated a quantity, DO NOT give any price or range.
+Ask: "How many pieces are you looking at?" FIRST.
+
+⚠️ QUOTING RULE #3 — CHEAPEST SHIRT WINS:
+The default shirt for ALL quotes is Gildan Style 3000 (Heavy Cotton) — it is the most
+affordable option. ALWAYS default to Style 3000 unless the customer specifies otherwise.
+
+--- CORE PRODUCT: Gildan Heavy Cotton™ T-Shirt (Style 3000) — DTF Printing ---
+This is the DEFAULT shirt for all quotes. Cheapest option always wins.
+
+PRINTING PRICE PER SHIRT (includes blank shirt + DTF print):
+| Qty  | 1-Side (S–XL) | 2-Side (S–XL) | 2XL add | 3XL–5XL add |
+|------|--------------|--------------|---------|-------------|
+|  6   |    $15.35    |    $18.35    |  +$2.50 |    +$3.50   |
+|  12  |    $14.10    |    $17.10    |  +$2.50 |    +$3.50   |
+|  20  |    $11.90    |    $14.90    |  +$2.50 |    +$3.50   |
+|  45  |     $8.75    |    $11.75    |  +$2.50 |    +$3.50   |
+|  60  |     $7.85    |    $10.85    |  +$2.50 |    +$3.50   |
+|  75  |     $6.85    |     $9.85    |  +$2.50 |    +$3.50   |
+| 100  |     $5.85    |     $8.85    |  +$2.50 |    +$3.50   |
+| 150  |     $5.75    |     $8.75    |  +$2.50 |    +$3.50   |
+| 200+ |     $5.50    |     $8.50    |  +$2.50 |    +$3.50   |
+
+For quantities between tiers, use the LOWER tier (e.g. qty 20 → use the 20-row).
+For quantities above 200, use the 200+ row.
+
+EXACT QUOTE EXAMPLE — Customer says "20 shirts":
+  1-Side, all S–XL:  20 × $11.90 = $238.00 total
+  2-Side, all S–XL:  20 × $14.90 = $298.00 total
+  If any 2XL: add $2.50 per 2XL shirt
+  If any 3XL+: add $3.50 per 3XL+ shirt
+
+When customer states exactly 20 shirts, ALWAYS present this format:
+  "Here's your exact quote for 20 shirts (Gildan Style 3000):
+   • 1-Side Print — S–XL: $238.00 total ($11.90/shirt)
+   • 2-Side Print — S–XL: $298.00 total ($14.90/shirt)
+   • 2XL sizes: add $2.50 per shirt | 3XL+: add $3.50 per shirt
+   Excludes tax and shipping. Want me to lock this in?"
+
+--- REFERENCE: Gildan Softstyle® (Style 64000) — also available, slightly higher cost ---
+(Use only if customer specifically requests Softstyle)
 
 ADDITIONAL PRODUCTS & ESTIMATED PRICING:
 
@@ -91,15 +136,16 @@ PENS / PROMOTIONAL ITEMS:
 | 250+     | $1-2      |
 
 PRICING RULES FOR AI:
-- Under 80 pieces: Give ballpark with ~25% variance ("roughly $X-$Y per piece")
-- 80+ pieces: Give range + offer custom quote
-- Products not on list: Offer to get agent quote ("I'll have our team put together a custom quote")
-- NEVER present estimates as binding quotes — always say "roughly" or "typically"
-- NEVER offer discounts unless admin tweak explicitly says to
-- Size upcharges: 2XL +$2, 3XL +$3.50 (applies to all garments)
-- Two-side printing: Add $3 to one-side price (all garments)
-- Embroidery pricing varies by stitch count — offer range, not exact
+- EXACT QUANTITY STATED → Give EXACT dollar total (no ranges). Use the Style 3000 table above.
+- QUANTITY UNKNOWN → Ask for quantity FIRST. Give NO price until quantity is known.
+- DEFAULT SHIRT: Always quote Gildan Style 3000 (cheapest). Only switch if customer asks.
+- Size upcharges: 2XL +$2.50 each | 3XL–5XL +$3.50 each
+- Two-side printing: Add $3.00 per shirt to the 1-side price
+- For quantities between table tiers, use the LOWER tier row
+- Products not on list: "I'll have our team put together a custom quote for that"
+- NEVER present exact quotes as estimates — when you have the number, state it confidently
 - Rush orders: Same-day available, may have surcharge — offer to check
+- Embroidery pricing varies by stitch count — offer to get agent quote
 `;
 
 // ============================================================

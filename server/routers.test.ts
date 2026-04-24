@@ -159,9 +159,10 @@ describe("knowledge router", () => {
 
   it("adds a Google Sheet link", async () => {
     const caller = appRouter.createCaller(createProtectedContext());
+    // fetchAllSheetTabs probes multiple GIDs over the network; use a longer timeout
     const result = await caller.knowledge.addGoogleSheet({ name: "Price List", url: "https://docs.google.com/spreadsheets/d/abc123" });
     expect(result).toBeDefined();
-  });
+  }, 60_000);
 
   it("deletes a knowledge file", async () => {
     const caller = appRouter.createCaller(createProtectedContext());

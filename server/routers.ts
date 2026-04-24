@@ -51,6 +51,51 @@ async function synthesizeContent(rawText: string, fileName: string): Promise<str
   } catch { return rawText; }
 }
 
+/**
+ * Fetch ALL tabs from a publicly shared Google Sheet.
+ * Probes GIDs 0, 100, 200, ... 2000 and concatenates non-empty tabs.
+ * Falls back to first tab only if no additional tabs found.
+ */
+async function fetchAllSheetTabs(sheetId: string): Promise<string> {
+  const baseUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
+  const tabSections: string[] = [];
+
+  // Probe GIDs: 0 is always the first tab; others are assigned by Google
+  const gidsToProbe = [0, 100, 200, 300, 400, 500, 600, 700, 800, 900,
+    1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000];
+
+  for (const gid of gidsToProbe) {
+    try {
+      const url = gid === 0 ? baseUrl : `${baseUrl}&gid=${gid}`;
+      const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      if (!resp.ok) continue;
+      const csv = await resp.text();
+      // Skip if it's an HTML error page or empty
+      if (!csv || csv.startsWith('<!DOCTYPE') || csv.includes('Page Not Found') || csv.trim().length < 20) continue;
+      const lines = csv.split("\n").filter(l => l.trim()).map(l => l.replace(/,+$/g, ""));
+      if (lines.length < 2) continue;
+      tabSections.push(`=== TAB (GID ${gid}) ===\n${lines.join("\n")}`);
+    } catch {
+      // Tab doesn't exist or timed out — skip
+    }
+  }
+
+  if (tabSections.length === 0) {
+    // Final fallback: try the default export with no GID
+    try {
+      const resp = await fetch(baseUrl, { signal: AbortSignal.timeout(10000) });
+      if (resp.ok) {
+        const csv = await resp.text();
+        const lines = csv.split("\n").filter(l => l.trim()).map(l => l.replace(/,+$/g, ""));
+        return lines.join("\n");
+      }
+    } catch { /* ignore */ }
+    return "";
+  }
+
+  return tabSections.join("\n\n");
+}
+
 // Admin-only procedure middleware
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user?.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: 'Admin access required' });
@@ -323,17 +368,13 @@ export const appRouter = router({
       return addKnowledgeFile({ fileName: input.fileName, fileType: input.fileType, fileUrl: url, contentText });
     }),
     addGoogleSheet: protectedProcedure.input(z.object({ name: z.string(), url: z.string() })).mutation(async ({ input }) => {
-      // Auto-fetch and synthesize content from Google Sheet on add
+      // Auto-fetch ALL tabs from Google Sheet on add
       let contentText = "";
       try {
         const sheetId = input.url.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1];
         if (sheetId) {
-          const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
-          const resp = await fetch(csvUrl);
-          if (resp.ok) {
-            const csv = await resp.text();
-            const lines = csv.split("\n").filter(l => l.trim()).map(l => l.replace(/,+$/g, ""));
-            const rawText = lines.join("\n");
+          const rawText = await fetchAllSheetTabs(sheetId);
+          if (rawText.trim()) {
             contentText = await synthesizeContent(rawText, input.name);
           }
         }
@@ -346,12 +387,9 @@ export const appRouter = router({
       if (!file || !file.googleSheetUrl) throw new Error("Not a Google Sheet");
       const sheetId = file.googleSheetUrl.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1];
       if (!sheetId) throw new Error("Invalid Google Sheet URL");
-      const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
-      const resp = await fetch(csvUrl);
-      if (!resp.ok) throw new Error("Failed to fetch sheet — make sure it's shared publicly");
-      const csv = await resp.text();
-      const lines = csv.split("\n").filter(l => l.trim()).map(l => l.replace(/,+$/g, ""));
-      const contentText = lines.join("\n");
+      // Fetch ALL tabs, not just the first one
+      const contentText = await fetchAllSheetTabs(sheetId);
+      if (!contentText.trim()) throw new Error("Failed to fetch sheet — make sure it's shared publicly");
       await updateKnowledgeFile(input.id, { contentText, lastSyncedAt: new Date() });
       return { success: true, contentLength: contentText.length };
     }),

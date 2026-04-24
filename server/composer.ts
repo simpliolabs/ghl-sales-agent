@@ -209,23 +209,42 @@ Cold Email Rules (from EMB Chapter 13):
 - NEVER: "I hope this email finds you well", "I'd love to pick your brain", "Just following up"
 
 === PRICING RULES ===
-- ALWAYS look up the EXACT quantity tier in the KNOWLEDGE BASE pricing matrix. Do NOT blend multiple tiers.
-  Example: If lead says "50-100 tote bags" and the matrix shows $7-$11 for 24+, quote "roughly $7-$11 each" — NOT "$7-$14" which blends the 12-23 and 24+ tiers.
-- QUANTITY UNKNOWN RULE: If the lead has NOT stated a quantity, DO NOT give a price range at all.
-  Instead: (a) Ask for quantity first: "How many pieces are you looking at?", OR
-  (b) Use the most common order size (24-47 qty) as your reference point and say:
-  "For a typical team order of 24-50 pieces, you're looking at roughly $X-$Y each."
-  NEVER span multiple quantity tiers in one estimate (e.g., NEVER "$10-28" which covers 1-100+ qty).
-- MIXED PRODUCT RULE: If the lead mentions multiple product types (e.g., "polos or t-shirts"), give SEPARATE estimates per product:
-  "Embroidered polos run roughly $X-$Y each; custom tees with DTF print run roughly $A-$B each — depends on which direction you want to go."
+
+⚠️ RULE #1 — EXACT QUANTITY STATED → EXACT QUOTE (NO RANGES):
+  When the Strategist's keyPoints include an exact quantity (e.g. "20 shirts"), you MUST
+  compute and present the EXACT dollar total from the Style 3000 pricing table in the
+  TRAINING CORPUS. DO NOT say "roughly" or give a range when the qty is known.
+  DEFAULT SHIRT = Gildan Style 3000 (Heavy Cotton) unless customer specifies otherwise.
+
+  REQUIRED FORMAT when quantity is known (e.g. 20 shirts):
+  "Here's your exact quote for [qty] shirts (Gildan Style 3000):
+   • 1-Side Print — S–XL: $[1side_total] total ($[per_shirt]/shirt)
+   • 2-Side Print — S–XL: $[2side_total] total ($[per_shirt]/shirt)
+   • 2XL sizes: add $2.50 per shirt | 3XL+: add $3.50 per shirt
+   Excludes tax and shipping. Want me to lock this in?"
+
+  STYLE 3000 PRICING TABLE (per shirt, includes blank + DTF print):
+  Qty 6: 1-side $15.35 | 2-side $18.35
+  Qty 12: 1-side $14.10 | 2-side $17.10
+  Qty 20: 1-side $11.90 | 2-side $14.90
+  Qty 45: 1-side $8.75 | 2-side $11.75
+  Qty 60: 1-side $7.85 | 2-side $10.85
+  Qty 75: 1-side $6.85 | 2-side $9.85
+  Qty 100: 1-side $5.85 | 2-side $8.85
+  Qty 150: 1-side $5.75 | 2-side $8.75
+  Qty 200+: 1-side $5.50 | 2-side $8.50
+  For qty between tiers, use the LOWER tier row.
+  2XL: add $2.50/shirt | 3XL–5XL: add $3.50/shirt
+
+⚠️ RULE #2 — QUANTITY UNKNOWN → ASK FIRST, NO PRICE:
+  If the lead has NOT stated a quantity, DO NOT give any price or range.
+  Ask: "How many pieces are you looking at?" — nothing more.
+  NEVER use a "typical order" reference as a substitute for asking.
+
+- MIXED PRODUCT RULE: If the lead mentions multiple product types, give SEPARATE exact quotes per product.
   NEVER blend polo pricing with tee pricing into one range.
-- Under 100 pieces: You have authority to offer UP TO 20% off the listed price depending on client stage.
-  State the discount as "I can do roughly $X-$Y each for your order" — do NOT say "20% off" explicitly.
-- 100+ pieces: provide range from the correct tier + ALWAYS offer to get an exact custom quote.
 - Products NOT on the price list: DO NOT invent pricing. Say "I'll have our team put together a custom quote for that."
-- NEVER present estimates as binding quotes — always frame as "roughly" or "ballpark"
-- After giving a ballpark, ALWAYS offer to get an exact quote: "Want me to have our team lock in an exact price for you?"
-- NEVER append "No design needed yet for a ballpark quote" or "no design required" AFTER already giving a price estimate in the same message — this is self-contradictory and confusing. That reassurance is only appropriate BEFORE giving a quote to a hesitant lead. Once the price is in the message, omit it entirely.
+- NEVER append "No design needed yet" AFTER already giving a price estimate — omit it once price is stated.
 
 === FRAMEWORK-SPECIFIC STRUCTURE (MANDATORY — follow the assigned framework exactly) ===
 

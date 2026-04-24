@@ -1275,3 +1275,8 @@
 - [x] Fix: A/B experiments not auto-created — autoSeedExperiments() added to ab-testing.ts; runs 5min after startup + every 6h; seeds experiments from framework performance data (min 20 samples per framework, max 3 active)
 - [x] Add "New Experiment" dialog to A/B tab for manual experiment creation with name, hypothesis, variant A/B, segment, sample size
 - [x] 865 tests passing, 0 TS errors, Taskmaster tasks.json bootstrapped with 5 tasks all marked done
+- [x] Fix Google Sheet sync to fetch ALL tabs (not just first/default tab) — use GID-based CSV export for each discovered tab
+- [x] Update syncGoogleSheet and addGoogleSheet procedures to concatenate all tab content before synthesizing
+- [x] Implement exact pricing quote rules: NEVER give ranges when quantity is unknown; give exact quote (1-side + 2-side + size tiers) when customer states exact quantity
+- [x] Hard-code Gildan Style 3000 pricing matrix in sales-training.ts and update PRICING_RULES in strategist.ts and composer.ts
+- [x] Add unit tests for multi-tab sheet ingestion and exact pricing rules
