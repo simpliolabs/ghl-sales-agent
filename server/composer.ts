@@ -233,7 +233,16 @@ Cold Email Rules (from EMB Chapter 13):
   Qty 100: 1-side $5.85 | 2-side $8.85
   Qty 150: 1-side $5.75 | 2-side $8.75
   Qty 200+: 1-side $5.50 | 2-side $8.50
-  For qty between tiers, use the LOWER tier row.
+  TIER LOOKUP RULE — CRITICAL: For qty between rows, use the row whose qty is ≤ the customer's qty.
+  In other words: find the HIGHEST tier qty that does NOT exceed the customer's qty.
+  EXAMPLES (memorize these):
+    qty 25 → 20-row ($11.90) ← NOT the 45-row
+    qty 30 → 20-row ($11.90) ← NOT the 45-row
+    qty 44 → 20-row ($11.90) ← NOT the 45-row
+    qty 45 → 45-row ($8.75)
+    qty 50 → 45-row ($8.75) ← NOT the 60-row
+    qty 13 → 12-row ($14.10) ← NOT the 20-row
+  NEVER skip ahead to a higher-qty tier just because qty is between two rows.
   2XL: add $2.50/shirt | 3XL–5XL: add $3.50/shirt
 
 ⚠️ RULE #2 — QUANTITY UNKNOWN → ASK FIRST, NO PRICE:
@@ -252,7 +261,7 @@ If framework = DIRECT_RESPONSE (for answer_question, provide_quote, acknowledge_
   This is the MOST IMPORTANT framework. The lead asked something or shared info. Your job:
   1. ACKNOWLEDGE: Show you heard them. Reference EXACTLY what they said or asked.
   2. ANSWER/RESPOND: Give them the actual answer, quote, or confirmation they need.
-     - For pricing: use the knowledge base to give a real ballpark. "For 50 custom tees, you're looking at roughly $X-$Y each depending on print method."
+     - For pricing: if qty is KNOWN, give the EXACT total from the Style 3000 table above. If qty is UNKNOWN, ask for it first — DO NOT give any price or range.
      - For questions: answer directly. Don't deflect with "let me check" if the answer is in the knowledge base.
      - For info shared: confirm what you received. "Got it — 100 hoodies, navy blue, need them by March 15th."
   3. NEXT STEP: ONE clear next step or soft CTA.

@@ -129,9 +129,26 @@ describe("Tier Lookup — Lower Tier Rule", () => {
     expect(p?.oneSide).toBe(14.10); // uses 12-tier, not 20-tier
   });
 
+  // REGRESSION TEST: qty 25 was incorrectly using the 45-row ($8.75) instead of 20-row ($10.90)
+  it("qty 25 (between 20 and 45) should use the 20-qty tier — NOT the 45-row", () => {
+    const p = getPricePerShirt(25);
+    expect(p?.oneSide).toBe(11.90); // MUST be 20-row, NOT 45-row ($8.75)
+    expect(p?.twoSide).toBe(14.90);
+  });
+
   it("qty 30 (between 20 and 45) should use the 20-qty tier (lower tier)", () => {
     const p = getPricePerShirt(30);
     expect(p?.oneSide).toBe(11.90); // uses 20-tier, not 45-tier
+  });
+
+  it("qty 44 (just below 45) should use the 20-qty tier — NOT the 45-row", () => {
+    const p = getPricePerShirt(44);
+    expect(p?.oneSide).toBe(11.90); // MUST be 20-row, NOT 45-row
+  });
+
+  it("qty 45 (exactly on tier) should use the 45-row", () => {
+    const p = getPricePerShirt(45);
+    expect(p?.oneSide).toBe(8.75);
   });
 
   it("qty 100 should use the 100-qty tier", () => {
@@ -154,6 +171,27 @@ describe("Tier Lookup — Lower Tier Rule", () => {
 // ============================================================
 // TESTS: Exact Quote Computation
 // ============================================================
+describe("Exact Quote Computation — 25 Shirts (REGRESSION)", () => {
+  // REGRESSION: AI was quoting $8.75/shirt (45-row) for 25 shirts instead of $10.90 (20-row)
+  it("25 shirts, all S-XL, 1-side: should be $297.50 (20-row @ $11.90, NOT 45-row @ $8.75)", () => {
+    const q = computeExactQuote(25);
+    expect(q?.oneSideTotal).toBe(297.50); // 25 × $11.90 = $297.50 — MUST NOT be 25 × $8.75 = $218.75
+    expect(q?.perShirtOneSide).toBe(11.90);
+  });
+
+  it("25 shirts, all S-XL, 2-side: should be $372.50 (20-row @ $14.90)", () => {
+    const q = computeExactQuote(25);
+    expect(q?.twoSideTotal).toBe(372.50); // 25 × $14.90 = $372.50
+    expect(q?.perShirtTwoSide).toBe(14.90);
+  });
+
+  it("25 shirts with 1 x 2XL, 1-side: should be $300.00", () => {
+    const q = computeExactQuote(25, 1, 0);
+    // 24 × $11.90 + 1 × ($11.90 + $2.50) = $285.60 + $14.40 = $300.00
+    expect(q?.oneSideTotal).toBe(300.00);
+  });
+});
+
 describe("Exact Quote Computation — 20 Shirts", () => {
   it("20 shirts, all S-XL, 1-side: should be $238.00", () => {
     const q = computeExactQuote(20);
