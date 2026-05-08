@@ -474,23 +474,8 @@ async function handleHumanActive(ctx: DispatchContext, reason: string): Promise<
     }
   }
 
-  // 4. Notify owner about the handoff
-  try {
-    const { notifyOwner } = await import("./_core/notification");
-    const leadLabel = ctx.leadName || ctx.businessName || `Lead #${ctx.leadId}`;
-    const agent = ctx.assignedAgent || SALES_AGENTS[0];
-    await notifyOwner({
-      title: `📞 Human Handoff: ${leadLabel}`,
-      content: [
-        `Lead: ${leadLabel}${ctx.businessName ? ` (${ctx.businessName})` : ""}`,
-        `Reason: ${reason}`,
-        `Assigned to: ${agent}`,
-        `AI has stepped back. Existing appointment/task updated in GHL.`,
-      ].join("\n"),
-      priority: "critical",
-    });
-    actions.push("Sent owner notification");
-  } catch { /* best effort */ }
+  // Owner email notification intentionally disabled — use the Handoff Queue in the dashboard instead.
+  // To re-enable, restore the notifyOwner() call here.
 
   return { actionsExecuted: actions, errors, skipped: false };
 }
