@@ -1280,3 +1280,4 @@
 - [x] Implement exact pricing quote rules: NEVER give ranges when quantity is unknown; give exact quote (1-side + 2-side + size tiers) when customer states exact quantity
 - [x] Hard-code Gildan Style 3000 pricing matrix in sales-training.ts and update PRICING_RULES in strategist.ts and composer.ts
 - [x] Add unit tests for multi-tab sheet ingestion and exact pricing rules
+- [x] BUG: AI sent campaign email to Erica Carter (manually-created contact) even though human agent was already actively messaging her — fixed Layer B send-gate to check GHL message userId (human-typed) even when local AI history is empty

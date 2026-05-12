@@ -232,12 +232,28 @@ export async function sendMessage(contactId: string, opts: {
             return !isKnownAi;
           });
 
-          // ── Safety: Skip Layer B for brand new contacts ──────────────────
-          // If we have zero local AI messages, every GHL outbound looks like
-          // a "human agent" message. This causes false blocks on first contact.
-          // Only trust Layer B when we have local history to compare against.
+          // ── Safety: Refine Layer B for brand new contacts ──────────────────
+          // If we have zero local AI messages AND the GHL outbound messages have
+          // a userId (meaning a human typed them), we MUST still block — a human
+          // agent is actively managing this contact.
+          // Only skip the block if the messages look like workflow/automation
+          // (no userId) — those are safe to ignore.
           if (knownAiMessages.size === 0 && recentAgentMessages.length > 0) {
-            console.log(`[SEND-GATE] Skipping Layer B for ${contactId} — no local AI history to compare against (${recentAgentMessages.length} unmatched GHL outbound messages, likely system/workflow)`);
+            const humanTypedMessages = recentAgentMessages.filter(
+              (m: any) => m.userId || m.user?.id
+            );
+            if (humanTypedMessages.length > 0) {
+              const latestHuman = humanTypedMessages.sort((a: any, b: any) =>
+                new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime()
+              )[0];
+              const minutesAgo = Math.round((now - new Date(latestHuman.dateAdded).getTime()) / 60000);
+              console.log(`[SEND-GATE] BLOCKED send to ${contactId} — GHL shows human agent message (userId=${latestHuman.userId}) ${minutesAgo}min ago on a new contact with no local AI history: "${String(latestHuman.body || '').substring(0, 80)}"`);
+              await updateLeadFields(lead.id, { humanTakeover: 1, lastAgentActivityAt: new Date(latestHuman.dateAdded) });
+              globalSendTimestamps.pop();
+              lastSendTimestamps.delete(contactId);
+              return { blocked: true, reason: "HUMAN_AGENT_ACTIVE_NEW_CONTACT", messageId: null };
+            }
+            console.log(`[SEND-GATE] Skipping Layer B for ${contactId} — no local AI history and ${recentAgentMessages.length} GHL outbound message(s) have no userId (likely workflow/automation, not human)`);
             // Don't block — fall through to send
           } else
 
@@ -339,10 +355,10 @@ export async function getContactConversations(contactId: string) {
 }
 
 // --- Fetch full conversation history from GHL ---
-export async function fetchGhlConversationHistory(contactId: string): Promise<Array<{ direction: string; type: string; body: string; dateAdded: string }>> {
+export async function fetchGhlConversationHistory(contactId: string): Promise<Array<{ direction: string; type: string; body: string; dateAdded: string; userId?: string }>> {
   try {
     const conversations = await getContactConversations(contactId);
-    const allMessages: Array<{ direction: string; type: string; body: string; dateAdded: string }> = [];
+    const allMessages: Array<{ direction: string; type: string; body: string; dateAdded: string; userId?: string }> = [];
     for (const conv of conversations) {
       try {
         const msgs = await getConversationMessages(conv.id);
@@ -353,6 +369,7 @@ export async function fetchGhlConversationHistory(contactId: string): Promise<Ar
             type: m.type || "unknown",
             body: m.body || m.message || "",
             dateAdded: m.dateAdded || "",
+            userId: m.userId || m.user?.id || undefined,
           });
         }
       } catch { /* skip conversation if messages can't be fetched */ }
