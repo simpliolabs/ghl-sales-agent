@@ -1,0 +1,9 @@
+{
+  "query": "SELECT strategyFramework, COUNT(*) as cnt, MAX(createdAt) as lastUsed FROM brain_council_audit WHERE strategyFramework = 'SOCIAL_PROOF' AND createdAt > '2026-05-13 16:00:00' GROUP BY strategyFramework;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT strategyFramework, COUNT(*) as cnt, MAX(createdAt) as lastUsed FROM brain_council_audit WHERE strategyFramework = 'SOCIAL_PROOF' AND createdAt > '2026-05-13 16:00:00' GROUP BY strategyFramework;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 258
+}

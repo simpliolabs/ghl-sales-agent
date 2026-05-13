@@ -1,0 +1,30 @@
+{
+  "query": "SELECT strategyFramework, COUNT(*) as cnt FROM brain_council_audit WHERE createdAt > '2026-05-13 10:00:00' GROUP BY strategyFramework ORDER BY cnt DESC;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT strategyFramework, COUNT(*) as cnt FROM brain_council_audit WHERE createdAt > '2026-05-13 10:00:00' GROUP BY strategyFramework ORDER BY cnt DESC;",
+  "rows": [
+    {
+      "strategyFramework": "SOCIAL_PROOF",
+      "cnt": "20"
+    },
+    {
+      "strategyFramework": "EMB_WINBACK",
+      "cnt": "11"
+    },
+    {
+      "strategyFramework": "HORMOZI_ACA",
+      "cnt": "4"
+    },
+    {
+      "strategyFramework": "DIRECT_RESPONSE",
+      "cnt": "2"
+    },
+    {
+      "strategyFramework": "CURIOSITY_HOOK",
+      "cnt": "1"
+    }
+  ],
+  "messages": [],
+  "stdout": "strategyFramework\tcnt\nSOCIAL_PROOF\t20\nEMB_WINBACK\t11\nHORMOZI_ACA\t4\nDIRECT_RESPONSE\t2\nCURIOSITY_HOOK\t1\n",
+  "stderr": "",
+  "execution_time_ms": 263
+}

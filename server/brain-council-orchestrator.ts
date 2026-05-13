@@ -613,7 +613,7 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
     // the lead's business, product, event, or conversation topic.
     // If context is empty/none, the LLM will hallucinate acknowledgment.
     // Override to CURIOSITY_HOOK (works without specific context) or
-    // SOCIAL_PROOF (works with just product/industry knowledge).
+    // CASE_STUDY (works with just product/industry knowledge).
     // ============================================================
     if (strategy.framework === 'HORMOZI_ACA') {
       // Mirror the QC's exact ackTokens logic: HORMOZI_ACA requires acknowledgment tokens

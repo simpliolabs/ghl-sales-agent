@@ -1,0 +1,9 @@
+{
+  "query": "SELECT id, leadId, strategyFramework, createdAt FROM brain_council_audit WHERE createdAt > '2026-05-13 16:00:00' ORDER BY createdAt DESC LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT id, leadId, strategyFramework, createdAt FROM brain_council_audit WHERE createdAt > '2026-05-13 16:00:00' ORDER BY createdAt DESC LIMIT 5;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 263
+}

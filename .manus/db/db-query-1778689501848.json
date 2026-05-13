@@ -1,0 +1,28 @@
+{
+  "query": "SELECT id, leadId, strategyFramework, createdAt FROM brain_council_audit WHERE strategyFramework = 'SOCIAL_PROOF' ORDER BY createdAt DESC LIMIT 3;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT id, leadId, strategyFramework, createdAt FROM brain_council_audit WHERE strategyFramework = 'SOCIAL_PROOF' ORDER BY createdAt DESC LIMIT 3;",
+  "rows": [
+    {
+      "id": "5100034",
+      "leadId": "1021485",
+      "strategyFramework": "SOCIAL_PROOF",
+      "createdAt": "2026-05-13 14:34:13"
+    },
+    {
+      "id": "5100033",
+      "leadId": "1021484",
+      "strategyFramework": "SOCIAL_PROOF",
+      "createdAt": "2026-05-13 14:32:52"
+    },
+    {
+      "id": "5100032",
+      "leadId": "1021483",
+      "strategyFramework": "SOCIAL_PROOF",
+      "createdAt": "2026-05-13 14:31:17"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tleadId\tstrategyFramework\tcreatedAt\n5100034\t1021485\tSOCIAL_PROOF\t2026-05-13 14:34:13\n5100033\t1021484\tSOCIAL_PROOF\t2026-05-13 14:32:52\n5100032\t1021483\tSOCIAL_PROOF\t2026-05-13 14:31:17\n",
+  "stderr": "",
+  "execution_time_ms": 256
+}
