@@ -1,0 +1,21 @@
+{
+  "query": "SELECT id, name, email, phone, source, preferredChannel, lastOutboundChannel, humanTakeover, ghlContactId FROM leads WHERE name LIKE '%Hamlet%' OR email LIKE '%dranthony%' LIMIT 3",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT id, name, email, phone, source, preferredChannel, lastOutboundChannel, humanTakeover, ghlContactId FROM leads WHERE name LIKE '%Hamlet%' OR email LIKE '%dranthony%' LIMIT 3",
+  "rows": [
+    {
+      "id": "4620001",
+      "name": "Anthony D Hamlet",
+      "email": "Dranthonyhamlet@gmail.com",
+      "phone": "+15616626208",
+      "source": "ghl",
+      "preferredChannel": "ghl",
+      "lastOutboundChannel": "Email",
+      "humanTakeover": "0",
+      "ghlContactId": "wb8GK5u7moTWHRWqq1wa"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\temail\tphone\tsource\tpreferredChannel\tlastOutboundChannel\thumanTakeover\tghlContactId\n4620001\tAnthony D Hamlet\tDranthonyhamlet@gmail.com\t+15616626208\tghl\tghl\tEmail\t0\twb8GK5u7moTWHRWqq1wa\n",
+  "stderr": "",
+  "execution_time_ms": 278
+}

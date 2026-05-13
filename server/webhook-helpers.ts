@@ -721,8 +721,13 @@ export function sourceToChannel(source: string | null | undefined): string {
  */
 export function ensureEmailSignature(message: string): string {
   if (!message) return message;
-  // Anchor on brand domain/name only — "---" alone is too generic
-  if (message.includes('adorbcustomtees.com') || message.includes('Adorb Custom Printing')) {
+  // Check for actual signature block: must have BOTH the brand domain AND the phone number
+  // in the last ~300 chars of the message (signature area). A casual mention of "Adorb Custom
+  // Printing" in the body text does NOT count as a signature.
+  const tail = message.slice(-300);
+  const hasDomain = tail.includes('adorbcustomtees.com');
+  const hasPhone = tail.includes('(954) 932-8543') || tail.includes('954-932-8543') || tail.includes('9549328543');
+  if (hasDomain && hasPhone) {
     return message;
   }
   // Append standard signature

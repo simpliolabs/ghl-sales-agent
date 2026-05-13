@@ -82,11 +82,14 @@ describe("ensureEmailSignature()", () => {
     expect(count).toBeLessThanOrEqual(2);
   });
 
-  it("does NOT double-append when signature already present (contains brand name)", () => {
+  it("appends signature when message mentions brand name but lacks full signature block", () => {
+    // A casual mention of "Adorb Custom Printing" in the body is NOT a signature.
+    // The function should still append the full signature with phone + domain.
     const msg = "Hey!\n\nBest,\nAbby | Adorb Custom Printing";
     const result = ensureEmailSignature(msg);
-    const count = (result.match(/Adorb Custom Printing/g) || []).length;
-    expect(count).toBe(1);
+    // Should now have the full signature appended (domain + phone)
+    expect(result).toContain("(954) 932-8543");
+    expect(result).toContain("adorbcustomtees.com");
   });
 
   it("appends even when message contains '---' without brand anchor", () => {

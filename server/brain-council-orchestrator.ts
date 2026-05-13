@@ -990,7 +990,10 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
       const msg = composed.message;
       const hasNewlines = msg.includes("\n");
       // Anchor on brand domain/name only — "---" is too generic and can appear in message body
-      const hasSignature = msg.includes("adorbcustomtees.com") || msg.includes("Adorb Custom Printing");
+      // Check for actual signature block in the tail of the message — a casual brand mention
+      // in the body ("Chris from Adorb Custom Printing") does NOT count as a signature.
+      const tail = msg.slice(-300);
+      const hasSignature = tail.includes("adorbcustomtees.com") && (tail.includes("(954) 932-8543") || tail.includes("954-932-8543"));
       
       if (!hasNewlines && msg.length > 80) {
         // Email is one long paragraph — structurally break it up

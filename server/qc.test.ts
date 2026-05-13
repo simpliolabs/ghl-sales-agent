@@ -621,7 +621,7 @@ describe("context_free_subject violation", () => {
     });
     const strategy = makeStrategy({ channel: "Email" });
     const composed = makeComposed({
-      message: "Hi John,\n\nWanted to check in about your project. We have some great options for you.\n\nLet me know if you'd like to chat!\n\n---\nAbby Bouwer\nAdorb Custom Printing\n(555) 123-4567\nprint@adorbcustomtees.com",
+      message: "Hi John,\n\nWanted to check in about your project. We have some great options for you.\n\nLet me know if you'd like to chat!\n\n---\nAbby Bouwer\nAdorb Custom Printing\n(954) 932-8543\nprint@adorbcustomtees.com\nadorbcustomtees.com",
       subject: "Hey John",
     });
 
@@ -1124,7 +1124,7 @@ describe("detectViolations — channel_switch_unacknowledged", () => {
       lead: { name: "Maria", businessName: "Maria Boutique", assignedAgent: "Abby" },
     });
     const composed = makeComposed({
-      message: "Hi Maria!\n\nAbby here from Adorb Custom Tees.\nWe'd love to help with your custom apparel needs!\n\n---\nAbby | Adorb Custom Printing\nadorbcustomtees.com",
+      message: "Hi Maria!\n\nAbby here from Adorb Custom Tees.\nWe'd love to help with your custom apparel needs!\n\n---\nAbby | Adorb Custom Printing\n(954) 932-8543\nprint@adorbcustomtees.com\nadorbcustomtees.com",
       subject: "Custom Apparel for Maria's Boutique",
     });
     const strategy = makeStrategy({ channel: "Email" });

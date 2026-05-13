@@ -469,7 +469,10 @@ export function detectViolations(
   if (strategy.channel === "Email" && composed.message) {
     const emailMsg = composed.message;
     const emailHasNewlines = emailMsg.includes("\n");
-    const emailHasSignature = emailMsg.includes("---") && (emailMsg.includes("Adorb Custom Printing") || emailMsg.includes("adorbcustomtees.com"));
+    // Check for actual signature block in the tail of the message — a casual brand mention
+    // in the body does NOT count as a signature.
+    const emailTail = emailMsg.slice(-300);
+    const emailHasSignature = emailTail.includes("adorbcustomtees.com") && (emailTail.includes("(954) 932-8543") || emailTail.includes("954-932-8543"));
     
     // Hard-reject: email is one long paragraph (no newlines, over 100 chars)
     if (!emailHasNewlines && emailMsg.length > 100) {

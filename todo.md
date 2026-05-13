@@ -1281,3 +1281,5 @@
 - [x] Hard-code Gildan Style 3000 pricing matrix in sales-training.ts and update PRICING_RULES in strategist.ts and composer.ts
 - [x] Add unit tests for multi-tab sheet ingestion and exact pricing rules
 - [x] BUG: AI sent campaign email to Erica Carter (manually-created contact) even though human agent was already actively messaging her — fixed Layer B send-gate to check GHL message userId (human-typed) even when local AI history is empty
+- [x] BUG: AI replied via Email when Anthony D Hamlet came in via Facebook — must match inbound channel
+- [x] BUG: Email messages missing signature/footer

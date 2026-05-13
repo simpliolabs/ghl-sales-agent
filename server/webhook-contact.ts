@@ -495,7 +495,23 @@ async function sendDelayedFirstContact(
       else if (tagStr.includes("instagram") || tagStr.includes("ig")) detectedChannel = "IG";
     }
 
-    // Layer 7: Default fallback — phone → SMS, email-only → Email
+    // Layer 7: Check contact.attributionSource.medium (GHL stores FB/IG lead form source here)
+    if (!detectedChannel) {
+      const contact = payload.contact as Record<string, any> | undefined;
+      const attrMedium = String(contact?.attributionSource?.medium || contact?.lastAttributionSource?.medium || "").toLowerCase();
+      const attrSession = String(contact?.attributionSource?.sessionSource || contact?.lastAttributionSource?.sessionSource || "").toLowerCase();
+      if (attrMedium.includes("facebook") || attrMedium.includes("fb")) {
+        detectedChannel = "FB";
+        console.log(`[Webhook] Channel detection Layer 7 HIT for lead ${leadId}: attributionSource.medium=${attrMedium} → FB`);
+      } else if (attrMedium.includes("instagram") || attrMedium.includes("ig")) {
+        detectedChannel = "IG";
+        console.log(`[Webhook] Channel detection Layer 7 HIT for lead ${leadId}: attributionSource.medium=${attrMedium} → IG`);
+      } else if (attrSession.includes("social") && (attrMedium.includes("facebook") || attrMedium.includes("fb"))) {
+        detectedChannel = "FB";
+      }
+    }
+
+    // Layer 8: Default fallback — phone → SMS, email-only → Email
     if (!detectedChannel) {
       if (lead.email && !lead.phone) detectedChannel = "Email";
       else if (lead.phone) detectedChannel = "SMS";

@@ -872,9 +872,21 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   }
 
   // --- NORMAL AI RESPONSE ---
-  // Use Brain Council's channel recommendation if available, otherwise fall back to inbound channel.
-  // This prevents FB→SMS mismatch when normalizeChannel can't detect the inbound type.
-  let sendChannel = normalizeChannel(aiResponse.channel || channel);
+  // HARD RULE: For inbound messages, ALWAYS reply on the same channel the customer used.
+  // The Brain Council may recommend a different channel (e.g. Email when customer wrote on FB),
+  // but we MUST reply where the customer is — otherwise they'll never see our response.
+  // Brain Council channel recommendations only apply to outbound-initiated follow-ups.
+  let sendChannel: string;
+  if (direction === "inbound" && channel && channel !== "SMS") {
+    // Customer wrote on FB/IG/Email/WhatsApp/Live_Chat — reply there, period.
+    sendChannel = channel;
+    if (aiResponse.channel && normalizeChannel(aiResponse.channel) !== channel) {
+      console.log(`[Webhook/Msg] ⚠️ Brain Council recommended ${aiResponse.channel} but inbound was ${channel} — forcing reply on ${channel}`);
+    }
+  } else {
+    // Outbound-initiated or SMS (which may be misdetected) — use Brain Council recommendation
+    sendChannel = normalizeChannel(aiResponse.channel || channel);
+  }
   // MIGRATED LEAD RESTRICTION: Force email-only for transferred contacts until they re-engage
   sendChannel = enforceMigratedChannel(lead!, sendChannel);
   if (sendChannel !== channel) {

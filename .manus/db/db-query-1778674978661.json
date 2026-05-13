@@ -1,0 +1,65 @@
+{
+  "query": "SELECT id, eventType, detectedType, contactId, leadId, LEFT(payloadSummary, 500) as summary, action, error, receivedAt FROM webhook_logs WHERE payloadSummary LIKE '%Hamlet%' OR payloadSummary LIKE '%hamlet%' OR payloadSummary LIKE '%dranthony%' ORDER BY receivedAt DESC LIMIT 5",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT id, eventType, detectedType, contactId, leadId, LEFT(payloadSummary, 500) as summary, action, error, receivedAt FROM webhook_logs WHERE payloadSummary LIKE '%Hamlet%' OR payloadSummary LIKE '%hamlet%' OR payloadSummary LIKE '%dranthony%' ORDER BY receivedAt DESC LIMIT 5",
+  "rows": [
+    {
+      "id": "7980006",
+      "eventType": "unknown",
+      "detectedType": "email_event",
+      "contactId": "wb8GK5u7moTWHRWqq1wa",
+      "leadId": "NULL",
+      "summary": "{\"Priority Score\":\"\",\"Design File\":\"\",\"how_soon_do_you_need_your_order?\":\"Within 1 week\",\"Item Quantity\":\"\",\"Radio 2lbe\":\"\",\"Order Categories\":\"\",\"UPLOAD FILE/MOCKUP (copy)\":\"\",\"Product type\":\"T-shirts\",\"Artwork Status\":\"\",\"Message\":\"\",\"Tracking Link\":\"\",\"Choose approximate print size area:\":\"\",\"Print style\":\"\",\"amount\":\"\",\"Subject\":\"\",\"Contact Event Date\":\"\",\"Sizes and Amount:\":\"\",\"Multi Line 4aww\":\"\",\"Payment Link\":\"\",\"Order Notes\":\"\",\"UPLOAD FILE/MOCKUP\":\"\",\"What do you need bulk printing for",
+      "action": "email_event_handler",
+      "error": "NULL",
+      "receivedAt": "2026-05-13 12:19:37"
+    },
+    {
+      "id": "7980005",
+      "eventType": "unknown",
+      "detectedType": "message",
+      "contactId": "wb8GK5u7moTWHRWqq1wa",
+      "leadId": "NULL",
+      "summary": "{\"contact_id\":\"wb8GK5u7moTWHRWqq1wa\",\"first_name\":\"Anthony\",\"last_name\":\"D Hamlet\",\"full_name\":\"Anthony D Hamlet\",\"email\":\"Dranthonyhamlet@gmail.com\",\"phone\":\"+15616626208\",\"tags\":\"\",\"country\":\"US\",\"date_created\":\"2026-05-13T12:18:58.449Z\",\"full_address\":\"\",\"contact_type\":\"lead\",\"location\":{\"name\":\"ADORB CUSTOM PRINTING\",\"address\":\"389 NE 2nd Ave\",\"city\":\"hallandale beach\",\"state\":\"Florida\",\"country\":\"US\",\"postalCode\":\"33009\",\"fullAddress\":\"389 NE 2nd Ave, hallandale beach Florida 33009\",\"id\":\"L",
+      "action": "message_handler",
+      "error": "NULL",
+      "receivedAt": "2026-05-13 12:19:34"
+    },
+    {
+      "id": "7980004",
+      "eventType": "unknown",
+      "detectedType": "note",
+      "contactId": "wb8GK5u7moTWHRWqq1wa",
+      "leadId": "NULL",
+      "summary": "{\"contact_id\":\"wb8GK5u7moTWHRWqq1wa\",\"first_name\":\"Anthony\",\"last_name\":\"D Hamlet\",\"full_name\":\"Anthony D Hamlet\",\"email\":\"Dranthonyhamlet@gmail.com\",\"phone\":\"+15616626208\",\"tags\":\"\",\"country\":\"US\",\"date_created\":\"2026-05-13T12:18:58.449Z\",\"full_address\":\"\",\"contact_type\":\"lead\",\"location\":{\"name\":\"ADORB CUSTOM PRINTING\",\"address\":\"389 NE 2nd Ave\",\"city\":\"hallandale beach\",\"state\":\"Florida\",\"country\":\"US\",\"postalCode\":\"33009\",\"fullAddress\":\"389 NE 2nd Ave, hallandale beach Florida 33009\",\"id\":\"L",
+      "action": "note_handler",
+      "error": "NULL",
+      "receivedAt": "2026-05-13 12:19:11"
+    },
+    {
+      "id": "7980003",
+      "eventType": "unknown",
+      "detectedType": "note",
+      "contactId": "wb8GK5u7moTWHRWqq1wa",
+      "leadId": "NULL",
+      "summary": "{\"contact_id\":\"wb8GK5u7moTWHRWqq1wa\",\"first_name\":\"Anthony\",\"last_name\":\"D Hamlet\",\"full_name\":\"Anthony D Hamlet\",\"email\":\"Dranthonyhamlet@gmail.com\",\"phone\":\"+15616626208\",\"tags\":\"\",\"country\":\"US\",\"date_created\":\"2026-05-13T12:18:58.449Z\",\"full_address\":\"\",\"contact_type\":\"lead\",\"location\":{\"name\":\"ADORB CUSTOM PRINTING\",\"address\":\"389 NE 2nd Ave\",\"city\":\"hallandale beach\",\"state\":\"Florida\",\"country\":\"US\",\"postalCode\":\"33009\",\"fullAddress\":\"389 NE 2nd Ave, hallandale beach Florida 33009\",\"id\":\"L",
+      "action": "note_handler",
+      "error": "NULL",
+      "receivedAt": "2026-05-13 12:19:07"
+    },
+    {
+      "id": "7980002",
+      "eventType": "unknown",
+      "detectedType": "contact",
+      "contactId": "wb8GK5u7moTWHRWqq1wa",
+      "leadId": "NULL",
+      "summary": "{\"contact_id\":\"wb8GK5u7moTWHRWqq1wa\",\"first_name\":\"Anthony\",\"last_name\":\"D Hamlet\",\"full_name\":\"Anthony D Hamlet\",\"email\":\"Dranthonyhamlet@gmail.com\",\"phone\":\"+15616626208\",\"tags\":\"\",\"country\":\"US\",\"date_created\":\"2026-05-13T12:18:58.449Z\",\"full_address\":\"\",\"contact_type\":\"lead\",\"location\":{\"name\":\"ADORB CUSTOM PRINTING\",\"address\":\"389 NE 2nd Ave\",\"city\":\"hallandale beach\",\"state\":\"Florida\",\"country\":\"US\",\"postalCode\":\"33009\",\"fullAddress\":\"389 NE 2nd Ave, hallandale beach Florida 33009\",\"id\":\"L",
+      "action": "contact_handler",
+      "error": "NULL",
+      "receivedAt": "2026-05-13 12:19:05"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\teventType\tdetectedType\tcontactId\tleadId\tsummary\taction\terror\treceivedAt\n7980006\tunknown\temail_event\twb8GK5u7moTWHRWqq1wa\tNULL\t{\"Priority Score\":\"\",\"Design File\":\"\",\"how_soon_do_you_need_your_order?\":\"Within 1 week\",\"Item Quantity\":\"\",\"Radio 2lbe\":\"\",\"Order Categories\":\"\",\"UPLOAD FILE/MOCKUP (copy)\":\"\",\"Product type\":\"T-shirts\",\"Artwork Status\":\"\",\"Message\":\"\",\"Tracking Link\":\"\",\"Choose approximate print size area:\":\"\",\"Print style\":\"\",\"amount\":\"\",\"Subject\":\"\",\"Contact Event Date\":\"\",\"Sizes and Amount:\":\"\",\"Multi Line 4aww\":\"\",\"Payment Link\":\"\",\"Order Notes\":\"\",\"UPLOAD FILE/MOCKUP\":\"\",\"What do you need bulk printing for\temail_event_handler\tNULL\t2026-05-13 12:19:37\n7980005\tunknown\tmessage\twb8GK5u7moTWHRWqq1wa\tNULL\t{\"contact_id\":\"wb8GK5u7moTWHRWqq1wa\",\"first_name\":\"Anthony\",\"last_name\":\"D Hamlet\",\"full_name\":\"Anthony D Hamlet\",\"email\":\"Dranthonyhamlet@gmail.com\",\"phone\":\"+15616626208\",\"tags\":\"\",\"country\":\"US\",\"date_created\":\"2026-05-13T12:18:58.449Z\",\"full_address\":\"\",\"contact_type\":\"lead\",\"location\":{\"name\":\"ADORB CUSTOM PRINTING\",\"address\":\"389 NE 2nd Ave\",\"city\":\"hallandale beach\",\"state\":\"Florida\",\"country\":\"US\",\"postalCode\":\"33009\",\"fullAddress\":\"389 NE 2nd Ave, hallandale beach Florida 33009\",\"id\":\"L\tmessage_handler\tNULL\t2026-05-13 12:19:34\n7980004\tunknown\tnote\twb8GK5u7moTWHRWqq1wa\tNULL\t{\"contact_id\":\"wb8GK5u7moTWHRWqq1wa\",\"first_name\":\"Anthony\",\"last_name\":\"D Hamlet\",\"full_name\":\"Anthony D Hamlet\",\"email\":\"Dranthonyhamlet@gmail.com\",\"phone\":\"+15616626208\",\"tags\":\"\",\"country\":\"US\",\"date_created\":\"2026-05-13T12:18:58.449Z\",\"full_address\":\"\",\"contact_type\":\"lead\",\"location\":{\"name\":\"ADORB CUSTOM PRINTING\",\"address\":\"389 NE 2nd Ave\",\"city\":\"hallandale beach\",\"state\":\"Florida\",\"country\":\"US\",\"postalCode\":\"33009\",\"fullAddress\":\"389 NE 2nd Ave, hallandale beach Florida 33009\",\"id\":\"L\tnote_handler\tNULL\t2026-05-13 12:19:11\n7980003\tunknown\tnote\twb8GK5u7moTWHRWqq1wa\tNULL\t{\"contact_id\":\"wb8GK5u7moTWHRWqq1wa\",\"first_name\":\"Anthony\",\"last_name\":\"D Hamlet\",\"full_name\":\"Anthony D Hamlet\",\"email\":\"Dranthonyhamlet@gmail.com\",\"phone\":\"+15616626208\",\"tags\":\"\",\"country\":\"US\",\"date_created\":\"2026-05-13T12:18:58.449Z\",\"full_address\":\"\",\"contact_type\":\"lead\",\"location\":{\"name\":\"ADORB CUSTOM PRINTING\",\"address\":\"389 NE 2nd Ave\",\"city\":\"hallandale beach\",\"state\":\"Florida\",\"country\":\"US\",\"postalCode\":\"33009\",\"fullAddress\":\"389 NE 2nd Ave, hallandale beach Florida 33009\",\"id\":\"L\tnote_handler\tNULL\t2026-05-13 12:19:07\n7980002\tunknown\tcontact\twb8GK5u7moTWHRWqq1wa\tNULL\t{\"contact_id\":\"wb8GK5u7moTWHRWqq1wa\",\"first_name\":\"Anthony\",\"last_name\":\"D Hamlet\",\"full_name\":\"Anthony D Hamlet\",\"email\":\"Dranthonyhamlet@gmail.com\",\"phone\":\"+15616626208\",\"tags\":\"\",\"country\":\"US\",\"date_created\":\"2026-05-13T12:18:58.449Z\",\"full_address\":\"\",\"contact_type\":\"lead\",\"location\":{\"name\":\"ADORB CUSTOM PRINTING\",\"address\":\"389 NE 2nd Ave\",\"city\":\"hallandale beach\",\"state\":\"Florida\",\"country\":\"US\",\"postalCode\":\"33009\",\"fullAddress\":\"389 NE 2nd Ave, hallandale beach Florida 33009\",\"id\":\"L\tcontact_handler\tNULL\t2026-05-13 12:19:05\n",
+  "stderr": "",
+  "execution_time_ms": 1116
+}
