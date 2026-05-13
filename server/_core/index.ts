@@ -377,6 +377,15 @@ async function startServer() {
         console.error("[WeeklyReview/Strategy] Error:", err);
       }
 
+      // Step 4: Fine-Tuning Pipeline (export → train → A/B evaluate)
+      try {
+        const { runWeeklyFineTuning } = await import("../fine-tuning-pipeline");
+        const ftResult = await runWeeklyFineTuning();
+        console.log(`[WeeklyReview/FineTuning] ${ftResult.action}: ${ftResult.details}`);
+      } catch (err) {
+        console.error("[WeeklyReview/FineTuning] Error:", err);
+      }
+
       console.log(`[WeeklyReview] Monday weekly review complete.`);
     }, WEEKLY_CHECK_INTERVAL);
     console.log(`[Cron] Weekly Monday Review (Skills + A/B) scheduled — checks every ${WEEKLY_CHECK_INTERVAL / 3600000}h, executes on Monday`);

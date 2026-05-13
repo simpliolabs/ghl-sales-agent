@@ -17,6 +17,7 @@ import { invokeLLM } from "./_core/llm";
 import { cached, patternCache } from "./cache";
 import { DNC_KEYWORDS } from "./scheduling-engine";
 import { STAGES } from "./webhook-helpers";
+import { recordAbOutcome } from "./fine-tuning-pipeline";
 
 // --- CONSTANTS ---
 const ATTRIBUTION_WINDOW_HOURS = 72;
@@ -139,6 +140,18 @@ export async function attributeReply(opts: {
     });
   } catch (cpErr) {
     console.error("[Outcome] Channel performance update error (non-fatal):", cpErr);
+  }
+
+  // --- FINE-TUNING A/B OUTCOME RECORDING ---
+  try {
+    if ((audit as any).fineTuningJobId) {
+      const isPositive = sentiment === "positive" || replyMinutes < 30;
+      const isFineTuned = !!(audit as any).modelUsed && (audit as any).modelUsed !== "gemini-2.5-flash";
+      await recordAbOutcome((audit as any).fineTuningJobId, isFineTuned, isPositive);
+      console.log(`[Outcome] Fine-tuning A/B recorded: job=${(audit as any).fineTuningJobId}, fineTuned=${isFineTuned}, positive=${isPositive}`);
+    }
+  } catch (ftErr) {
+    console.error("[Outcome] Fine-tuning A/B recording error (non-fatal):", ftErr);
   }
 
   return { auditId: audit.id, replyMinutes, sentiment };

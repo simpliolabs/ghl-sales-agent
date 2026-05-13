@@ -66,6 +66,7 @@ export type InvokeParams = {
   output_schema?: OutputSchema;
   responseFormat?: ResponseFormat;
   response_format?: ResponseFormat;
+  model?: string; // Override model (e.g. fine-tuned model ID)
 };
 
 export type ToolCall = {
@@ -285,7 +286,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   } = params;
 
   const payload: Record<string, unknown> = {
-    model: "gemini-2.5-flash",
+    model: params.model || "gemini-2.5-flash",
     messages: messages.map(normalizeMessage),
   };
 

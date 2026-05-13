@@ -97,6 +97,11 @@ export interface ComposedMessage {
   fromName: string;
   subject?: string;
   internalNotes: string;
+  _modelMeta?: {
+    model: string;
+    isFineTuned: boolean;
+    jobId: number | null;
+  };
 }
 
 export interface QCVerdict {

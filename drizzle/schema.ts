@@ -266,6 +266,9 @@ export const brainCouncilAudit = mysqlTable("brain_council_audit", {
   expertPanelNotes: text("expertPanelNotes"),
   // Module 3A: Skill Catalog
   skillUsed: varchar("skillUsed", { length: 64 }),
+  // Fine-tuning A/B tracking
+  modelUsed: varchar("modelUsed", { length: 128 }),
+  fineTuningJobId: int("fineTuningJobId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -652,3 +655,32 @@ export const trainingExports = mysqlTable("training_exports", {
 });
 export type TrainingExport = typeof trainingExports.$inferSelect;
 export type InsertTrainingExport = typeof trainingExports.$inferInsert;
+
+// ============================================================
+// FINE-TUNING JOBS — OpenAI LoRA training job tracking
+// ============================================================
+export const fineTuningJobs = mysqlTable("fine_tuning_jobs", {
+  id: int("id").autoincrement().primaryKey(),
+  openaiJobId: varchar("openaiJobId", { length: 64 }), // ft-xxx from OpenAI
+  openaiFileId: varchar("openaiFileId", { length: 64 }), // file-xxx from OpenAI
+  baseModel: varchar("baseModel", { length: 64 }).default("gpt-4.1-mini-2025-04-14").notNull(),
+  fineTunedModel: varchar("fineTunedModel", { length: 128 }), // ft:gpt-4.1-mini:org:suffix
+  trainingExportId: int("trainingExportId"), // FK to training_exports
+  trainingPairs: int("trainingPairs").default(0).notNull(),
+  epochs: int("epochs").default(3).notNull(),
+  status: varchar("status", { length: 24 }).default("pending").notNull(), // pending, uploading, training, succeeded, failed, cancelled
+  abTestActive: tinyint("abTestActive").default(0).notNull(), // 1 = currently being A/B tested
+  abTrafficPercent: int("abTrafficPercent").default(20).notNull(), // % of traffic routed to fine-tuned model
+  abStartedAt: timestamp("abStartedAt"),
+  abWins: int("abWins").default(0).notNull(), // messages with positive outcome from fine-tuned
+  abLosses: int("abLosses").default(0).notNull(), // messages with negative outcome from fine-tuned
+  baseWins: int("baseWins").default(0).notNull(), // messages with positive outcome from base
+  baseLosses: int("baseLosses").default(0).notNull(), // messages with negative outcome from base
+  promoted: tinyint("promoted").default(0).notNull(), // 1 = promoted to production
+  promotedAt: timestamp("promotedAt"),
+  error: text("error"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  completedAt: timestamp("completedAt"),
+});
+export type FineTuningJob = typeof fineTuningJobs.$inferSelect;
+export type InsertFineTuningJob = typeof fineTuningJobs.$inferInsert;

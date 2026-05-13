@@ -593,6 +593,9 @@ export async function addBrainCouncilAudit(data: {
   expertPanelNotes?: string | null;
   // Module 3A: Skill Catalog
   skillUsed?: string | null;
+  // Fine-tuning A/B tracking
+  modelUsed?: string | null;
+  fineTuningJobId?: number | null;
 }) {
   const db = await getDb();
   if (!db) return;

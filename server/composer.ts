@@ -15,6 +15,7 @@ import { getViolationAvoidanceRules } from "./learning-loop";
 import { cached, patternCache } from "./cache";
 import { getHallOfFameExamples } from "./db";
 import { getApprovedSkillsBlock } from "./auto-skill-hunter";
+import { selectModel } from "./fine-tuning-pipeline";
 
 const COMPOSER_PROMPT = `You are the COMPOSER brain for Adorb Custom Tees' AI outreach system.
 
@@ -728,7 +729,11 @@ ${strategy.approach === "answer_question" ? "\n⚠️ CRITICAL: The lead asked a
 ${strategy.approach === "provide_quote" ? "\n⚠️ CRITICAL: The lead wants pricing. Use the KNOWLEDGE BASE above to give a real ballpark estimate. Follow the PRICING RULES." : ""}
 ${strategy.approach === "acknowledge_info" ? "\n⚠️ CRITICAL: The lead shared information. Your message MUST confirm what they shared and state the next step." : ""}`;
 
+  // Select model (base or fine-tuned if A/B test active)
+  const modelSelection = await selectModel();
+
   const response = await invokeLLM({
+    model: modelSelection.isFineTuned ? modelSelection.model : undefined,
     messages: [
       { role: "system", content: COMPOSER_PROMPT },
       { role: "user", content: composerInput },
@@ -755,5 +760,14 @@ ${strategy.approach === "acknowledge_info" ? "\n⚠️ CRITICAL: The lead shared
 
   const content = response.choices?.[0]?.message?.content;
   if (!content) throw new Error("Composer brain produced no output");
-  return JSON.parse(content as string);
+  const parsed = JSON.parse(content as string);
+
+  // Attach model metadata for A/B tracking
+  parsed._modelMeta = {
+    model: modelSelection.model,
+    isFineTuned: modelSelection.isFineTuned,
+    jobId: modelSelection.jobId,
+  };
+
+  return parsed;
 }

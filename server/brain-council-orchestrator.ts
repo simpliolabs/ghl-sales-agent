@@ -1407,6 +1407,9 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
         expertPanelNotes: expertPanel?.panelNotes || null,
         // Module 3A: Skill Catalog
         skillUsed: selectedSkillId || null,
+        // Fine-tuning A/B tracking
+        modelUsed: composed._modelMeta?.model || null,
+        fineTuningJobId: composed._modelMeta?.jobId || null,
       });
     } catch (auditErr) {
       console.error('[SalesManager] Audit log error (non-fatal):', auditErr);

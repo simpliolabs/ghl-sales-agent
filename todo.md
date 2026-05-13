@@ -1321,3 +1321,15 @@
 - [x] Decision 9: Add training_exports table + migration
 - [x] Decision 9: Training export available via learning.createTrainingExport procedure
 - [x] Decision 9: Add tRPC procedures for export + status
+
+## Automated LoRA Fine-Tuning Pipeline (OpenAI)
+
+- [x] Request and configure OpenAI API key for fine-tuning
+- [x] Build fine-tuning pipeline: JSONL upload → create training job → poll status
+- [x] Add fine_tuning_jobs table to track job history and model IDs
+- [x] Wire A/B testing: route % of traffic to fine-tuned model vs base
+- [x] Add auto-promote logic: if fine-tuned wins after 7 days, promote to 100%
+- [x] Integrate into Monday weekly schedule (after training export)
+- [x] Add safety gate: rollback to base model if fine-tuned underperforms
+- [x] Write tests for pipeline (978 tests passing)
+- [ ] Live browser testing

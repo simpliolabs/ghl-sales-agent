@@ -10,4 +10,5 @@ export const ENV = {
   ghlApiKey: process.env.GHL_API_KEY ?? "",
   ghlLocationId: process.env.GHL_LOCATION_ID ?? "",
   omnisendApiKey: process.env.OMNISEND_API_KEY ?? "",
+  openaiApiKey: process.env.OPENAI_API_KEY ?? "",
 };
