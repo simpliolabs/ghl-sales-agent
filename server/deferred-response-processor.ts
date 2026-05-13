@@ -175,25 +175,27 @@ export async function processDeferredResponses(): Promise<{ sent: number; cancel
  * Check if a lead qualifies for the agent-first delay.
  * Returns true if:
  *   1. It's business hours (Mon-Fri 9am-5pm EST)
- *   2. The lead is brand new (no prior conversations)
- *   3. The lead was created within the last 5 minutes
+ *   2. The lead is NOT already in humanTakeover mode
+ *
+ * This applies to ALL leads (new and existing) because the human agent
+ * is online 100% of business hours and wants to personally respond first.
  */
 export function shouldDeferResponse(lead: {
   createdAt?: Date | string | null;
   humanTakeover?: number | null;
 }, conversationCount: number): boolean {
-  // Only defer for brand new leads with no conversation history
-  if (conversationCount > 0) return false;
-
-  // Don't defer if already in human takeover
+  // Don't defer if already in human takeover (agent already owns the thread)
   if (lead.humanTakeover === 1) return false;
 
-  // Check if lead was created recently (within 5 minutes)
-  if (lead.createdAt) {
-    const createdTime = new Date(lead.createdAt).getTime();
-    const minutesSinceCreation = (Date.now() - createdTime) / (1000 * 60);
-    if (minutesSinceCreation > 5) return false;
-  }
+  // AGENT-FIRST RULE: During business hours, ALWAYS defer for 15 minutes
+  // regardless of whether the lead is new or existing. The human agent (Abby)
+  // is online 100% of the work day and wants to craft personal responses to
+  // ALL contacts — both new leads and existing customers.
+  //
+  // The conversationCount parameter is kept for API compatibility but no longer
+  // gates the deferral. The only gates are:
+  //   1. Not already in humanTakeover (agent owns it)
+  //   2. Currently within business hours (Mon-Fri 9am-5pm EST)
 
   // Check business hours: Mon-Fri 9am-5pm EST
   const now = new Date();

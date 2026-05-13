@@ -22,10 +22,11 @@ describe("Agent-First Delay — shouldDeferResponse", () => {
     expect(shouldDeferResponse(lead, 0)).toBe(true);
   });
 
-  it("returns false for lead with existing conversations", () => {
+  it("returns TRUE for lead with existing conversations during business hours (agent-first for ALL)", () => {
     vi.setSystemTime(new Date("2026-04-14T14:00:00.000Z")); // Tuesday 10am EST
     const lead = { createdAt: new Date(Date.now() - 60_000), humanTakeover: 0 };
-    expect(shouldDeferResponse(lead, 3)).toBe(false);
+    // Existing customers also get deferred so agent can respond first
+    expect(shouldDeferResponse(lead, 3)).toBe(true);
   });
 
   it("returns false on weekends", () => {
@@ -49,10 +50,11 @@ describe("Agent-First Delay — shouldDeferResponse", () => {
     expect(shouldDeferResponse(lead, 0)).toBe(false);
   });
 
-  it("returns false for lead created more than 5 minutes ago", () => {
+  it("returns TRUE for lead created more than 5 minutes ago during business hours (no creation-time gate)", () => {
     vi.setSystemTime(new Date("2026-04-14T14:00:00.000Z")); // Tuesday 10am EST
     const lead = { createdAt: new Date(Date.now() - 10 * 60_000), humanTakeover: 0 }; // created 10 min ago
-    expect(shouldDeferResponse(lead, 0)).toBe(false);
+    // Creation time no longer gates deferral — all leads deferred during biz hours
+    expect(shouldDeferResponse(lead, 0)).toBe(true);
   });
 
   it("returns false if humanTakeover is already 1", () => {

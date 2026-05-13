@@ -1362,3 +1362,5 @@
 - [x] Add GHL history re-check in sendDelayedFirstContact to detect agent activity during 45s delay window
 - [x] Ensure live agent activity blocks AI sends (fresh GHL scan catches outbound messages not yet processed by webhook)
 - [x] Wire 15-minute Agent-First Delay into contact webhook first-contact path (was only in inbound-message path)
+- [x] Expand 15-min Agent-First Delay to ALL inbound messages during business hours (not just new leads with conversationCount=0)
+- [x] Ensure existing customers like Earl Wheeler get the 15-min agent window before AI responds

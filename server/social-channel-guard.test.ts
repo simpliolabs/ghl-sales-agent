@@ -206,12 +206,20 @@ describe("sendDelayedFirstContact — Agent-First Delay in contact webhook (Fix 
     expect(shouldDeferResponse(lead, 0)).toBe(false);
   });
 
-  it("shouldDeferResponse returns false when lead already has conversations", () => {
+  it("shouldDeferResponse returns TRUE even when lead has existing conversations (agent-first for ALL leads)", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-14T18:00:00.000Z"));
     const lead = { createdAt: new Date(Date.now() - 60_000), humanTakeover: 0 };
-    // conversationCount > 0 means NOT a brand new lead
-    expect(shouldDeferResponse(lead, 3)).toBe(false);
+    // conversationCount > 0 means existing customer — still deferred during business hours
+    expect(shouldDeferResponse(lead, 3)).toBe(true);
+  });
+
+  it("shouldDeferResponse returns FALSE when lead is in humanTakeover", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-14T18:00:00.000Z"));
+    const lead = { createdAt: new Date(Date.now() - 60_000), humanTakeover: 1 };
+    // humanTakeover=1 means agent already owns the thread — no need to defer
+    expect(shouldDeferResponse(lead, 0)).toBe(false);
   });
 
   it("getDeferredSendAt returns a time 15 minutes in the future", () => {
