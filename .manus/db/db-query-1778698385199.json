@@ -1,0 +1,50 @@
+{
+  "query": "SELECT id, proposedSkillName, occurrenceCount FROM skill_proposals WHERE status = 'pending_review' ORDER BY occurrenceCount DESC",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT id, proposedSkillName, occurrenceCount FROM skill_proposals WHERE status = 'pending_review' ORDER BY occurrenceCount DESC",
+  "rows": [
+    {
+      "id": "10",
+      "proposedSkillName": "Channel Switch Acknowledgment",
+      "occurrenceCount": "9"
+    },
+    {
+      "id": "30002",
+      "proposedSkillName": "Structured Message Framework",
+      "occurrenceCount": "7"
+    },
+    {
+      "id": "30003",
+      "proposedSkillName": "Reactivation Follow-up Engagement",
+      "occurrenceCount": "5"
+    },
+    {
+      "id": "60001",
+      "proposedSkillName": "Focus on Adorb Custom Tees Offerings",
+      "occurrenceCount": "5"
+    },
+    {
+      "id": "13",
+      "proposedSkillName": "Email Formatting Compliance",
+      "occurrenceCount": "4"
+    },
+    {
+      "id": "14",
+      "proposedSkillName": "No Fresh Outreach on Aged Leads",
+      "occurrenceCount": "3"
+    },
+    {
+      "id": "60002",
+      "proposedSkillName": "Context Setting Introduction",
+      "occurrenceCount": "3"
+    },
+    {
+      "id": "90001",
+      "proposedSkillName": "Defer Referral Ask During Inquiry",
+      "occurrenceCount": "3"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tproposedSkillName\toccurrenceCount\n10\tChannel Switch Acknowledgment\t9\n30002\tStructured Message Framework\t7\n30003\tReactivation Follow-up Engagement\t5\n60001\tFocus on Adorb Custom Tees Offerings\t5\n13\tEmail Formatting Compliance\t4\n14\tNo Fresh Outreach on Aged Leads\t3\n60002\tContext Setting Introduction\t3\n90001\tDefer Referral Ask During Inquiry\t3\n",
+  "stderr": "",
+  "execution_time_ms": 261
+}

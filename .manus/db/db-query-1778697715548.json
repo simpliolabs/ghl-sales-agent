@@ -1,0 +1,101 @@
+{
+  "query": "SELECT framework, channel, segment, persona, COUNT(*) as cnt FROM hall_of_fame GROUP BY framework, channel, segment, persona ORDER BY cnt DESC LIMIT 20",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT framework, channel, segment, persona, COUNT(*) as cnt FROM hall_of_fame GROUP BY framework, channel, segment, persona ORDER BY cnt DESC LIMIT 20",
+  "rows": [
+    {
+      "framework": "DIRECT_RESPONSE",
+      "channel": "FB",
+      "segment": "NULL",
+      "persona": "small_business",
+      "cnt": "35"
+    },
+    {
+      "framework": "DIRECT_RESPONSE",
+      "channel": "SMS",
+      "segment": "NULL",
+      "persona": "small_business",
+      "cnt": "21"
+    },
+    {
+      "framework": "HORMOZI_ACA",
+      "channel": "FB",
+      "segment": "NULL",
+      "persona": "small_business",
+      "cnt": "12"
+    },
+    {
+      "framework": "DIRECT_RESPONSE",
+      "channel": "FB",
+      "segment": "NULL",
+      "persona": "church",
+      "cnt": "6"
+    },
+    {
+      "framework": "VALUE_FIRST",
+      "channel": "SMS",
+      "segment": "NULL",
+      "persona": "small_business",
+      "cnt": "4"
+    },
+    {
+      "framework": "CURIOSITY_HOOK",
+      "channel": "SMS",
+      "segment": "NULL",
+      "persona": "small_business",
+      "cnt": "4"
+    },
+    {
+      "framework": "DIRECT_RESPONSE",
+      "channel": "SMS",
+      "segment": "NULL",
+      "persona": "church",
+      "cnt": "2"
+    },
+    {
+      "framework": "HORMOZI_ACA",
+      "channel": "SMS",
+      "segment": "NULL",
+      "persona": "small_business",
+      "cnt": "2"
+    },
+    {
+      "framework": "SOAP_OPERA",
+      "channel": "SMS",
+      "segment": "NULL",
+      "persona": "small_business",
+      "cnt": "2"
+    },
+    {
+      "framework": "EMB_WINBACK",
+      "channel": "SMS",
+      "segment": "NULL",
+      "persona": "small_business",
+      "cnt": "1"
+    },
+    {
+      "framework": "SOAP_OPERA",
+      "channel": "FB",
+      "segment": "NULL",
+      "persona": "small_business",
+      "cnt": "1"
+    },
+    {
+      "framework": "DIRECT_RESPONSE",
+      "channel": "IG",
+      "segment": "NULL",
+      "persona": "small_business",
+      "cnt": "1"
+    },
+    {
+      "framework": "EMB_COLD",
+      "channel": "SMS",
+      "segment": "NULL",
+      "persona": "small_business",
+      "cnt": "1"
+    }
+  ],
+  "messages": [],
+  "stdout": "framework\tchannel\tsegment\tpersona\tcnt\nDIRECT_RESPONSE\tFB\tNULL\tsmall_business\t35\nDIRECT_RESPONSE\tSMS\tNULL\tsmall_business\t21\nHORMOZI_ACA\tFB\tNULL\tsmall_business\t12\nDIRECT_RESPONSE\tFB\tNULL\tchurch\t6\nVALUE_FIRST\tSMS\tNULL\tsmall_business\t4\nCURIOSITY_HOOK\tSMS\tNULL\tsmall_business\t4\nDIRECT_RESPONSE\tSMS\tNULL\tchurch\t2\nHORMOZI_ACA\tSMS\tNULL\tsmall_business\t2\nSOAP_OPERA\tSMS\tNULL\tsmall_business\t2\nEMB_WINBACK\tSMS\tNULL\tsmall_business\t1\nSOAP_OPERA\tFB\tNULL\tsmall_business\t1\nDIRECT_RESPONSE\tIG\tNULL\tsmall_business\t1\nEMB_COLD\tSMS\tNULL\tsmall_business\t1\n",
+  "stderr": "",
+  "execution_time_ms": 263
+}

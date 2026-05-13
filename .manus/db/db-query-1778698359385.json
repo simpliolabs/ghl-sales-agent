@@ -1,0 +1,9 @@
+{
+  "query": "UPDATE skill_proposals SET status = 'approved', reviewedAt = NOW(), reviewNote = 'Auto-approved: aligns with SMS-first channel logic, framework bans, and quality improvements from blueprint session' WHERE id IN (2, 3, 8, 12, 120002) AND status = 'pending_review'",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute UPDATE skill_proposals SET status = 'approved', reviewedAt = NOW(), reviewNote = 'Auto-approved: aligns with SMS-first channel logic, framework bans, and quality improvements from blueprint session' WHERE id IN (2, 3, 8, 12, 120002) AND status = 'pending_review'",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 270
+}

@@ -968,6 +968,8 @@ export async function promoteToHallOfFame(data: {
     .limit(1);
   if (existing.length > 0) return existing[0];
   const result = await db.insert(hallOfFame).values(data);
+  // Invalidate few-shot cache so new examples are picked up immediately
+  try { const { invalidateFewShotCache } = await import("./few-shot-retrieval"); invalidateFewShotCache(); } catch {}
   return { id: result[0].insertId };
 }
 

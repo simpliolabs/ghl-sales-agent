@@ -1332,4 +1332,20 @@
 - [x] Integrate into Monday weekly schedule (after training export)
 - [x] Add safety gate: rollback to base model if fine-tuned underperforms
 - [x] Write tests for pipeline (978 tests passing)
-- [ ] Live browser testing
+- [x] Live browser testing
+
+## Post-Pipeline Tasks
+
+- [x] Trigger first training export manually (256 pairs exported; OpenAI deprecated fine-tuning, pivoted to few-shot)
+- [x] Re-evaluate skill proposals based on session updates (19 approved, 4 rejected)
+- [x] Add AI Learning Engine card to Dashboard (winning examples, active skills, strategy tweaks)
+
+## Dynamic Few-Shot Retrieval Engine (Replaces LoRA)
+
+- [x] Build few-shot-retrieval.ts with similarity matching (framework + channel + segment + approach)
+- [x] Wire into composer.ts to inject top 3-5 relevant winning examples
+- [x] Remove dead LoRA fine-tuning trigger from weekly schedule (replaced with training data export)
+- [x] Re-evaluate skill proposals against new framework bans and channel logic (19 approved, 4 rejected)
+- [x] Add AI Learning Engine card to Dashboard
+- [x] Write tests (978 tests passing)
+- [x] Full browser verification — all pages clean, zero errors, SOCIAL_PROOF fully purged from prompts

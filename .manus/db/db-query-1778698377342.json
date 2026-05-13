@@ -1,0 +1,22 @@
+{
+  "query": "SELECT status, COUNT(*) as cnt FROM skill_proposals GROUP BY status",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT status, COUNT(*) as cnt FROM skill_proposals GROUP BY status",
+  "rows": [
+    {
+      "status": "approved",
+      "cnt": "12"
+    },
+    {
+      "status": "pending_review",
+      "cnt": "8"
+    },
+    {
+      "status": "rejected",
+      "cnt": "3"
+    }
+  ],
+  "messages": [],
+  "stdout": "status\tcnt\napproved\t12\npending_review\t8\nrejected\t3\n",
+  "stderr": "",
+  "execution_time_ms": 269
+}

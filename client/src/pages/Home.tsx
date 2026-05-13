@@ -15,6 +15,7 @@ export default function Home() {
   const { data: scheduleDist, isLoading: schedLoading } = trpc.leads.scheduleDistribution.useQuery(undefined, { refetchInterval: 120000 });
   const { data: healthData, isLoading: healthLoading } = trpc.system.healthMonitor.useQuery(undefined, { refetchInterval: 60000 });
   const { data: supervisorStatus, isLoading: supLoading } = trpc.ai.supervisorStatus.useQuery(undefined, { refetchInterval: 60000 });
+  const { data: learningStatus, isLoading: learningLoading } = trpc.learning.aiLearningStatus.useQuery(undefined, { refetchInterval: 120000 });
   const triggerSupervisor = trpc.ai.triggerSupervisor.useMutation({
     onSuccess: () => { utils.ai.supervisorStatus.invalidate(); },
   });
@@ -256,6 +257,56 @@ export default function Home() {
             </CardContent>
           </Card>
         </div>
+
+        {/* ═══ AI LEARNING STATUS ═══ */}
+        <Card className="border-violet-500/30">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Brain className="h-4 w-4 text-violet-500" />
+                AI Learning Engine
+                <Badge variant="secondary" className="ml-1 text-xs">Self-Improving</Badge>
+              </CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {learningLoading ? (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                {[1,2,3,4].map(i => <Skeleton key={i} className="h-16 w-full" />)}
+              </div>
+            ) : learningStatus ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-violet-600">{learningStatus.hallOfFameTotal}</p>
+                    <p className="text-xs text-muted-foreground">Winning Examples</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-emerald-600">+{learningStatus.hallOfFameThisWeek}</p>
+                    <p className="text-xs text-muted-foreground">New This Week</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-blue-600">{learningStatus.approvedSkills}</p>
+                    <p className="text-xs text-muted-foreground">Active Skills</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-orange-600">{learningStatus.activeStrategyAdjustments}</p>
+                    <p className="text-xs text-muted-foreground">Strategy Tweaks</p>
+                  </div>
+                </div>
+                <div className="rounded-lg bg-muted/50 p-3">
+                  <div className="flex items-center gap-2">
+                    <Activity className="h-3.5 w-3.5 text-violet-500" />
+                    <span className="text-xs font-medium">Engine: Dynamic Few-Shot Retrieval</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{learningStatus.engineDescription}</p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Learning engine initializing...</p>
+            )}
+          </CardContent>
+        </Card>
 
         {/* ═══ AI BRAIN STATUS ═══ */}
         <Card>

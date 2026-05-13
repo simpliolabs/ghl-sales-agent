@@ -1,0 +1,66 @@
+{
+  "query": "SELECT id, violationCategory, proposedSkillId, proposedSkillName, occurrenceCount FROM skill_proposals WHERE status = 'pending_review' AND id >= 30002 ORDER BY occurrenceCount DESC",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT id, violationCategory, proposedSkillId, proposedSkillName, occurrenceCount FROM skill_proposals WHERE status = 'pending_review' AND id >= 30002 ORDER BY occurrenceCount DESC",
+  "rows": [
+    {
+      "id": "30002",
+      "violationCategory": "missing_framework",
+      "proposedSkillId": "structured_message_framework",
+      "proposedSkillName": "Structured Message Framework",
+      "occurrenceCount": "7"
+    },
+    {
+      "id": "120001",
+      "violationCategory": "passive_reactivation",
+      "proposedSkillId": "active_reactivation",
+      "proposedSkillName": "Active Reactivation",
+      "occurrenceCount": "6"
+    },
+    {
+      "id": "30003",
+      "violationCategory": "ignored_request",
+      "proposedSkillId": "reactivation_followup_engagement",
+      "proposedSkillName": "Reactivation Follow-up Engagement",
+      "occurrenceCount": "5"
+    },
+    {
+      "id": "60001",
+      "violationCategory": "wrong_business",
+      "proposedSkillId": "focus_on_adorb_offerings",
+      "proposedSkillName": "Focus on Adorb Custom Tees Offerings",
+      "occurrenceCount": "5"
+    },
+    {
+      "id": "60002",
+      "violationCategory": "context_free_subject",
+      "proposedSkillId": "context_setting_intro",
+      "proposedSkillName": "Context Setting Introduction",
+      "occurrenceCount": "3"
+    },
+    {
+      "id": "90001",
+      "violationCategory": "referral_ask_in_inquiry",
+      "proposedSkillId": "defer_referral_ask_inquiry",
+      "proposedSkillName": "Defer Referral Ask During Inquiry",
+      "occurrenceCount": "3"
+    },
+    {
+      "id": "120002",
+      "violationCategory": "safety_violation",
+      "proposedSkillId": "prevent_empty_or_incomplete_messages",
+      "proposedSkillName": "Prevent Empty/Incomplete Messages",
+      "occurrenceCount": "3"
+    },
+    {
+      "id": "120003",
+      "violationCategory": "graceful_exit_retired",
+      "proposedSkillId": "re_engagement_retired_lead",
+      "proposedSkillName": "Re-engagement for Retired Leads",
+      "occurrenceCount": "3"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tviolationCategory\tproposedSkillId\tproposedSkillName\toccurrenceCount\n30002\tmissing_framework\tstructured_message_framework\tStructured Message Framework\t7\n120001\tpassive_reactivation\tactive_reactivation\tActive Reactivation\t6\n30003\tignored_request\treactivation_followup_engagement\tReactivation Follow-up Engagement\t5\n60001\twrong_business\tfocus_on_adorb_offerings\tFocus on Adorb Custom Tees Offerings\t5\n60002\tcontext_free_subject\tcontext_setting_intro\tContext Setting Introduction\t3\n90001\treferral_ask_in_inquiry\tdefer_referral_ask_inquiry\tDefer Referral Ask During Inquiry\t3\n120002\tsafety_violation\tprevent_empty_or_incomplete_messages\tPrevent Empty/Incomplete Messages\t3\n120003\tgraceful_exit_retired\tre_engagement_retired_lead\tRe-engagement for Retired Leads\t3\n",
+  "stderr": "",
+  "execution_time_ms": 268
+}

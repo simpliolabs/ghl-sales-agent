@@ -377,13 +377,13 @@ async function startServer() {
         console.error("[WeeklyReview/Strategy] Error:", err);
       }
 
-      // Step 4: Fine-Tuning Pipeline (export → train → A/B evaluate)
+      // Step 4: Training Data Export (collect winning pairs for future use)
       try {
-        const { runWeeklyFineTuning } = await import("../fine-tuning-pipeline");
-        const ftResult = await runWeeklyFineTuning();
-        console.log(`[WeeklyReview/FineTuning] ${ftResult.action}: ${ftResult.details}`);
+        const { createTrainingExport } = await import("../training-export");
+        const exportResult = await createTrainingExport(`weekly-${new Date().toISOString().slice(0,10)}`, { onlyReplied: true });
+        console.log(`[WeeklyReview/TrainingExport] Export ${exportResult?.id || 'unknown'} created (status: ${exportResult?.status || 'unknown'})`);
       } catch (err) {
-        console.error("[WeeklyReview/FineTuning] Error:", err);
+        console.error("[WeeklyReview/TrainingExport] Error:", err);
       }
 
       console.log(`[WeeklyReview] Monday weekly review complete.`);

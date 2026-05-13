@@ -15,8 +15,8 @@
  */
 
 import { getDb } from "./db";
-import { trainingExports, conversations, messageOutcomes, leads } from "../drizzle/schema";
-import { eq, and, sql, desc, gte } from "drizzle-orm";
+import { trainingExports } from "../drizzle/schema";
+import { eq, sql, desc } from "drizzle-orm";
 import { storagePut } from "./storage";
 import { nanoid } from "nanoid";
 
@@ -45,78 +45,67 @@ async function generateTrainingPairs(filter: ExportFilter): Promise<TrainingPair
   const pairs: TrainingPair[] = [];
 
   try {
-    // Build query conditions
-    const conditions: any[] = [
-      sql`mo.gotReply = 1 OR mo.converted = 1`, // Only successful outcomes
+    // Build WHERE clauses
+    const whereParts: string[] = [
+      "(mo.gotReply = 1 OR mo.converted = 1)", // Only successful outcomes
     ];
 
     if (filter.minScore) {
-      conditions.push(sql`mo.outcomeScore >= ${filter.minScore}`);
+      // Use QC score from brain_council_audit as quality proxy
+      whereParts.push(`bca.qcScore >= ${Number(filter.minScore) * 20}`);
     }
     if (filter.frameworks && filter.frameworks.length > 0) {
-      const fwList = filter.frameworks.map(f => `'${f}'`).join(",");
-      conditions.push(sql`mo.framework IN (${sql.raw(fwList)})`);
+      const fwList = filter.frameworks.map(f => `'${f.replace(/'/g, "''")}'`).join(",");
+      whereParts.push(`mo.framework IN (${fwList})`);
     }
     if (filter.channels && filter.channels.length > 0) {
-      const chList = filter.channels.map(c => `'${c}'`).join(",");
-      conditions.push(sql`mo.channel IN (${sql.raw(chList)})`);
+      const chList = filter.channels.map(c => `'${c.replace(/'/g, "''")}'`).join(",");
+      whereParts.push(`mo.channel IN (${chList})`);
     }
     if (filter.dateRange) {
-      conditions.push(sql`mo.createdAt >= ${new Date(filter.dateRange.from)}`);
-      conditions.push(sql`mo.createdAt <= ${new Date(filter.dateRange.to)}`);
+      whereParts.push(`mo.createdAt >= '${new Date(filter.dateRange.from).toISOString().slice(0, 19)}'`);
+      whereParts.push(`mo.createdAt <= '${new Date(filter.dateRange.to).toISOString().slice(0, 19)}'`);
     }
     if (filter.onlyReplied) {
-      conditions.push(sql`mo.gotReply = 1`);
+      whereParts.push(`mo.gotReply = 1`);
     }
     if (filter.onlyConverted) {
-      conditions.push(sql`mo.converted = 1`);
+      whereParts.push(`mo.converted = 1`);
     }
 
-    // Get successful message outcomes with their conversation context
-    const outcomes = await db.execute(sql`
+    const whereClause = whereParts.join(" AND ");
+
+    // Get successful message outcomes with the actual sent message from brain_council_audit
+    const outcomes = await db.execute(sql.raw(`
       SELECT
         mo.leadId,
-        mo.conversationId,
+        mo.auditId,
         mo.framework,
         mo.channel,
-        mo.outcomeScore,
+        bca.qcScore,
+        COALESCE(bca.finalMessage, bca.composedMessage) as sentMessage,
+        bca.incomingMessage,
+        bca.strategyApproach,
         l.name as leadName,
         l.businessName,
         l.omnisendSegment,
         l.pipelineStage
       FROM message_outcomes mo
       JOIN leads l ON l.id = mo.leadId
-      WHERE ${sql.raw(conditions.map(c => `(${c.queryChunks?.map((ch: any) => ch.value || ch).join("") || c})`).join(" AND "))}
-      ORDER BY mo.outcomeScore DESC
+      JOIN brain_council_audit bca ON bca.id = mo.auditId
+      WHERE ${whereClause}
+      ORDER BY bca.qcScore DESC
       LIMIT 500
-    `);
+    `));
 
     const rows = Array.isArray((outcomes as any)[0]) ? (outcomes as any)[0] : outcomes;
     if (!Array.isArray(rows) || rows.length === 0) return [];
 
-    // For each successful outcome, build the training pair
+    // For each successful outcome, build the training pair directly from audit data
     for (const outcome of rows) {
       try {
-        // Get the conversation messages around this outcome
-        const convMessages = await db.select({
-          direction: conversations.direction,
-          messageBody: conversations.messageBody,
-          senderType: conversations.senderType,
-          channel: conversations.channel,
-          timestamp: conversations.timestamp,
-        })
-          .from(conversations)
-          .where(eq(conversations.leadId, outcome.leadId))
-          .orderBy(conversations.timestamp)
-          .limit(20);
-
-        if (convMessages.length < 2) continue;
-
-        // Find the AI outbound message and the preceding context
-        const aiMessages = convMessages.filter(m => m.senderType === "ai" && m.direction === "outbound");
-        const leadMessages = convMessages.filter(m => m.direction === "inbound");
-
-        if (aiMessages.length === 0) continue;
+        const sentMessage = outcome.sentMessage;
+        if (!sentMessage || sentMessage.length < 20) continue;
 
         // Build context from lead info
         const leadContext = [
@@ -126,24 +115,19 @@ async function generateTrainingPairs(filter: ExportFilter): Promise<TrainingPair
           outcome.pipelineStage ? `Stage: ${outcome.pipelineStage}` : "",
           outcome.framework ? `Framework: ${outcome.framework}` : "",
           outcome.channel ? `Channel: ${outcome.channel}` : "",
+          outcome.strategyApproach ? `Approach: ${outcome.strategyApproach}` : "",
         ].filter(Boolean).join(", ");
 
-        // Build user message (incoming context)
-        const lastInbound = leadMessages[leadMessages.length - 1];
-        const userContent = lastInbound?.messageBody
-          ? `[Context: ${leadContext}]\n\nIncoming message: ${lastInbound.messageBody}`
+        // Build user message (incoming context + any inbound message that triggered the council)
+        const userContent = outcome.incomingMessage
+          ? `[Context: ${leadContext}]\n\nIncoming message: ${outcome.incomingMessage}`
           : `[Context: ${leadContext}]\n\nGenerate an outreach message for this lead.`;
-
-        // Build assistant message (the successful AI response)
-        // Use the most recent AI message as the training target
-        const bestAiMessage = aiMessages[aiMessages.length - 1];
-        if (!bestAiMessage?.messageBody || bestAiMessage.messageBody.length < 20) continue;
 
         pairs.push({
           messages: [
             { role: "system", content: SYSTEM_PROMPT_TEMPLATE },
             { role: "user", content: userContent },
-            { role: "assistant", content: bestAiMessage.messageBody },
+            { role: "assistant", content: sentMessage },
           ],
         });
       } catch {

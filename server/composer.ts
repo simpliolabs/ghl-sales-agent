@@ -16,6 +16,7 @@ import { cached, patternCache } from "./cache";
 import { getHallOfFameExamples } from "./db";
 import { getApprovedSkillsBlock } from "./auto-skill-hunter";
 import { selectModel } from "./fine-tuning-pipeline";
+import { getDynamicFewShotBlock } from "./few-shot-retrieval";
 
 const COMPOSER_PROMPT = `You are the COMPOSER brain for Adorb Custom Tees' AI outreach system.
 
@@ -308,14 +309,10 @@ If framework = AIDA:
   3. DESIRE: Social proof or case study
   4. ACTION: One clear CTA
 
-If framework = SOCIAL_PROOF:
-  Lead with a specific review, testimonial, or customer success story relevant to their situation.
-  "We just did 200 polos for [similar business type] — they loved the embroidery quality."
-  Then soft CTA.
-
 If framework = CASE_STUDY:
-  Tell a specific customer success story relevant to their situation.
+  Tell a specific customer success story OR lead with a review/testimonial relevant to their situation.
   Include: what they needed, what we did, the result.
+  "We just did 200 polos for [similar business type] — they loved the embroidery quality."
   Then: "Want us to do something similar for you?"
 
 If framework = SOAP_OPERA (multi-message narrative sequence — best for warm leads who've gone quiet):
@@ -717,7 +714,7 @@ ${(() => {
   return ctx.length > 0 ? ctx.join('\n') + '\n\n⚠️ MANDATORY: Your email subject line and opening sentence MUST reference at least one of the above fields. Generic subjects/openers will be REJECTED.' : '(No specific lead context available — use conversation history for context)';
 })()}
 
-${await getHallOfFameBlock(strategy.framework, strategy.channel, lead.omnisendSegment)}
+${await getDynamicFewShotBlock(strategy.framework, strategy.channel, lead.persona || null, strategy.approach || null, lead.omnisendSegment || null)}
 
 ${await getApprovedSkillsBlock()}
 

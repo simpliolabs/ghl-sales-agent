@@ -574,6 +574,27 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => createTrainingExport(input.exportName, input.filter || {})),
 
+    // --- AI Learning Status (Dashboard card) ---
+    aiLearningStatus: protectedProcedure.query(async () => {
+      const { getDb } = await import("./db");
+      const db = await getDb();
+      if (!db) return null;
+      const { hallOfFame, skillProposals: spTable, strategyAdjustments: saTable } = await import("../drizzle/schema");
+      const { count, sql: sqlFn } = await import("drizzle-orm");
+      const [hofCount] = await db.select({ cnt: count() }).from(hallOfFame);
+      const [approvedSkills] = await db.select({ cnt: count() }).from(spTable).where(sqlFn`status = 'approved'`);
+      const [activeAdj] = await db.select({ cnt: count() }).from(saTable).where(sqlFn`status = 'applied' AND (expiresAt IS NULL OR expiresAt > NOW())`);
+      const [recentHof] = await db.select({ cnt: count() }).from(hallOfFame).where(sqlFn`createdAt > DATE_SUB(NOW(), INTERVAL 7 DAY)`);
+      return {
+        hallOfFameTotal: hofCount?.cnt || 0,
+        hallOfFameThisWeek: recentHof?.cnt || 0,
+        approvedSkills: approvedSkills?.cnt || 0,
+        activeStrategyAdjustments: activeAdj?.cnt || 0,
+        engine: 'dynamic_few_shot',
+        engineDescription: 'Top 5 winning examples matched by framework + channel + persona + approach similarity',
+      };
+    }),
+
     // --- Combined Dashboard Data ---
     dashboardSummary: protectedProcedure.query(async () => {
       const [patterns, allExperiments, matrix, trends] = await Promise.all([

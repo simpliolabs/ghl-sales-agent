@@ -250,20 +250,20 @@ describe("fine_tuning_jobs Schema", () => {
 describe("Monday Weekly Schedule Integration", () => {
   const indexCode = fs.readFileSync(INDEX_PATH, "utf-8");
 
-  it("imports runWeeklyFineTuning in weekly review", () => {
-    expect(indexCode).toContain('import("../fine-tuning-pipeline")');
+  it("imports createTrainingExport in weekly review", () => {
+    expect(indexCode).toContain('import("../training-export")');
   });
 
-  it("calls runWeeklyFineTuning as Step 4", () => {
-    expect(indexCode).toContain("Step 4: Fine-Tuning Pipeline");
-    expect(indexCode).toContain("runWeeklyFineTuning");
+  it("calls createTrainingExport as Step 4", () => {
+    expect(indexCode).toContain("Step 4: Training Data Export");
+    expect(indexCode).toContain("createTrainingExport");
   });
 
-  it("logs fine-tuning result", () => {
-    expect(indexCode).toContain("[WeeklyReview/FineTuning]");
+  it("logs training export result", () => {
+    expect(indexCode).toContain("[WeeklyReview/TrainingExport]");
   });
 
   it("wraps in try-catch for non-fatal error handling", () => {
-    expect(indexCode).toContain('[WeeklyReview/FineTuning] Error:');
+    expect(indexCode).toContain('[WeeklyReview/TrainingExport] Error:');
   });
 });

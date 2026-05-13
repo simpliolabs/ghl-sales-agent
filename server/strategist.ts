@@ -140,8 +140,7 @@ For OUTREACH approaches:
 - PAS: Problem → Agitate → Solution. Best for cold email, B2B.
 - BAB: Before → After → Bridge. Best for case studies.
 - AIDA: Attention → Interest → Desire → Action. Best for promotional.
-- SOCIAL_PROOF: Lead with reviews/testimonials/case studies.
-- CASE_STUDY: Tell a specific customer success story relevant to their situation.
+- CASE_STUDY: Tell a specific customer success story relevant to their situation (replaces SOCIAL_PROOF).
 - SOAP_OPERA: Multi-email narrative with curiosity gap.
 - EMB_WELCOME / EMB_WINBACK / EMB_POST_PURCHASE / EMB_COLD: Email Marketing Bible sequences.
 
@@ -159,8 +158,8 @@ Framework selection guide by situation:
 - Corporate/B2B: CASE_STUDY or PAS (ROI-focused)
 - Dormant 30-90 days: EMB_WINBACK
 - Dormant 90+ days: HORMOZI_ACA or EMB_COLD
-- Quote follow-up: SOCIAL_PROOF (show others who bought)
-- Multi-touch sequence: rotate PAS → BAB → AIDA → SOCIAL_PROOF → CASE_STUDY
+- Quote follow-up: CASE_STUDY (show others who bought)
+- Multi-touch sequence: rotate PAS → BAB → AIDA → CASE_STUDY → CURIOSITY_HOOK
 
 === PRICING RULES (for provide_quote approach) ===
 
@@ -240,7 +239,7 @@ Step 2 — SPECIFIC UPSELL/CROSS-SELL (7-14 days post-delivery):
   * Ordered polos → suggest embroidered jackets or name badges
   * Ordered for an event → suggest different products for their next event
   * Ordered for a business → suggest staff polos, business cards, promotional items
-- framework: SOCIAL_PROOF or CASE_STUDY ("We just did matching hats for a similar [business type] — they loved them")
+- framework: CASE_STUDY ("We just did matching hats for a similar [business type] — they loved them")
 - WRONG: "We're here for your next group event" (passive, no specific product)
 - RIGHT: "Since you loved those custom tees, have you thought about matching embroidered hats? I can mock one up with your logo." (specific product + concrete action)
 
@@ -662,7 +661,7 @@ STEP 4: Produce your strategic directive. PRIORITIZE frameworks and channels wit
             angle: { type: "string", description: "The specific angle/hook to use" },
             framework: {
               type: "string",
-              description: "DIRECT_RESPONSE|VALUE_FIRST|PAS|BAB|AIDA|HORMOZI_ACA|SOCIAL_PROOF|CASE_STUDY|SOAP_OPERA|EMB_WELCOME|EMB_WINBACK|EMB_POST_PURCHASE|EMB_COLD|CURIOSITY_HOOK|DAN_MARTELL"
+              description: "DIRECT_RESPONSE|VALUE_FIRST|PAS|BAB|AIDA|HORMOZI_ACA|CASE_STUDY|SOAP_OPERA|EMB_WELCOME|EMB_WINBACK|EMB_POST_PURCHASE|EMB_COLD|CURIOSITY_HOOK|DAN_MARTELL"
             },
             personalizationTier: { type: "number", description: "1=full custom, 2=template+personal opener, 3=minimal" },
             toneDirective: { type: "string", description: "Specific tone instructions for the composer" },
