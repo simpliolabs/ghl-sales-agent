@@ -520,7 +520,45 @@ export const appRouter = router({
     icpStats: protectedProcedure.query(async () => getIcpStats()),
 
     // --- Module 3A: Skill Catalog ---
-    listSkills: protectedProcedure.query(async () => getAllSkills()),
+    listSkills: protectedProcedure.query(async () => {
+      const hardcodedSkills = getAllSkills();
+      // Also include approved/adopted proposals from the DB
+      const { getDb } = await import("./db");
+      const db = await getDb();
+      if (!db) return hardcodedSkills;
+      try {
+        const { skillProposals } = await import("../drizzle/schema");
+        const { sql, desc } = await import("drizzle-orm");
+        const approvedProposals = await db.select({
+          id: skillProposals.proposedSkillId,
+          name: skillProposals.proposedSkillName,
+          description: sql<string>`CONCAT('Auto-learned: prevents ', ${skillProposals.violationCategory}, ' violations (', ${skillProposals.occurrenceCount}, ' occurrences)')`,
+          triggerConditions: skillProposals.triggerConditions,
+          violationCategory: skillProposals.violationCategory,
+          occurrenceCount: skillProposals.occurrenceCount,
+          status: skillProposals.status,
+        })
+          .from(skillProposals)
+          .where(sql`${skillProposals.status} IN ('approved', 'adopted')`)
+          .orderBy(desc(skillProposals.occurrenceCount));
+        const adoptedSkills = approvedProposals.map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          description: p.description,
+          triggerConditions: (p.triggerConditions || {}) as { segments?: string[]; approaches?: string[]; conversationStages?: string[]; channels?: string[]; minLeadAgeDays?: number },
+          source: 'auto-learned' as const,
+          violationCategory: p.violationCategory,
+          occurrenceCount: p.occurrenceCount,
+        }));
+        return [
+          ...hardcodedSkills.map(s => ({ ...s, source: 'built-in' as const })),
+          ...adoptedSkills,
+        ];
+      } catch (err) {
+        console.error('[listSkills] Failed to fetch approved proposals:', err);
+        return hardcodedSkills.map(s => ({ ...s, source: 'built-in' as const }));
+      }
+    }),
 
     // --- Module 3B: Auto-Skill Hunter ---
     skillProposals: protectedProcedure

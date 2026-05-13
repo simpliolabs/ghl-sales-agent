@@ -1349,3 +1349,8 @@
 - [x] Add AI Learning Engine card to Dashboard
 - [x] Write tests (978 tests passing)
 - [x] Full browser verification — all pages clean, zero errors, SOCIAL_PROOF fully purged from prompts
+
+## Bug Fixes: Self-Learning Page
+
+- [x] Fix Skill Catalog to dynamically show approved proposals (now 25: 6 built-in + 19 auto-learned)
+- [x] Update footer text: "Self-Learning Engine Active" with Monday schedule, auto-adopt, dynamic counts

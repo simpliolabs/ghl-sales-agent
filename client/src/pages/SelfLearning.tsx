@@ -1112,34 +1112,47 @@ function SkillCatalogTab({ isAdmin }: { isAdmin: boolean }) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {(skills || []).map((skill) => (
-          <Card key={skill.id} className="border border-border/60">
+        {(skills || []).map((skill: any) => (
+          <Card key={skill.id} className={`border ${skill.source === 'auto-learned' ? 'border-emerald-200 bg-emerald-50/30' : 'border-border/60'}`}>
             <CardHeader className="pb-2">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <CardTitle className="text-base">{skill.name}</CardTitle>
                   <CardDescription className="text-xs mt-0.5">{skill.description}</CardDescription>
                 </div>
-                <Badge variant="outline" className="text-xs shrink-0 font-mono">{skill.id}</Badge>
+                <div className="flex flex-col items-end gap-1">
+                  <Badge variant="outline" className="text-xs shrink-0 font-mono">{skill.id}</Badge>
+                  {skill.source === 'auto-learned' && (
+                    <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px]">Auto-learned</Badge>
+                  )}
+                  {skill.source === 'built-in' && (
+                    <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-[10px]">Built-in</Badge>
+                  )}
+                </div>
               </div>
             </CardHeader>
             <CardContent className="pt-0">
               <div className="flex flex-wrap gap-1.5 mt-2">
-                {skill.triggerConditions.segments?.map(s => (
+                {skill.triggerConditions?.segments?.map((s: string) => (
                   <Badge key={s} className="bg-amber-100 text-amber-700 border-amber-200 text-xs">{s}</Badge>
                 ))}
-                {skill.triggerConditions.approaches?.map(a => (
+                {skill.triggerConditions?.approaches?.map((a: string) => (
                   <Badge key={a} className="bg-slate-100 text-slate-600 border-slate-200 text-xs">{a}</Badge>
                 ))}
-                {skill.triggerConditions.conversationStages?.map(cs => (
+                {skill.triggerConditions?.conversationStages?.map((cs: string) => (
                   <Badge key={cs} className="bg-violet-100 text-violet-700 border-violet-200 text-xs">{cs}</Badge>
                 ))}
-                {skill.triggerConditions.channels?.map(ch => (
+                {skill.triggerConditions?.channels?.map((ch: string) => (
                   <Badge key={ch} className={`text-xs ${channelColors[ch] || "bg-gray-100 text-gray-700"}`}>{ch}</Badge>
                 ))}
-                {skill.triggerConditions.minLeadAgeDays !== undefined && (
+                {skill.triggerConditions?.minLeadAgeDays !== undefined && (
                   <Badge className="bg-rose-100 text-rose-700 border-rose-200 text-xs">
                     ≥{skill.triggerConditions.minLeadAgeDays}d old
+                  </Badge>
+                )}
+                {skill.occurrenceCount && (
+                  <Badge className="bg-cyan-100 text-cyan-700 border-cyan-200 text-xs">
+                    {skill.occurrenceCount}× triggered
                   </Badge>
                 )}
               </div>
@@ -1148,16 +1161,17 @@ function SkillCatalogTab({ isAdmin }: { isAdmin: boolean }) {
         ))}
       </div>
 
-      <Card className="border-dashed border-amber-300 bg-amber-50/40">
+      <Card className="border-dashed border-emerald-300 bg-emerald-50/40">
         <CardContent className="pt-4 pb-4">
           <div className="flex items-start gap-3">
-            <Wand2 className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+            <Wand2 className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
             <div>
-              <p className="text-sm font-medium text-amber-800">Auto-Skill Hunter is active</p>
-              <p className="text-xs text-amber-700 mt-0.5">
-                Every 6 hours, the system scans for recurring violation patterns and proposes new skills.
-                Approved proposals are added to this catalog by the developer.
-                Check the <strong>Skill Proposals</strong> tab for pending reviews.
+              <p className="text-sm font-medium text-emerald-800">Self-Learning Engine Active</p>
+              <p className="text-xs text-emerald-700 mt-0.5">
+                Every Monday, the system scans for recurring violation patterns and proposes new skills.
+                Skills with 3+ occurrences are auto-adopted. Approved proposals appear above with a green
+                "Auto-learned" badge. The system currently has {(skills || []).filter((s: any) => s.source === 'auto-learned').length} auto-learned
+                skills active alongside {(skills || []).filter((s: any) => s.source === 'built-in').length} built-in skills.
               </p>
             </div>
           </div>
