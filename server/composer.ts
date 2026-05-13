@@ -14,6 +14,7 @@ import { getCompactTrainingCorpus, getPersonaGuidance } from "../shared/sales-tr
 import { getViolationAvoidanceRules } from "./learning-loop";
 import { cached, patternCache } from "./cache";
 import { getHallOfFameExamples } from "./db";
+import { getApprovedSkillsBlock } from "./auto-skill-hunter";
 
 const COMPOSER_PROMPT = `You are the COMPOSER brain for Adorb Custom Tees' AI outreach system.
 
@@ -716,6 +717,8 @@ ${(() => {
 })()}
 
 ${await getHallOfFameBlock(strategy.framework, strategy.channel, lead.omnisendSegment)}
+
+${await getApprovedSkillsBlock()}
 
 === INCOMING MESSAGE ===
 ${input.incomingMessage}

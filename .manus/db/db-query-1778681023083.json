@@ -1,0 +1,139 @@
+{
+  "query": "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='brain_council_audit' ORDER BY ORDINAL_POSITION;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='brain_council_audit' ORDER BY ORDINAL_POSITION;",
+  "rows": [
+    {
+      "COLUMN_NAME": "id"
+    },
+    {
+      "COLUMN_NAME": "leadId"
+    },
+    {
+      "COLUMN_NAME": "leadName"
+    },
+    {
+      "COLUMN_NAME": "channel"
+    },
+    {
+      "COLUMN_NAME": "incomingMessage"
+    },
+    {
+      "COLUMN_NAME": "strategyApproach"
+    },
+    {
+      "COLUMN_NAME": "strategyFramework"
+    },
+    {
+      "COLUMN_NAME": "strategyReasoning"
+    },
+    {
+      "COLUMN_NAME": "strategyTier"
+    },
+    {
+      "COLUMN_NAME": "researchSummary"
+    },
+    {
+      "COLUMN_NAME": "composedMessage"
+    },
+    {
+      "COLUMN_NAME": "composerFromName"
+    },
+    {
+      "COLUMN_NAME": "qcScore"
+    },
+    {
+      "COLUMN_NAME": "qcApproved"
+    },
+    {
+      "COLUMN_NAME": "qcIssues"
+    },
+    {
+      "COLUMN_NAME": "qcFeedback"
+    },
+    {
+      "COLUMN_NAME": "wasRecomposed"
+    },
+    {
+      "COLUMN_NAME": "recomposeScore"
+    },
+    {
+      "COLUMN_NAME": "finalMessage"
+    },
+    {
+      "COLUMN_NAME": "messageSent"
+    },
+    {
+      "COLUMN_NAME": "sendError"
+    },
+    {
+      "COLUMN_NAME": "createdAt"
+    },
+    {
+      "COLUMN_NAME": "blocked"
+    },
+    {
+      "COLUMN_NAME": "blockReason"
+    },
+    {
+      "COLUMN_NAME": "violationCategory"
+    },
+    {
+      "COLUMN_NAME": "ownerNotified"
+    },
+    {
+      "COLUMN_NAME": "fallbackUsed"
+    },
+    {
+      "COLUMN_NAME": "fallbackMessage"
+    },
+    {
+      "COLUMN_NAME": "correctionSent"
+    },
+    {
+      "COLUMN_NAME": "correctionMessage"
+    },
+    {
+      "COLUMN_NAME": "correctionReason"
+    },
+    {
+      "COLUMN_NAME": "experimentId"
+    },
+    {
+      "COLUMN_NAME": "variant"
+    },
+    {
+      "COLUMN_NAME": "persona"
+    },
+    {
+      "COLUMN_NAME": "conversationStage"
+    },
+    {
+      "COLUMN_NAME": "deliberationUsed"
+    },
+    {
+      "COLUMN_NAME": "deliberationNote"
+    },
+    {
+      "COLUMN_NAME": "expertPanelBrandScore"
+    },
+    {
+      "COLUMN_NAME": "expertPanelConversionScore"
+    },
+    {
+      "COLUMN_NAME": "expertPanelComplianceScore"
+    },
+    {
+      "COLUMN_NAME": "expertPanelCompositeScore"
+    },
+    {
+      "COLUMN_NAME": "expertPanelNotes"
+    },
+    {
+      "COLUMN_NAME": "skillUsed"
+    }
+  ],
+  "messages": [],
+  "stdout": "COLUMN_NAME\nid\nleadId\nleadName\nchannel\nincomingMessage\nstrategyApproach\nstrategyFramework\nstrategyReasoning\nstrategyTier\nresearchSummary\ncomposedMessage\ncomposerFromName\nqcScore\nqcApproved\nqcIssues\nqcFeedback\nwasRecomposed\nrecomposeScore\nfinalMessage\nmessageSent\nsendError\ncreatedAt\nblocked\nblockReason\nviolationCategory\nownerNotified\nfallbackUsed\nfallbackMessage\ncorrectionSent\ncorrectionMessage\ncorrectionReason\nexperimentId\nvariant\npersona\nconversationStage\ndeliberationUsed\ndeliberationNote\nexpertPanelBrandScore\nexpertPanelConversionScore\nexpertPanelComplianceScore\nexpertPanelCompositeScore\nexpertPanelNotes\nskillUsed\n",
+  "stderr": "",
+  "execution_time_ms": 255
+}

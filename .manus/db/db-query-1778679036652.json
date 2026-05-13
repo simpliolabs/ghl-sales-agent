@@ -1,0 +1,94 @@
+{
+  "query": "SHOW TABLES LIKE 'ab_experiments'; DESCRIBE ab_experiments;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SHOW TABLES LIKE 'ab_experiments'; DESCRIBE ab_experiments;",
+  "rows": [
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "ab_experiments"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "Field\tType\tNull\tKey\tDefault\tExtra"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "id\tint\tNO\tPRI\tNULL\tauto_increment"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "experimentId\tvarchar(64)\tNO\tUNI\tNULL\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "name\tvarchar(255)\tNO\t\tNULL\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "hypothesis\ttext\tNO\t\tNULL\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "variantADescription\ttext\tNO\t\tNULL\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "variantBDescription\ttext\tNO\t\tNULL\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "variantAConfig\tjson\tNO\t\tNULL\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "variantBConfig\tjson\tNO\t\tNULL\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "targetSegment\tvarchar(64)\tYES\t\tNULL\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "targetChannel\tvarchar(32)\tYES\t\tNULL\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "targetApproach\tvarchar(64)\tYES\t\tNULL\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "primaryMetric\tvarchar(32)\tNO\t\treply_rate\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "sampleSizeTarget\tint\tNO\t\t50\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "confidenceThreshold\tint\tNO\t\t95\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "variantASamples\tint\tYES\t\t0\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "variantBSamples\tint\tYES\t\t0\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "variantASuccesses\tint\tYES\t\t0\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "variantBSuccesses\tint\tYES\t\t0\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "winnerVariant\tvarchar(1)\tYES\t\tNULL\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "pValue\tvarchar(16)\tYES\t\tNULL\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "status\tvarchar(16)\tNO\t\tactive\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "autoAdopt\ttinyint\tYES\t\t1\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "adoptedAt\ttimestamp\tYES\t\tNULL\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "startedAt\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "endedAt\ttimestamp\tYES\t\tNULL\t"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)": "createdAt\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t"
+    }
+  ],
+  "messages": [],
+  "stdout": "Tables_in_28AChv27iDSNmApuHCcaE5 (ab_experiments)\nab_experiments\nField\tType\tNull\tKey\tDefault\tExtra\nid\tint\tNO\tPRI\tNULL\tauto_increment\nexperimentId\tvarchar(64)\tNO\tUNI\tNULL\t\nname\tvarchar(255)\tNO\t\tNULL\t\nhypothesis\ttext\tNO\t\tNULL\t\nvariantADescription\ttext\tNO\t\tNULL\t\nvariantBDescription\ttext\tNO\t\tNULL\t\nvariantAConfig\tjson\tNO\t\tNULL\t\nvariantBConfig\tjson\tNO\t\tNULL\t\ntargetSegment\tvarchar(64)\tYES\t\tNULL\t\ntargetChannel\tvarchar(32)\tYES\t\tNULL\t\ntargetApproach\tvarchar(64)\tYES\t\tNULL\t\nprimaryMetric\tvarchar(32)\tNO\t\treply_rate\t\nsampleSizeTarget\tint\tNO\t\t50\t\nconfidenceThreshold\tint\tNO\t\t95\t\nvariantASamples\tint\tYES\t\t0\t\nvariantBSamples\tint\tYES\t\t0\t\nvariantASuccesses\tint\tYES\t\t0\t\nvariantBSuccesses\tint\tYES\t\t0\t\nwinnerVariant\tvarchar(1)\tYES\t\tNULL\t\npValue\tvarchar(16)\tYES\t\tNULL\t\nstatus\tvarchar(16)\tNO\t\tactive\t\nautoAdopt\ttinyint\tYES\t\t1\t\nadoptedAt\ttimestamp\tYES\t\tNULL\t\nstartedAt\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t\nendedAt\ttimestamp\tYES\t\tNULL\t\ncreatedAt\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t\n",
+  "stderr": "",
+  "execution_time_ms": 276
+}

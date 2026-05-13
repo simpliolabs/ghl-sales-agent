@@ -1,0 +1,21 @@
+{
+  "query": "SELECT promotedToPrompt, COUNT(*) as cnt FROM learnings GROUP BY promotedToPrompt; SELECT COUNT(*) as total_learnings FROM learnings;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT promotedToPrompt, COUNT(*) as cnt FROM learnings GROUP BY promotedToPrompt; SELECT COUNT(*) as total_learnings FROM learnings;",
+  "rows": [
+    {
+      "promotedToPrompt": "0",
+      "cnt": "191"
+    },
+    {
+      "promotedToPrompt": "1",
+      "cnt": "15"
+    }
+  ],
+  "messages": [
+    "total_learnings",
+    "206"
+  ],
+  "stdout": "promotedToPrompt\tcnt\n0\t191\n1\t15\ntotal_learnings\n206\n",
+  "stderr": "",
+  "execution_time_ms": 259
+}

@@ -1,0 +1,8 @@
+{
+  "query": "SELECT qcViolation, COUNT(*) as cnt, \n  SUM(CASE WHEN blocked=1 THEN 1 ELSE 0 END) as blocked_cnt\nFROM brain_council_audit \nWHERE createdAt >= DATE_SUB(NOW(), INTERVAL 2 MONTH) AND qcViolation IS NOT NULL AND qcViolation != ''\nGROUP BY qcViolation ORDER BY cnt DESC LIMIT 15;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT qcViolation, COUNT(*) as cnt, \n  SUM(CASE WHEN blocked=1 THEN 1 ELSE 0 END) as blocked_cnt\nFROM brain_council_audit \nWHERE createdAt >= DATE_SUB(NOW(), INTERVAL 2 MONTH) AND qcViolation IS NOT NULL AND qcViolation != ''\nGROUP BY qcViolation ORDER BY cnt DESC LIMIT 15;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 1: Unknown column 'qcviolation' in 'group statement'"
+  ]
+}

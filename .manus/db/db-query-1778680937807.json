@@ -1,0 +1,20 @@
+{
+  "query": "SELECT \n  COUNT(*) as total,\n  SUM(gotReply) as replies,\n  ROUND(SUM(gotReply)/COUNT(*)*100,1) as reply_pct,\n  SUM(CASE WHEN replySentiment='positive' THEN 1 ELSE 0 END) as positive,\n  SUM(CASE WHEN replySentiment='negative' THEN 1 ELSE 0 END) as negative,\n  SUM(stageAdvanced) as stage_advanced,\n  SUM(converted) as converted,\n  SUM(dncTriggered) as dnc\nFROM message_outcomes WHERE createdAt >= DATE_SUB(NOW(), INTERVAL 2 MONTH);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT \n  COUNT(*) as total,\n  SUM(gotReply) as replies,\n  ROUND(SUM(gotReply)/COUNT(*)*100,1) as reply_pct,\n  SUM(CASE WHEN replySentiment='positive' THEN 1 ELSE 0 END) as positive,\n  SUM(CASE WHEN replySentiment='negative' THEN 1 ELSE 0 END) as negative,\n  SUM(stageAdvanced) as stage_advanced,\n  SUM(converted) as converted,\n  SUM(dncTriggered) as dnc\nFROM message_outcomes WHERE createdAt >= DATE_SUB(NOW(), INTERVAL 2 MONTH);",
+  "rows": [
+    {
+      "total": "2622",
+      "replies": "253",
+      "reply_pct": "9.6",
+      "positive": "109",
+      "negative": "5",
+      "stage_advanced": "244",
+      "converted": "0",
+      "dnc": "10"
+    }
+  ],
+  "messages": [],
+  "stdout": "total\treplies\treply_pct\tpositive\tnegative\tstage_advanced\tconverted\tdnc\n2622\t253\t9.6\t109\t5\t244\t0\t10\n",
+  "stderr": "",
+  "execution_time_ms": 279
+}

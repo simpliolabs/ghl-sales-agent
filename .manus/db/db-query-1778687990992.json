@@ -1,0 +1,13 @@
+{
+  "query": "SELECT COUNT(*) as cnt FROM hall_of_fame;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT COUNT(*) as cnt FROM hall_of_fame;",
+  "rows": [
+    {
+      "cnt": "92"
+    }
+  ],
+  "messages": [],
+  "stdout": "cnt\n92\n",
+  "stderr": "",
+  "execution_time_ms": 253
+}

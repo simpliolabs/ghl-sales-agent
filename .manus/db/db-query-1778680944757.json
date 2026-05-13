@@ -1,0 +1,106 @@
+{
+  "query": "SELECT \n  framework,\n  COUNT(*) as sent,\n  SUM(gotReply) as replies,\n  ROUND(SUM(gotReply)/COUNT(*)*100,1) as reply_pct,\n  SUM(CASE WHEN replySentiment='positive' THEN 1 ELSE 0 END) as positive,\n  SUM(stageAdvanced) as advanced\nFROM message_outcomes \nWHERE createdAt >= DATE_SUB(NOW(), INTERVAL 2 MONTH) AND framework IS NOT NULL\nGROUP BY framework ORDER BY sent DESC;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT \n  framework,\n  COUNT(*) as sent,\n  SUM(gotReply) as replies,\n  ROUND(SUM(gotReply)/COUNT(*)*100,1) as reply_pct,\n  SUM(CASE WHEN replySentiment='positive' THEN 1 ELSE 0 END) as positive,\n  SUM(stageAdvanced) as advanced\nFROM message_outcomes \nWHERE createdAt >= DATE_SUB(NOW(), INTERVAL 2 MONTH) AND framework IS NOT NULL\nGROUP BY framework ORDER BY sent DESC;",
+  "rows": [
+    {
+      "framework": "SOCIAL_PROOF",
+      "sent": "871",
+      "replies": "0",
+      "reply_pct": "0.0",
+      "positive": "0",
+      "advanced": "0"
+    },
+    {
+      "framework": "EMB_WINBACK",
+      "sent": "576",
+      "replies": "4",
+      "reply_pct": "0.7",
+      "positive": "3",
+      "advanced": "4"
+    },
+    {
+      "framework": "DIRECT_RESPONSE",
+      "sent": "345",
+      "replies": "161",
+      "reply_pct": "46.7",
+      "positive": "68",
+      "advanced": "108"
+    },
+    {
+      "framework": "HORMOZI_ACA",
+      "sent": "341",
+      "replies": "56",
+      "reply_pct": "16.4",
+      "positive": "18",
+      "advanced": "91"
+    },
+    {
+      "framework": "VALUE_FIRST",
+      "sent": "215",
+      "replies": "15",
+      "reply_pct": "7.0",
+      "positive": "8",
+      "advanced": "18"
+    },
+    {
+      "framework": "CURIOSITY_HOOK",
+      "sent": "101",
+      "replies": "5",
+      "reply_pct": "5.0",
+      "positive": "3",
+      "advanced": "14"
+    },
+    {
+      "framework": "SOAP_OPERA",
+      "sent": "80",
+      "replies": "8",
+      "reply_pct": "10.0",
+      "positive": "5",
+      "advanced": "7"
+    },
+    {
+      "framework": "EMB_COLD",
+      "sent": "72",
+      "replies": "4",
+      "reply_pct": "5.6",
+      "positive": "4",
+      "advanced": "1"
+    },
+    {
+      "framework": "HORMOZI_INDIRECT",
+      "sent": "9",
+      "replies": "0",
+      "reply_pct": "0.0",
+      "positive": "0",
+      "advanced": "1"
+    },
+    {
+      "framework": "PAS",
+      "sent": "7",
+      "replies": "0",
+      "reply_pct": "0.0",
+      "positive": "0",
+      "advanced": "0"
+    },
+    {
+      "framework": "CASE_STUDY",
+      "sent": "3",
+      "replies": "0",
+      "reply_pct": "0.0",
+      "positive": "0",
+      "advanced": "0"
+    },
+    {
+      "framework": "AIDA",
+      "sent": "2",
+      "replies": "0",
+      "reply_pct": "0.0",
+      "positive": "0",
+      "advanced": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "framework\tsent\treplies\treply_pct\tpositive\tadvanced\nSOCIAL_PROOF\t871\t0\t0.0\t0\t0\nEMB_WINBACK\t576\t4\t0.7\t3\t4\nDIRECT_RESPONSE\t345\t161\t46.7\t68\t108\nHORMOZI_ACA\t341\t56\t16.4\t18\t91\nVALUE_FIRST\t215\t15\t7.0\t8\t18\nCURIOSITY_HOOK\t101\t5\t5.0\t3\t14\nSOAP_OPERA\t80\t8\t10.0\t5\t7\nEMB_COLD\t72\t4\t5.6\t4\t1\nHORMOZI_INDIRECT\t9\t0\t0.0\t0\t1\nPAS\t7\t0\t0.0\t0\t0\nCASE_STUDY\t3\t0\t0.0\t0\t0\nAIDA\t2\t0\t0.0\t0\t0\n",
+  "stderr": "",
+  "execution_time_ms": 266
+}

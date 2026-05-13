@@ -1,0 +1,20 @@
+{
+  "query": "SELECT \n  COUNT(*) as total_leads,\n  SUM(CASE WHEN pipelineStage IN ('quote_sent','Quote Sent') THEN 1 ELSE 0 END) as quotes,\n  SUM(CASE WHEN pipelineStage IN ('Proof Sent','proof_sent') THEN 1 ELSE 0 END) as proofs,\n  SUM(CASE WHEN pipelineStage IN ('Approved + Deposit') THEN 1 ELSE 0 END) as deposits,\n  SUM(CASE WHEN pipelineStage IN ('In Production') THEN 1 ELSE 0 END) as production,\n  SUM(CASE WHEN pipelineStage IN ('delivered') THEN 1 ELSE 0 END) as delivered,\n  SUM(CASE WHEN pipelineStage IN ('Lost') THEN 1 ELSE 0 END) as lost,\n  SUM(humanTakeover) as human_takeover_total\nFROM leads;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT \n  COUNT(*) as total_leads,\n  SUM(CASE WHEN pipelineStage IN ('quote_sent','Quote Sent') THEN 1 ELSE 0 END) as quotes,\n  SUM(CASE WHEN pipelineStage IN ('Proof Sent','proof_sent') THEN 1 ELSE 0 END) as proofs,\n  SUM(CASE WHEN pipelineStage IN ('Approved + Deposit') THEN 1 ELSE 0 END) as deposits,\n  SUM(CASE WHEN pipelineStage IN ('In Production') THEN 1 ELSE 0 END) as production,\n  SUM(CASE WHEN pipelineStage IN ('delivered') THEN 1 ELSE 0 END) as delivered,\n  SUM(CASE WHEN pipelineStage IN ('Lost') THEN 1 ELSE 0 END) as lost,\n  SUM(humanTakeover) as human_takeover_total\nFROM leads;",
+  "rows": [
+    {
+      "total_leads": "3964",
+      "quotes": "41",
+      "proofs": "3",
+      "deposits": "1",
+      "production": "1",
+      "delivered": "12",
+      "lost": "8",
+      "human_takeover_total": "14"
+    }
+  ],
+  "messages": [],
+  "stdout": "total_leads\tquotes\tproofs\tdeposits\tproduction\tdelivered\tlost\thuman_takeover_total\n3964\t41\t3\t1\t1\t12\t8\t14\n",
+  "stderr": "",
+  "execution_time_ms": 266
+}

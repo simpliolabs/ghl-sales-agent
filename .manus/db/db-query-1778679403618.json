@@ -1,0 +1,80 @@
+{
+  "query": "SELECT id, violationCategory, proposedSkillName, status, createdAt FROM skill_proposals ORDER BY createdAt DESC LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT id, violationCategory, proposedSkillName, status, createdAt FROM skill_proposals ORDER BY createdAt DESC LIMIT 10;",
+  "rows": [
+    {
+      "id": "120003",
+      "violationCategory": "graceful_exit_retired",
+      "proposedSkillName": "Re-engagement for Retired Leads",
+      "status": "pending_review",
+      "createdAt": "2026-05-12 18:22:59"
+    },
+    {
+      "id": "120002",
+      "violationCategory": "safety_violation",
+      "proposedSkillName": "Prevent Empty/Incomplete Messages",
+      "status": "pending_review",
+      "createdAt": "2026-05-12 18:22:54"
+    },
+    {
+      "id": "120001",
+      "violationCategory": "passive_reactivation",
+      "proposedSkillName": "Active Reactivation",
+      "status": "pending_review",
+      "createdAt": "2026-05-12 18:22:50"
+    },
+    {
+      "id": "90001",
+      "violationCategory": "referral_ask_in_inquiry",
+      "proposedSkillName": "Defer Referral Ask During Inquiry",
+      "status": "pending_review",
+      "createdAt": "2026-05-08 16:17:46"
+    },
+    {
+      "id": "60002",
+      "violationCategory": "context_free_subject",
+      "proposedSkillName": "Context Setting Introduction",
+      "status": "pending_review",
+      "createdAt": "2026-05-07 18:45:24"
+    },
+    {
+      "id": "60001",
+      "violationCategory": "wrong_business",
+      "proposedSkillName": "Focus on Adorb Custom Tees Offerings",
+      "status": "pending_review",
+      "createdAt": "2026-05-07 18:45:19"
+    },
+    {
+      "id": "30003",
+      "violationCategory": "ignored_request",
+      "proposedSkillName": "Reactivation Follow-up Engagement",
+      "status": "pending_review",
+      "createdAt": "2026-05-06 23:23:01"
+    },
+    {
+      "id": "30002",
+      "violationCategory": "missing_framework",
+      "proposedSkillName": "Structured Message Framework",
+      "status": "pending_review",
+      "createdAt": "2026-05-06 23:22:56"
+    },
+    {
+      "id": "30001",
+      "violationCategory": "repeated_opener",
+      "proposedSkillName": "Avoid Repeated Opener",
+      "status": "pending_review",
+      "createdAt": "2026-05-06 23:22:48"
+    },
+    {
+      "id": "14",
+      "violationCategory": "fresh_outreach_on_aged_lead",
+      "proposedSkillName": "No Fresh Outreach on Aged Leads",
+      "status": "pending_review",
+      "createdAt": "2026-04-16 13:50:38"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tviolationCategory\tproposedSkillName\tstatus\tcreatedAt\n120003\tgraceful_exit_retired\tRe-engagement for Retired Leads\tpending_review\t2026-05-12 18:22:59\n120002\tsafety_violation\tPrevent Empty/Incomplete Messages\tpending_review\t2026-05-12 18:22:54\n120001\tpassive_reactivation\tActive Reactivation\tpending_review\t2026-05-12 18:22:50\n90001\treferral_ask_in_inquiry\tDefer Referral Ask During Inquiry\tpending_review\t2026-05-08 16:17:46\n60002\tcontext_free_subject\tContext Setting Introduction\tpending_review\t2026-05-07 18:45:24\n60001\twrong_business\tFocus on Adorb Custom Tees Offerings\tpending_review\t2026-05-07 18:45:19\n30003\tignored_request\tReactivation Follow-up Engagement\tpending_review\t2026-05-06 23:23:01\n30002\tmissing_framework\tStructured Message Framework\tpending_review\t2026-05-06 23:22:56\n30001\trepeated_opener\tAvoid Repeated Opener\tpending_review\t2026-05-06 23:22:48\n14\tfresh_outreach_on_aged_lead\tNo Fresh Outreach on Aged Leads\tpending_review\t2026-04-16 13:50:38\n",
+  "stderr": "",
+  "execution_time_ms": 254
+}

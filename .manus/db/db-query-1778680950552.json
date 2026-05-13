@@ -1,0 +1,50 @@
+{
+  "query": "SELECT \n  channel,\n  COUNT(*) as sent,\n  SUM(gotReply) as replies,\n  ROUND(SUM(gotReply)/COUNT(*)*100,1) as reply_pct,\n  SUM(CASE WHEN replySentiment='positive' THEN 1 ELSE 0 END) as positive,\n  SUM(dncTriggered) as dnc\nFROM message_outcomes \nWHERE createdAt >= DATE_SUB(NOW(), INTERVAL 2 MONTH) AND channel IS NOT NULL\nGROUP BY channel ORDER BY sent DESC;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT \n  channel,\n  COUNT(*) as sent,\n  SUM(gotReply) as replies,\n  ROUND(SUM(gotReply)/COUNT(*)*100,1) as reply_pct,\n  SUM(CASE WHEN replySentiment='positive' THEN 1 ELSE 0 END) as positive,\n  SUM(dncTriggered) as dnc\nFROM message_outcomes \nWHERE createdAt >= DATE_SUB(NOW(), INTERVAL 2 MONTH) AND channel IS NOT NULL\nGROUP BY channel ORDER BY sent DESC;",
+  "rows": [
+    {
+      "channel": "Email",
+      "sent": "1637",
+      "replies": "8",
+      "reply_pct": "0.5",
+      "positive": "4",
+      "dnc": "1"
+    },
+    {
+      "channel": "SMS",
+      "sent": "667",
+      "replies": "116",
+      "reply_pct": "17.4",
+      "positive": "56",
+      "dnc": "6"
+    },
+    {
+      "channel": "FB",
+      "sent": "311",
+      "replies": "128",
+      "reply_pct": "41.2",
+      "positive": "49",
+      "dnc": "3"
+    },
+    {
+      "channel": "WhatsApp",
+      "sent": "5",
+      "replies": "0",
+      "reply_pct": "0.0",
+      "positive": "0",
+      "dnc": "0"
+    },
+    {
+      "channel": "IG",
+      "sent": "2",
+      "replies": "1",
+      "reply_pct": "50.0",
+      "positive": "0",
+      "dnc": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "channel\tsent\treplies\treply_pct\tpositive\tdnc\nEmail\t1637\t8\t0.5\t4\t1\nSMS\t667\t116\t17.4\t56\t6\nFB\t311\t128\t41.2\t49\t3\nWhatsApp\t5\t0\t0.0\t0\t0\nIG\t2\t1\t50.0\t0\t0\n",
+  "stderr": "",
+  "execution_time_ms": 266
+}

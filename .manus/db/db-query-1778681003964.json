@@ -1,0 +1,85 @@
+{
+  "query": "SELECT pipelineStage, COUNT(*) as cnt, \n  SUM(CASE WHEN humanTakeover=1 THEN 1 ELSE 0 END) as human_takeover\nFROM leads GROUP BY pipelineStage ORDER BY cnt DESC LIMIT 15;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT pipelineStage, COUNT(*) as cnt, \n  SUM(CASE WHEN humanTakeover=1 THEN 1 ELSE 0 END) as human_takeover\nFROM leads GROUP BY pipelineStage ORDER BY cnt DESC LIMIT 15;",
+  "rows": [
+    {
+      "pipelineStage": "New Lead",
+      "cnt": "1985",
+      "human_takeover": "0"
+    },
+    {
+      "pipelineStage": "Contacted",
+      "cnt": "746",
+      "human_takeover": "2"
+    },
+    {
+      "pipelineStage": "not_qualified",
+      "cnt": "548",
+      "human_takeover": "6"
+    },
+    {
+      "pipelineStage": "new_lead",
+      "cnt": "449",
+      "human_takeover": "1"
+    },
+    {
+      "pipelineStage": "No Answer",
+      "cnt": "138",
+      "human_takeover": "1"
+    },
+    {
+      "pipelineStage": "Not Qualified",
+      "cnt": "29",
+      "human_takeover": "0"
+    },
+    {
+      "pipelineStage": "quote_sent",
+      "cnt": "26",
+      "human_takeover": "0"
+    },
+    {
+      "pipelineStage": "Quote Sent",
+      "cnt": "15",
+      "human_takeover": "2"
+    },
+    {
+      "pipelineStage": "delivered",
+      "cnt": "12",
+      "human_takeover": "0"
+    },
+    {
+      "pipelineStage": "Lost",
+      "cnt": "8",
+      "human_takeover": "0"
+    },
+    {
+      "pipelineStage": "Qualified",
+      "cnt": "3",
+      "human_takeover": "0"
+    },
+    {
+      "pipelineStage": "Proof Sent",
+      "cnt": "2",
+      "human_takeover": "1"
+    },
+    {
+      "pipelineStage": "proof_sent",
+      "cnt": "1",
+      "human_takeover": "0"
+    },
+    {
+      "pipelineStage": "In Production",
+      "cnt": "1",
+      "human_takeover": "1"
+    },
+    {
+      "pipelineStage": "Approved + Deposit",
+      "cnt": "1",
+      "human_takeover": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "pipelineStage\tcnt\thuman_takeover\nNew Lead\t1985\t0\nContacted\t746\t2\nnot_qualified\t548\t6\nnew_lead\t449\t1\nNo Answer\t138\t1\nNot Qualified\t29\t0\nquote_sent\t26\t0\nQuote Sent\t15\t2\ndelivered\t12\t0\nLost\t8\t0\nQualified\t3\t0\nProof Sent\t2\t1\nproof_sent\t1\t0\nIn Production\t1\t1\nApproved + Deposit\t1\t0\n",
+  "stderr": "",
+  "execution_time_ms": 265
+}

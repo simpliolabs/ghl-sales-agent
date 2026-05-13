@@ -1,0 +1,18 @@
+{
+  "query": "SELECT \n  COUNT(*) as total_audits,\n  SUM(CASE WHEN qcApproved=1 THEN 1 ELSE 0 END) as qc_passed,\n  SUM(CASE WHEN qcApproved=0 THEN 1 ELSE 0 END) as qc_failed,\n  SUM(CASE WHEN wasRecomposed=1 THEN 1 ELSE 0 END) as recomposed,\n  SUM(CASE WHEN messageSent=1 THEN 1 ELSE 0 END) as sent,\n  SUM(CASE WHEN blocked=1 THEN 1 ELSE 0 END) as blocked\nFROM brain_council_audit \nWHERE createdAt >= DATE_SUB(NOW(), INTERVAL 2 MONTH);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT \n  COUNT(*) as total_audits,\n  SUM(CASE WHEN qcApproved=1 THEN 1 ELSE 0 END) as qc_passed,\n  SUM(CASE WHEN qcApproved=0 THEN 1 ELSE 0 END) as qc_failed,\n  SUM(CASE WHEN wasRecomposed=1 THEN 1 ELSE 0 END) as recomposed,\n  SUM(CASE WHEN messageSent=1 THEN 1 ELSE 0 END) as sent,\n  SUM(CASE WHEN blocked=1 THEN 1 ELSE 0 END) as blocked\nFROM brain_council_audit \nWHERE createdAt >= DATE_SUB(NOW(), INTERVAL 2 MONTH);",
+  "rows": [
+    {
+      "total_audits": "3528",
+      "qc_passed": "2714",
+      "qc_failed": "325",
+      "recomposed": "104",
+      "sent": "2713",
+      "blocked": "814"
+    }
+  ],
+  "messages": [],
+  "stdout": "total_audits\tqc_passed\tqc_failed\trecomposed\tsent\tblocked\n3528\t2714\t325\t104\t2713\t814\n",
+  "stderr": "",
+  "execution_time_ms": 275
+}

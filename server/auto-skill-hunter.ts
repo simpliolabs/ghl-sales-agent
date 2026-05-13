@@ -367,3 +367,96 @@ export async function reviewSkillProposal(
     return false;
   }
 }
+
+/**
+ * AUTO-ADOPT MATURE PROPOSALS (Decision 7)
+ * 
+ * Proposals that have been approved AND whose violation category has
+ * continued to fire (proving the pattern is persistent) get auto-adopted
+ * into the active skill set.
+ * 
+ * Criteria for auto-adoption:
+ * - Status = 'approved'
+ * - Approved at least 7 days ago (maturation period)
+ * - The violation category has fired 5+ times total since approval
+ * 
+ * Auto-adopted proposals get their status changed to 'adopted' and
+ * their prompt is injected into the Composer context.
+ */
+const ADOPT_MATURATION_DAYS = 7;
+const ADOPT_VIOLATION_THRESHOLD = 5;
+
+export async function autoAdoptMatureProposals(): Promise<{ adopted: number; checked: number }> {
+  const db = await getDb();
+  if (!db) return { adopted: 0, checked: 0 };
+
+  try {
+    // Find approved proposals that are old enough
+    const maturationDate = new Date(Date.now() - ADOPT_MATURATION_DAYS * 24 * 60 * 60 * 1000);
+    const approvedProposals = await db.select()
+      .from(skillProposals)
+      .where(and(
+        eq(skillProposals.status, "approved"),
+        sql`${skillProposals.reviewedAt} < ${maturationDate}`,
+      ));
+
+    let adopted = 0;
+    for (const proposal of approvedProposals) {
+      // Check if the violation category has continued to fire
+      const [countResult] = await db.execute(sql`
+        SELECT COUNT(*) as cnt FROM brain_council_audit
+        WHERE JSON_CONTAINS(violationCategories, ${JSON.stringify(proposal.violationCategory)})
+        AND createdAt > ${proposal.reviewedAt}
+      `);
+      const violationCount = (countResult as any)?.cnt || 0;
+
+      if (violationCount >= ADOPT_VIOLATION_THRESHOLD) {
+        // Auto-adopt: change status to 'adopted'
+        await db.update(skillProposals)
+          .set({ status: "adopted", reviewNote: `Auto-adopted: ${violationCount} violations since approval (threshold: ${ADOPT_VIOLATION_THRESHOLD})` })
+          .where(eq(skillProposals.id, proposal.id));
+        adopted++;
+        console.log(`[AutoSkillHunter] Auto-adopted skill "${proposal.proposedSkillName}" (${violationCount} violations since approval)`);
+      }
+    }
+
+    return { adopted, checked: approvedProposals.length };
+  } catch (err) {
+    console.error("[AutoSkillHunter] autoAdoptMatureProposals failed:", err);
+    return { adopted: 0, checked: 0 };
+  }
+}
+
+/**
+ * Get all adopted/approved skill prompts for injection into Composer context.
+ * Returns a formatted block that can be appended to the Composer system prompt.
+ */
+export async function getApprovedSkillsBlock(): Promise<string> {
+  const db = await getDb();
+  if (!db) return '';
+
+  try {
+    const adoptedSkills = await db.select({
+      proposedSkillName: skillProposals.proposedSkillName,
+      proposedPrompt: skillProposals.proposedPrompt,
+      violationCategory: skillProposals.violationCategory,
+    })
+      .from(skillProposals)
+      .where(sql`${skillProposals.status} IN ('approved', 'adopted')`)
+      .orderBy(desc(skillProposals.createdAt))
+      .limit(10); // Cap to avoid prompt bloat
+
+    if (adoptedSkills.length === 0) return '';
+
+    const lines = ['=== ADOPTED SKILLS (from violation pattern learning) ==='];
+    for (const skill of adoptedSkills) {
+      lines.push(`[${skill.proposedSkillName}] (prevents: ${skill.violationCategory})`);
+      lines.push(skill.proposedPrompt);
+      lines.push('');
+    }
+    return lines.join('\n');
+  } catch (err) {
+    console.error("[AutoSkillHunter] getApprovedSkillsBlock failed:", err);
+    return '';
+  }
+}

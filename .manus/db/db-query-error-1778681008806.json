@@ -1,0 +1,8 @@
+{
+  "query": "SELECT violationType, COUNT(*) as cnt \nFROM audit_log \nWHERE qcPassed=0 AND createdAt >= DATE_SUB(NOW(), INTERVAL 2 MONTH)\nGROUP BY violationType ORDER BY cnt DESC LIMIT 15;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT violationType, COUNT(*) as cnt \nFROM audit_log \nWHERE qcPassed=0 AND createdAt >= DATE_SUB(NOW(), INTERVAL 2 MONTH)\nGROUP BY violationType ORDER BY cnt DESC LIMIT 15;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1146 (42S02) at line 1: Table '28achv27idsnmapuhccae5.audit_log' doesn't exist"
+  ]
+}

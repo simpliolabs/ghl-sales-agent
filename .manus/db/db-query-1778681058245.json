@@ -1,0 +1,52 @@
+{
+  "query": "SELECT \n  DATE_FORMAT(createdAt, '%Y-W%v') as week,\n  COUNT(*) as sent,\n  SUM(gotReply) as replies,\n  ROUND(SUM(gotReply)/COUNT(*)*100,1) as reply_pct,\n  SUM(CASE WHEN replySentiment='positive' THEN 1 ELSE 0 END) as positive\nFROM message_outcomes \nWHERE createdAt >= DATE_SUB(NOW(), INTERVAL 2 MONTH)\nGROUP BY week ORDER BY week;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT \n  DATE_FORMAT(createdAt, '%Y-W%v') as week,\n  COUNT(*) as sent,\n  SUM(gotReply) as replies,\n  ROUND(SUM(gotReply)/COUNT(*)*100,1) as reply_pct,\n  SUM(CASE WHEN replySentiment='positive' THEN 1 ELSE 0 END) as positive\nFROM message_outcomes \nWHERE createdAt >= DATE_SUB(NOW(), INTERVAL 2 MONTH)\nGROUP BY week ORDER BY week;",
+  "rows": [
+    {
+      "week": "2026-W15",
+      "sent": "548",
+      "replies": "78",
+      "reply_pct": "14.2",
+      "positive": "35"
+    },
+    {
+      "week": "2026-W16",
+      "sent": "498",
+      "replies": "67",
+      "reply_pct": "13.5",
+      "positive": "23"
+    },
+    {
+      "week": "2026-W17",
+      "sent": "491",
+      "replies": "36",
+      "reply_pct": "7.3",
+      "positive": "20"
+    },
+    {
+      "week": "2026-W18",
+      "sent": "440",
+      "replies": "14",
+      "reply_pct": "3.2",
+      "positive": "8"
+    },
+    {
+      "week": "2026-W19",
+      "sent": "479",
+      "replies": "46",
+      "reply_pct": "9.6",
+      "positive": "17"
+    },
+    {
+      "week": "2026-W20",
+      "sent": "166",
+      "replies": "12",
+      "reply_pct": "7.2",
+      "positive": "6"
+    }
+  ],
+  "messages": [],
+  "stdout": "week\tsent\treplies\treply_pct\tpositive\n2026-W15\t548\t78\t14.2\t35\n2026-W16\t498\t67\t13.5\t23\n2026-W17\t491\t36\t7.3\t20\n2026-W18\t440\t14\t3.2\t8\n2026-W19\t479\t46\t9.6\t17\n2026-W20\t166\t12\t7.2\t6\n",
+  "stderr": "",
+  "execution_time_ms": 261
+}

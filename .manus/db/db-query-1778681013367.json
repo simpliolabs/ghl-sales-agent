@@ -1,0 +1,16 @@
+{
+  "query": "SHOW TABLES LIKE '%audit%';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SHOW TABLES LIKE '%audit%';",
+  "rows": [
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (%audit%)": "brain_council_audit"
+    },
+    {
+      "Tables_in_28AChv27iDSNmApuHCcaE5 (%audit%)": "supervisor_audit"
+    }
+  ],
+  "messages": [],
+  "stdout": "Tables_in_28AChv27iDSNmApuHCcaE5 (%audit%)\nbrain_council_audit\nsupervisor_audit\n",
+  "stderr": "",
+  "execution_time_ms": 264
+}

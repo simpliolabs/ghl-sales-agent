@@ -1,0 +1,66 @@
+{
+  "query": "SELECT \n  segment as persona,\n  COUNT(*) as sent,\n  SUM(gotReply) as replies,\n  ROUND(SUM(gotReply)/COUNT(*)*100,1) as reply_pct,\n  SUM(CASE WHEN replySentiment='positive' THEN 1 ELSE 0 END) as positive,\n  SUM(converted) as converted\nFROM message_outcomes \nWHERE createdAt >= DATE_SUB(NOW(), INTERVAL 2 MONTH) AND segment IS NOT NULL\nGROUP BY segment ORDER BY sent DESC;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT \n  segment as persona,\n  COUNT(*) as sent,\n  SUM(gotReply) as replies,\n  ROUND(SUM(gotReply)/COUNT(*)*100,1) as reply_pct,\n  SUM(CASE WHEN replySentiment='positive' THEN 1 ELSE 0 END) as positive,\n  SUM(converted) as converted\nFROM message_outcomes \nWHERE createdAt >= DATE_SUB(NOW(), INTERVAL 2 MONTH) AND segment IS NOT NULL\nGROUP BY segment ORDER BY sent DESC;",
+  "rows": [
+    {
+      "persona": "other",
+      "sent": "1359",
+      "replies": "117",
+      "reply_pct": "8.6",
+      "positive": "52",
+      "converted": "0"
+    },
+    {
+      "persona": "brand",
+      "sent": "332",
+      "replies": "4",
+      "reply_pct": "1.2",
+      "positive": "1",
+      "converted": "0"
+    },
+    {
+      "persona": "nonprofit",
+      "sent": "237",
+      "replies": "2",
+      "reply_pct": "0.8",
+      "positive": "1",
+      "converted": "0"
+    },
+    {
+      "persona": "church",
+      "sent": "202",
+      "replies": "20",
+      "reply_pct": "9.9",
+      "positive": "9",
+      "converted": "0"
+    },
+    {
+      "persona": "sports",
+      "sent": "174",
+      "replies": "0",
+      "reply_pct": "0.0",
+      "positive": "0",
+      "converted": "0"
+    },
+    {
+      "persona": "school",
+      "sent": "14",
+      "replies": "0",
+      "reply_pct": "0.0",
+      "positive": "0",
+      "converted": "0"
+    },
+    {
+      "persona": "event_planner",
+      "sent": "1",
+      "replies": "0",
+      "reply_pct": "0.0",
+      "positive": "0",
+      "converted": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "persona\tsent\treplies\treply_pct\tpositive\tconverted\nother\t1359\t117\t8.6\t52\t0\nbrand\t332\t4\t1.2\t1\t0\nnonprofit\t237\t2\t0.8\t1\t0\nchurch\t202\t20\t9.9\t9\t0\nsports\t174\t0\t0.0\t0\t0\nschool\t14\t0\t0.0\t0\t0\nevent_planner\t1\t0\t0.0\t0\t0\n",
+  "stderr": "",
+  "execution_time_ms": 266
+}

@@ -36,6 +36,9 @@ import { runDispositionSweep } from "./lead-disposition";
 import { getAllSkills } from "./skill-registry";
 import { runAutoSkillHunter, getSkillProposals, reviewSkillProposal } from "./auto-skill-hunter";
 import { getLeadMemoryFacts } from "./lead-memory";
+import { runStrategyReview, getStrategyAdjustmentHistory } from "./strategy-autopilot";
+import { extractAgentPatterns, recordAgentLearning } from "./learning-loop";
+import { createTrainingExport, listTrainingExports, getTrainingExport } from "./training-export";
 
 // Auto-synthesize uploaded content using LLM
 async function synthesizeContent(rawText: string, fileName: string): Promise<string> {
@@ -536,6 +539,40 @@ export const appRouter = router({
     leadMemory: protectedProcedure
       .input(z.object({ leadId: z.number() }))
       .query(async ({ input }) => getLeadMemoryFacts(input.leadId)),
+
+    // --- Strategy Autopilot (Decision 11) ---
+    strategyAdjustments: protectedProcedure.query(async () => getStrategyAdjustmentHistory()),
+    triggerStrategyReview: adminProcedure.mutation(async () => runStrategyReview()),
+
+    // --- Agent Pattern Extraction (Decision 10) ---
+    extractPatterns: adminProcedure
+      .input(z.object({ leadId: z.number() }))
+      .mutation(async ({ input }) => {
+        const patterns = await extractAgentPatterns(input.leadId);
+        if (patterns.length > 0) {
+          const recorded = await recordAgentLearning(input.leadId, patterns);
+          return { patterns, recorded };
+        }
+        return { patterns: [], recorded: 0 };
+      }),
+
+    // --- Training Export (Decision 9) ---
+    trainingExports: protectedProcedure.query(async () => listTrainingExports()),
+    trainingExport: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => getTrainingExport(input.id)),
+    createTrainingExport: adminProcedure
+      .input(z.object({
+        exportName: z.string(),
+        filter: z.object({
+          minScore: z.number().optional(),
+          frameworks: z.array(z.string()).optional(),
+          channels: z.array(z.string()).optional(),
+          onlyReplied: z.boolean().optional(),
+          onlyConverted: z.boolean().optional(),
+        }).optional(),
+      }))
+      .mutation(async ({ input }) => createTrainingExport(input.exportName, input.filter || {})),
 
     // --- Combined Dashboard Data ---
     dashboardSummary: protectedProcedure.query(async () => {

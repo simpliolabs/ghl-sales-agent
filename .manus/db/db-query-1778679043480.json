@@ -1,0 +1,16 @@
+{
+  "query": "SELECT column_name FROM information_schema.columns WHERE table_name = 'ab_experiments' AND column_name LIKE '%variant%config%';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT column_name FROM information_schema.columns WHERE table_name = 'ab_experiments' AND column_name LIKE '%variant%config%';",
+  "rows": [
+    {
+      "column_name": "variantAConfig"
+    },
+    {
+      "column_name": "variantBConfig"
+    }
+  ],
+  "messages": [],
+  "stdout": "column_name\nvariantAConfig\nvariantBConfig\n",
+  "stderr": "",
+  "execution_time_ms": 264
+}

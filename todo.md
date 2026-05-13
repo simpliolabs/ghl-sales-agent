@@ -1283,3 +1283,41 @@
 - [x] BUG: AI sent campaign email to Erica Carter (manually-created contact) even though human agent was already actively messaging her — fixed Layer B send-gate to check GHL message userId (human-typed) even when local AI history is empty
 - [x] BUG: AI replied via Email when Anthony D Hamlet came in via Facebook — must match inbound channel
 - [x] BUG: Email messages missing signature/footer
+
+## Sprint 1: Framework Bans, Channel Logic, Bug Fixes, Cron Changes (Decisions 1, 2, 3, 4, 12)
+
+- [x] Decision 1: Hard-ban SOCIAL_PROOF framework (programmatic override in brain-council-orchestrator.ts)
+- [x] Decision 1: Remove SOCIAL_PROOF from strategist prompt available frameworks list
+- [x] Decision 1: Remove SOCIAL_PROOF from ALL_OUTREACH_FRAMEWORKS diversity pool
+- [x] Decision 2: Restrict EMB_WINBACK to past customers only (programmatic override)
+- [x] Decision 3A: Rewrite selectChannel() to prefer SMS over Email for cold outreach
+- [x] Decision 3B: Create fb-window-manager.ts with isFbWindowOpen() helper
+- [x] Decision 3C: Wire FB window check into brain-council-orchestrator.ts before send
+- [x] Decision 4A: Fix A/B auto-seeder SQL bug (variant_a_config → variantAConfig)
+- [x] Decision 4B: Change A/B auto-seeder interval from 6hrs to 7 days
+- [x] Decision 12: Change Auto-Skill Hunter interval from 6hrs to 7 days
+- [x] Decision 12: Add Monday gate to weekly timers
+
+## Sprint 2: Trends Wiring, Skill Auto-Adoption, Hall of Fame Verification (Decisions 6, 7, 8)
+
+- [x] Decision 6: Add getTrendsBlock() to strategist.ts and inject into prompt
+- [x] Decision 7: Add autoAdoptMatureProposals() to auto-skill-hunter.ts
+- [x] Decision 7: Add getApprovedSkillsBlock() to composer.ts
+- [x] Decision 8: Verify Hall of Fame pipeline has data and is working (92 entries confirmed)
+
+## Sprint 3: LLM Experiments, Agent Patterns UI, Autonomous Strategy Review (Decisions 5, 10, 11)
+
+- [x] Decision 5: Keep autoSeedExperiments() with fixed SQL bug (competitive pair logic is sound)
+- [x] Decision 10: Add Agent Patterns tRPC procedure (learning.extractPatterns)
+- [x] Decision 11: Create strategy-autopilot.ts with runStrategyReview()
+- [x] Decision 11: Add strategy_adjustments table + migration
+- [x] Decision 11: Strategy adjustments available via learning.strategyAdjustments procedure
+- [x] Decision 11: Wire weekly Monday review timer in _core/index.ts
+- [x] Decision 11: Inject active adjustments into strategist context
+
+## Sprint 4: LoRA Training Export Pipeline (Decision 9)
+
+- [x] Decision 9: Create training-export.ts with generateTrainingPairs()
+- [x] Decision 9: Add training_exports table + migration
+- [x] Decision 9: Training export available via learning.createTrainingExport procedure
+- [x] Decision 9: Add tRPC procedures for export + status

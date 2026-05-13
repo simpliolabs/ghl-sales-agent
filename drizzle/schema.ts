@@ -614,3 +614,41 @@ export const skillProposals = mysqlTable("skill_proposals", {
 });
 export type SkillProposal = typeof skillProposals.$inferSelect;
 export type InsertSkillProposal = typeof skillProposals.$inferInsert;
+
+
+// ============================================================
+// STRATEGY ADJUSTMENTS — Autonomous strategy review log (Decision 11)
+// ============================================================
+export const strategyAdjustments = mysqlTable("strategy_adjustments", {
+  id: int("id").autoincrement().primaryKey(),
+  weekId: varchar("weekId", { length: 16 }).notNull(), // ISO week e.g. "2025-W18"
+  triggerMetric: varchar("triggerMetric", { length: 64 }).notNull(), // e.g. "replyRate_declining"
+  currentValue: varchar("currentValue", { length: 32 }),
+  previousValue: varchar("previousValue", { length: 32 }),
+  adjustment: text("adjustment").notNull(), // LLM-generated strategy adjustment
+  appliedTo: varchar("appliedTo", { length: 64 }), // e.g. "strategist_prompt", "channel_weights"
+  status: varchar("status", { length: 16 }).default("proposed").notNull(), // proposed, applied, rejected, expired
+  appliedAt: timestamp("appliedAt"),
+  expiresAt: timestamp("expiresAt"), // auto-expire after 7 days
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type StrategyAdjustment = typeof strategyAdjustments.$inferSelect;
+export type InsertStrategyAdjustment = typeof strategyAdjustments.$inferInsert;
+
+// ============================================================
+// TRAINING EXPORTS — LoRA fine-tuning data export tracking (Decision 9)
+// ============================================================
+export const trainingExports = mysqlTable("training_exports", {
+  id: int("id").autoincrement().primaryKey(),
+  exportName: varchar("exportName", { length: 128 }).notNull(),
+  format: varchar("format", { length: 16 }).default("jsonl").notNull(), // jsonl, csv
+  totalPairs: int("totalPairs").default(0).notNull(),
+  filterCriteria: json("filterCriteria"), // { minScore?, frameworks?, channels?, dateRange? }
+  fileUrl: text("fileUrl"), // S3 URL of the exported file
+  fileKey: text("fileKey"), // S3 key
+  status: varchar("status", { length: 16 }).default("pending").notNull(), // pending, generating, completed, failed
+  generatedAt: timestamp("generatedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type TrainingExport = typeof trainingExports.$inferSelect;
+export type InsertTrainingExport = typeof trainingExports.$inferInsert;

@@ -582,9 +582,9 @@ export async function autoSeedExperiments(): Promise<{ created: number; skipped:
           SELECT id FROM ab_experiments
           WHERE status IN ('active', 'paused')
           AND (
-            (variant_a_config LIKE ${`%${a.framework}%`} AND variant_b_config LIKE ${`%${b.framework}%`})
+            (variantAConfig LIKE ${`%${a.framework}%`} AND variantBConfig LIKE ${`%${b.framework}%`})
             OR
-            (variant_a_config LIKE ${`%${b.framework}%`} AND variant_b_config LIKE ${`%${a.framework}%`})
+            (variantAConfig LIKE ${`%${b.framework}%`} AND variantBConfig LIKE ${`%${a.framework}%`})
           )
           LIMIT 1
         `);

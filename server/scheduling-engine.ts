@@ -246,24 +246,33 @@ function selectChannel(
   // Priority 1: Use preferred channel if set
   const primary = preferredChannel || originalChannel || "SMS";
 
+  // Decision 3A: Email has 0.5% reply rate vs SMS 17.4% and FB 41.2%.
+  // Channel priority: FB (if window open) > SMS > Email (last resort only).
+  // Email is ONLY used when no phone AND no social channel available.
   if (cadencePosition <= 2) {
-    // First contact + follow-up 1-2: same channel
+    // First contact + follow-up 1-2: use primary channel
+    // But if primary resolved to Email and we have phone, prefer SMS
+    if (primary.toLowerCase() === "email" && hasPhone) {
+      return "SMS";
+    }
     return primary;
   } else if (cadencePosition === 3) {
-    // Follow-up 3: try different channel
+    // Follow-up 3: try different channel (FB→SMS, SMS→FB if available)
     if (primary.toLowerCase().includes("fb") || primary.toLowerCase().includes("facebook")) {
-      return hasPhone ? "SMS" : hasEmail ? "Email" : primary;
+      return hasPhone ? "SMS" : primary; // FB→SMS, never FB→Email
     }
     if (primary.toLowerCase() === "sms") {
-      return hasEmail ? "Email" : primary;
+      // SMS→FB would be ideal but we can't check FB window here.
+      // Stay on SMS (proven 17.4% reply) rather than dropping to Email (0.5%)
+      return "SMS";
     }
     return hasPhone ? "SMS" : primary;
   } else if (cadencePosition <= 5) {
-    // Follow-up 4-5: email with value content
-    return hasEmail ? "Email" : hasPhone ? "SMS" : primary;
+    // Follow-up 4-5: SMS preferred (was Email — but Email has 0.5% reply)
+    return hasPhone ? "SMS" : hasEmail ? "Email" : primary;
   } else {
-    // Reactivation (6+): email first
-    return hasEmail ? "Email" : hasPhone ? "SMS" : primary;
+    // Reactivation (6+): SMS preferred, Email only as absolute last resort
+    return hasPhone ? "SMS" : hasEmail ? "Email" : primary;
   }
 }
 

@@ -57,6 +57,7 @@ import { recordError, addKnownFix, tryApplyKnownFix } from "./error-memory";
 import { runExpertPanel } from "./expert-panel";
 import { updateLeadMemoryAfterRun } from "./lead-memory";
 import { selectSkill, applySkillToContext } from "./skill-registry";
+import { isFbWindowOpen, isFbChannel } from "./fb-window-manager";
 
 // Re-export types so callers only need one import
 export type { BrainCouncilInput, BrainCouncilOutput } from "./brain-types";
@@ -583,6 +584,30 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
     }
 
     // ============================================================
+    // FB 24HR WINDOW CHECK (Decision 3B/3C)
+    // Facebook/Instagram require a response within 24hrs of last customer
+    // message. If the window is closed, fall back to SMS.
+    // This prevents send failures and policy violations.
+    // ============================================================
+    if (isFbChannel(strategy.channel)) {
+      try {
+        const fbWindow = await isFbWindowOpen(input.leadId);
+        if (!fbWindow.isOpen) {
+          const hasPhone = !!(context.lead.phone);
+          if (hasPhone) {
+            console.log(`[SalesManager] \u26A0\uFE0F FB WINDOW CLOSED: lead ${input.leadId} last FB inbound was ${fbWindow.lastInboundAt ? Math.round((Date.now() - fbWindow.lastInboundAt) / 3600000) + 'h ago' : 'never'}. Falling back to SMS.`);
+            (strategy as any).channel = 'SMS';
+            (strategy as any).reasoning = `[FB WINDOW CLOSED: falling back to SMS] ${strategy.reasoning}`;
+          } else {
+            console.log(`[SalesManager] \u26A0\uFE0F FB WINDOW CLOSED: lead ${input.leadId} has no phone. Keeping FB (may fail).`);
+          }
+        }
+      } catch (fbErr) {
+        console.error('[SalesManager] FB window check error (non-fatal):', fbErr);
+      }
+    }
+
+    // ============================================================
     // PROGRAMMATIC HORMOZI_ACA CONTEXT GUARD
     // HORMOZI_ACA requires Acknowledge+Compliment+Ask — it MUST reference
     // the lead's business, product, event, or conversation topic.
@@ -599,7 +624,7 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
       const hasConvHistory = !!(context.convHistory && context.convHistory.length > 0);
       const hasLeadContext = hasFormData || hasBusinessName || hasConvHistory;
       if (!hasLeadContext) {
-        const acacFallback = context.leadAgeDays > 60 ? 'SOCIAL_PROOF' : 'CURIOSITY_HOOK';
+        const acacFallback = context.leadAgeDays > 60 ? 'CASE_STUDY' : 'CURIOSITY_HOOK';
         console.log(`[SalesManager] ⚠️ HORMOZI_ACA CONTEXT GUARD: no ack tokens available for lead ${input.leadId} (formData=${hasFormData}, bizName=${hasBusinessName}, convHistory=${hasConvHistory}) — overriding to ${acacFallback}`);
         (strategy as any).framework = acacFallback;
         (strategy as any).reasoning = `[HORMOZI_ACA CONTEXT GUARD: no ack tokens, using ${acacFallback}] ${strategy.reasoning}`;
@@ -664,6 +689,39 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
         console.log(`[SalesManager] 🚨 HORMOZI_INDIRECT BANNED: '${strategy.approach}' cannot use referral-ask. Overriding → HORMOZI_ACA.`);
         (strategy as any).framework = 'HORMOZI_ACA';
         (strategy as any).reasoning = `[HORMOZI_INDIRECT BANNED: referral-ask never allowed, using HORMOZI_ACA] ${strategy.reasoning}`;
+      }
+    }
+
+    // ============================================================
+    // SOCIAL_PROOF TOTAL BAN (Decision 1)
+    // 871 sends, 0 replies (0.0% reply rate). Completely ineffective.
+    // Override to HORMOZI_ACA for outreach, DIRECT_RESPONSE for responsive.
+    // ============================================================
+    if (strategy.framework === 'SOCIAL_PROOF') {
+      if (RESPONSIVE_APPROACHES.has(strategy.approach)) {
+        console.log(`[SalesManager] \u{1F6A8} SOCIAL_PROOF BANNED: 0% reply on 871 sends. Overriding → DIRECT_RESPONSE.`);
+        (strategy as any).framework = 'DIRECT_RESPONSE';
+        (strategy as any).reasoning = `[SOCIAL_PROOF BANNED: 0% reply on 871 sends, using DIRECT_RESPONSE] ${strategy.reasoning}`;
+      } else {
+        console.log(`[SalesManager] \u{1F6A8} SOCIAL_PROOF BANNED: 0% reply on 871 sends. Overriding → HORMOZI_ACA.`);
+        (strategy as any).framework = 'HORMOZI_ACA';
+        (strategy as any).reasoning = `[SOCIAL_PROOF BANNED: 0% reply on 871 sends, using HORMOZI_ACA] ${strategy.reasoning}`;
+      }
+    }
+
+    // ============================================================
+    // EMB_WINBACK RESTRICTION (Decision 2)
+    // 576 sends, 0.7% reply rate. Only appropriate for past customers.
+    // If lead is NOT a past customer, override to HORMOZI_ACA.
+    // Past customer = pipelineStage in terminal won stages OR opportunityStatus='won'
+    // ============================================================
+    if (strategy.framework === 'EMB_WINBACK') {
+      const PAST_CUSTOMER_STAGES = ['delivered', 'paid - proof needed', 'paid_proof_needed', 'approved + deposit', 'approved', 'in production', 'proof approved'];
+      const isPastCustomer = PAST_CUSTOMER_STAGES.includes((context.lead.pipelineStage || '').toLowerCase()) || (context.lead as any).opportunityStatus === 'won';
+      if (!isPastCustomer) {
+        console.log(`[SalesManager] \u26A0\uFE0F EMB_WINBACK RESTRICTED: lead ${input.leadId} is NOT a past customer (stage: ${context.lead.pipelineStage}). Overriding → HORMOZI_ACA.`);
+        (strategy as any).framework = 'HORMOZI_ACA';
+        (strategy as any).reasoning = `[EMB_WINBACK RESTRICTED: not a past customer, using HORMOZI_ACA] ${strategy.reasoning}`;
       }
     }
 
@@ -802,7 +860,8 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
         if (usageCount >= 2) {
           // Build a weighted pool: prefer frameworks NOT in recent history
           // HORMOZI_INDIRECT removed — referral-ask is permanently banned for Adorb
-          const ALL_OUTREACH_FRAMEWORKS = ["PAS", "BAB", "AIDA", "HORMOZI_ACA", "SOCIAL_PROOF", "CASE_STUDY", "SOAP_OPERA", "CURIOSITY_HOOK"] as const;
+          // SOCIAL_PROOF removed — 0% reply on 871 sends, permanently banned
+          const ALL_OUTREACH_FRAMEWORKS = ["PAS", "BAB", "AIDA", "HORMOZI_ACA", "CASE_STUDY", "SOAP_OPERA", "CURIOSITY_HOOK"] as const;
           const recentSet = new Set(recentOutreachFrameworks);
           // Prefer frameworks not used recently
           const freshAlternatives = ALL_OUTREACH_FRAMEWORKS.filter(f => f !== strategy.framework && !recentSet.has(f));

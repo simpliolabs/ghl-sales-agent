@@ -370,9 +370,9 @@ export async function runDispositionSweep(): Promise<DispositionStats> {
           sql`${leads.pipelineStage} NOT IN ('not_qualified', 'Not Qualified', 'Lost', 'delivered', 'Delivered', 'completed', 'Completed')`,
           // Has been around for a while
           sql`${leads.createdAt} < ${staleThreshold}`,
-          // Not already recorded as stale (check via lastLostNurtureAt as proxy — if null, never recorded)
+          // Not already recorded as stale
           sql`${leads.id} NOT IN (
-            SELECT DISTINCT CAST(JSON_UNQUOTE(JSON_EXTRACT(journeyData, '$.leadId')) AS UNSIGNED)
+            SELECT DISTINCT leadId
             FROM conversation_outcomes
             WHERE outcome = 'stale'
           )`,

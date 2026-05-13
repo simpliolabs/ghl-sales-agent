@@ -169,6 +169,13 @@
       "when": 1776274844839,
       "tag": "0023_chubby_deathstrike",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "5",
+      "when": 1778688278896,
+      "tag": "0024_high_timeslip",
+      "breakpoints": true
     }
   ]
 }

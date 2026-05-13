@@ -1,0 +1,45 @@
+{
+  "query": "SELECT invariant, COUNT(*) as cnt, SUM(success) as fixed\nFROM supervisor_audit \nWHERE createdAt >= DATE_SUB(NOW(), INTERVAL 2 MONTH)\nGROUP BY invariant ORDER BY cnt DESC LIMIT 15;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT invariant, COUNT(*) as cnt, SUM(success) as fixed\nFROM supervisor_audit \nWHERE createdAt >= DATE_SUB(NOW(), INTERVAL 2 MONTH)\nGROUP BY invariant ORDER BY cnt DESC LIMIT 15;",
+  "rows": [
+    {
+      "invariant": "has_future_schedule",
+      "cnt": "57217",
+      "fixed": "57216"
+    },
+    {
+      "invariant": "not_orphaned",
+      "cnt": "41351",
+      "fixed": "41351"
+    },
+    {
+      "invariant": "score_is_current",
+      "cnt": "884",
+      "fixed": "884"
+    },
+    {
+      "invariant": "human_takeover_stale",
+      "cnt": "853",
+      "fixed": "853"
+    },
+    {
+      "invariant": "has_research",
+      "cnt": "96",
+      "fixed": "96"
+    },
+    {
+      "invariant": "has_segment",
+      "cnt": "48",
+      "fixed": "48"
+    },
+    {
+      "invariant": "circuit_breaker_not_stuck",
+      "cnt": "23",
+      "fixed": "23"
+    }
+  ],
+  "messages": [],
+  "stdout": "invariant\tcnt\tfixed\nhas_future_schedule\t57217\t57216\nnot_orphaned\t41351\t41351\nscore_is_current\t884\t884\nhuman_takeover_stale\t853\t853\nhas_research\t96\t96\nhas_segment\t48\t48\ncircuit_breaker_not_stuck\t23\t23\n",
+  "stderr": "",
+  "execution_time_ms": 384
+}

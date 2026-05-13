@@ -1,0 +1,129 @@
+{
+  "query": "SELECT framework, channel, COUNT(*) as sent, SUM(gotReply) as replies,\n  ROUND(SUM(gotReply)/COUNT(*)*100,1) as reply_pct\nFROM message_outcomes \nWHERE createdAt >= DATE_SUB(NOW(), INTERVAL 2 MONTH) AND framework IS NOT NULL AND channel IS NOT NULL\nGROUP BY framework, channel HAVING sent >= 10 ORDER BY reply_pct DESC LIMIT 20;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT framework, channel, COUNT(*) as sent, SUM(gotReply) as replies,\n  ROUND(SUM(gotReply)/COUNT(*)*100,1) as reply_pct\nFROM message_outcomes \nWHERE createdAt >= DATE_SUB(NOW(), INTERVAL 2 MONTH) AND framework IS NOT NULL AND channel IS NOT NULL\nGROUP BY framework, channel HAVING sent >= 10 ORDER BY reply_pct DESC LIMIT 20;",
+  "rows": [
+    {
+      "framework": "DIRECT_RESPONSE",
+      "channel": "FB",
+      "sent": "164",
+      "replies": "84",
+      "reply_pct": "51.2"
+    },
+    {
+      "framework": "DIRECT_RESPONSE",
+      "channel": "SMS",
+      "sent": "166",
+      "replies": "73",
+      "reply_pct": "44.0"
+    },
+    {
+      "framework": "HORMOZI_ACA",
+      "channel": "FB",
+      "sent": "139",
+      "replies": "43",
+      "reply_pct": "30.9"
+    },
+    {
+      "framework": "DIRECT_RESPONSE",
+      "channel": "Email",
+      "sent": "11",
+      "replies": "3",
+      "reply_pct": "27.3"
+    },
+    {
+      "framework": "SOAP_OPERA",
+      "channel": "SMS",
+      "sent": "48",
+      "replies": "6",
+      "reply_pct": "12.5"
+    },
+    {
+      "framework": "VALUE_FIRST",
+      "channel": "SMS",
+      "sent": "123",
+      "replies": "14",
+      "reply_pct": "11.4"
+    },
+    {
+      "framework": "HORMOZI_ACA",
+      "channel": "SMS",
+      "sent": "145",
+      "replies": "12",
+      "reply_pct": "8.3"
+    },
+    {
+      "framework": "EMB_COLD",
+      "channel": "SMS",
+      "sent": "37",
+      "replies": "3",
+      "reply_pct": "8.1"
+    },
+    {
+      "framework": "CURIOSITY_HOOK",
+      "channel": "SMS",
+      "sent": "77",
+      "replies": "5",
+      "reply_pct": "6.5"
+    },
+    {
+      "framework": "EMB_WINBACK",
+      "channel": "SMS",
+      "sent": "51",
+      "replies": "3",
+      "reply_pct": "5.9"
+    },
+    {
+      "framework": "SOAP_OPERA",
+      "channel": "Email",
+      "sent": "31",
+      "replies": "1",
+      "reply_pct": "3.2"
+    },
+    {
+      "framework": "EMB_COLD",
+      "channel": "Email",
+      "sent": "35",
+      "replies": "1",
+      "reply_pct": "2.9"
+    },
+    {
+      "framework": "HORMOZI_ACA",
+      "channel": "Email",
+      "sent": "56",
+      "replies": "1",
+      "reply_pct": "1.8"
+    },
+    {
+      "framework": "VALUE_FIRST",
+      "channel": "Email",
+      "sent": "83",
+      "replies": "1",
+      "reply_pct": "1.2"
+    },
+    {
+      "framework": "EMB_WINBACK",
+      "channel": "Email",
+      "sent": "525",
+      "replies": "1",
+      "reply_pct": "0.2"
+    },
+    {
+      "framework": "CURIOSITY_HOOK",
+      "channel": "Email",
+      "sent": "24",
+      "replies": "0",
+      "reply_pct": "0.0"
+    },
+    {
+      "framework": "SOCIAL_PROOF",
+      "channel": "Email",
+      "sent": "869",
+      "replies": "0",
+      "reply_pct": "0.0"
+    }
+  ],
+  "messages": [],
+  "stdout": "framework\tchannel\tsent\treplies\treply_pct\nDIRECT_RESPONSE\tFB\t164\t84\t51.2\nDIRECT_RESPONSE\tSMS\t166\t73\t44.0\nHORMOZI_ACA\tFB\t139\t43\t30.9\nDIRECT_RESPONSE\tEmail\t11\t3\t27.3\nSOAP_OPERA\tSMS\t48\t6\t12.5\nVALUE_FIRST\tSMS\t123\t14\t11.4\nHORMOZI_ACA\tSMS\t145\t12\t8.3\nEMB_COLD\tSMS\t37\t3\t8.1\nCURIOSITY_HOOK\tSMS\t77\t5\t6.5\nEMB_WINBACK\tSMS\t51\t3\t5.9\nSOAP_OPERA\tEmail\t31\t1\t3.2\nEMB_COLD\tEmail\t35\t1\t2.9\nHORMOZI_ACA\tEmail\t56\t1\t1.8\nVALUE_FIRST\tEmail\t83\t1\t1.2\nEMB_WINBACK\tEmail\t525\t1\t0.2\nCURIOSITY_HOOK\tEmail\t24\t0\t0.0\nSOCIAL_PROOF\tEmail\t869\t0\t0.0\n",
+  "stderr": "",
+  "execution_time_ms": 261
+}

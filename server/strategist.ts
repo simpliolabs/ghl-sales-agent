@@ -17,6 +17,8 @@ import { invokeLLM } from "./_core/llm";
 import type { BrainCouncilInput, StrategyDecision, LeadContext } from "./brain-types";
 import { buildLearningContext, buildIcpLearningContext } from "./outcome-engine";
 import { getPromotedLearnings, getViolationAvoidanceRules } from "./learning-loop";
+import { getOutcomeTrends } from "./persona-learning";
+import { getActiveStrategyAdjustments } from "./strategy-autopilot";
 import { getStrategistStageBlock } from "./stage-playbook";
 import { getTrainingCorpus, getPersonaGuidance } from "../shared/sales-training";
 
@@ -464,6 +466,38 @@ async function getPromotedLearningsBlock(): Promise<string> {
   }
 }
 
+// Cache trends for 30 minutes (changes daily via snapshots)
+let _trendsCache: { text: string; expires: number } | null = null;
+
+async function getTrendsBlock(): Promise<string> {
+  if (_trendsCache && Date.now() < _trendsCache.expires) return _trendsCache.text;
+  try {
+    const trends = await getOutcomeTrends(7);
+    if (!trends.trends || trends.trends.length === 0) return '';
+    const alertTrends = trends.trends.filter(t => t.alert || t.direction === 'declining');
+    if (alertTrends.length === 0) {
+      // No alerts — just provide a brief summary
+      const replyTrend = trends.trends.find(t => t.metric === 'replyRate');
+      const convTrend = trends.trends.find(t => t.metric === 'conversionRate');
+      const text = `=== PERFORMANCE TRENDS (${trends.period}) ===\nReply rate: ${replyTrend?.current || 0}% (${replyTrend?.direction || 'stable'}). Conversion: ${convTrend?.current || 0}% (${convTrend?.direction || 'stable'}).\nAll metrics stable — continue current strategy.`;
+      _trendsCache = { text, expires: Date.now() + 30 * 60 * 1000 };
+      return text;
+    }
+    // Build alert block for declining metrics
+    const lines = [`=== \u26A0\uFE0F PERFORMANCE ALERTS (${trends.period}) ===`];
+    for (const t of alertTrends) {
+      lines.push(`- ${t.metric}: ${t.current} (was ${t.previous}, ${t.changePercent > 0 ? '+' : ''}${t.changePercent}% — ${t.direction})`);
+    }
+    lines.push('INSTRUCTION: Adapt your strategy to address declining metrics. If reply rate is declining, prefer higher-engagement frameworks (HORMOZI_ACA, CURIOSITY_HOOK). If DNC rate is rising, use softer approaches.');
+    const text = lines.join('\n');
+    _trendsCache = { text, expires: Date.now() + 30 * 60 * 1000 };
+    return text;
+  } catch (err) {
+    console.error('[Strategist] Failed to get trends block:', err);
+    return '';
+  }
+}
+
 export async function runStrategist(input: BrainCouncilInput, context: LeadContext): Promise<StrategyDecision> {
   const { lead, state, historyStr, isFirstResponse, leadAgeDays, urgencyStage, unansweredCount, lookbackContext, privateMemory } = context;
 
@@ -587,6 +621,8 @@ ${getStrategistStageBlock(lead.pipelineStage)}
 
 ${(context as any)._personaLearningBlock || ""}
 
+${await getTrendsBlock()}
+
 ${(() => {
   // Event-Driven Trigger context injection (Module 5A)
   try {
@@ -595,12 +631,14 @@ ${(() => {
   } catch { return ""; }
 })()}
 
+${await getActiveStrategyAdjustments()}
+
 ${(context as any).tweakInstructions ? `=== ADMIN BEHAVIOR ADJUSTMENTS (MANDATORY — override defaults) ===
 ${(context as any).tweakInstructions}
 ` : ""}
 STEP 1: Detect the awareness level from the incoming message and conversation history.
 STEP 2: Choose the approach that matches the awareness level.
-STEP 3: Choose the framework. FRAMEWORK DIVERSITY RULE: Recent outreach frameworks = [${context.recentOutreachFrameworks?.join(', ') || 'none yet'}]. If any framework appears 2+ times in that list, you MUST choose a DIFFERENT one. Available outreach frameworks: HORMOZI_ACA, PAS, BAB, AIDA, SOCIAL_PROOF, CASE_STUDY, SOAP_OPERA, CURIOSITY_HOOK, EMB_WINBACK, EMB_COLD, VALUE_FIRST. NOTE: HORMOZI_INDIRECT is BANNED — never use it. Pick the most contextually appropriate one that is NOT overused.
+STEP 3: Choose the framework. FRAMEWORK DIVERSITY RULE: Recent outreach frameworks = [${context.recentOutreachFrameworks?.join(', ') || 'none yet'}]. If any framework appears 2+ times in that list, you MUST choose a DIFFERENT one. Available outreach frameworks: HORMOZI_ACA, PAS, BAB, AIDA, CASE_STUDY, SOAP_OPERA, CURIOSITY_HOOK, EMB_WINBACK, EMB_COLD, VALUE_FIRST. BANNED FRAMEWORKS (never use): HORMOZI_INDIRECT, SOCIAL_PROOF. RESTRICTED: EMB_WINBACK is ONLY for past customers who previously purchased — never use it for cold leads. Pick the most contextually appropriate one that is NOT overused.
 STEP 4: Produce your strategic directive. PRIORITIZE frameworks and channels with proven higher reply rates from the learning data above (if available). If PERSONA-SPECIFIC LEARNING DATA is available above, use it to select the best-performing framework and channel for this persona.`;
 
   const response = await invokeLLM({
