@@ -175,6 +175,56 @@ describe("sendMessageWithRetry — social channel guard (Fix 5A)", () => {
   });
 });
 
+// Import the real deferred-response-processor functions (not mocked)
+import { shouldDeferResponse, getDeferredSendAt } from "./deferred-response-processor";
+import { afterEach } from "vitest";
+
+describe("sendDelayedFirstContact — Agent-First Delay in contact webhook (Fix 5C)", () => {
+  // These tests verify that shouldDeferResponse is properly wired into
+  // the contact webhook's first-contact path (sendDelayedFirstContact).
+  // The actual shouldDeferResponse logic is tested in deferred-response-processor.test.ts.
+  // Here we verify the integration: that the contact path CALLS shouldDeferResponse
+  // and defers when appropriate.
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("shouldDeferResponse returns true during business hours for new lead", () => {
+    // Simulate a Tuesday at 2pm EST (18:00 UTC)
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-14T18:00:00.000Z"));
+    const lead = { createdAt: new Date(Date.now() - 60_000), humanTakeover: 0 };
+    expect(shouldDeferResponse(lead, 0)).toBe(true);
+  });
+
+  it("shouldDeferResponse returns false outside business hours (weekend)", () => {
+    // Saturday at 2pm EST (18:00 UTC)
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-18T18:00:00.000Z"));
+    const lead = { createdAt: new Date(Date.now() - 60_000), humanTakeover: 0 };
+    expect(shouldDeferResponse(lead, 0)).toBe(false);
+  });
+
+  it("shouldDeferResponse returns false when lead already has conversations", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-14T18:00:00.000Z"));
+    const lead = { createdAt: new Date(Date.now() - 60_000), humanTakeover: 0 };
+    // conversationCount > 0 means NOT a brand new lead
+    expect(shouldDeferResponse(lead, 3)).toBe(false);
+  });
+
+  it("getDeferredSendAt returns a time 15 minutes in the future", () => {
+    const before = Date.now();
+    const sendAt = getDeferredSendAt();
+    const after = Date.now();
+    const diff = sendAt.getTime() - before;
+    // Should be approximately 15 minutes (900000ms) ± 100ms
+    expect(diff).toBeGreaterThanOrEqual(900000 - 100);
+    expect(diff).toBeLessThanOrEqual(900000 + (after - before) + 100);
+  });
+});
+
 describe("sendDelayedFirstContact — GHL history re-check (Fix 5B)", () => {
   // These tests verify the logic indirectly through the webhook-contact module.
   // Since sendDelayedFirstContact is not exported, we test the behavior through

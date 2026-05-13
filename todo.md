@@ -1361,3 +1361,4 @@
 - [x] Add social-channel guard: FB/IG/WhatsApp/Live_Chat sends no longer fall back to Email on missing_phone or carrier_block errors
 - [x] Add GHL history re-check in sendDelayedFirstContact to detect agent activity during 45s delay window
 - [x] Ensure live agent activity blocks AI sends (fresh GHL scan catches outbound messages not yet processed by webhook)
+- [x] Wire 15-minute Agent-First Delay into contact webhook first-contact path (was only in inbound-message path)

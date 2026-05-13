@@ -12,7 +12,7 @@
  */
 
 import { Response } from "express";
-import { upsertLead, updateLeadFields, getLeadById, getRecentAiOutboundCount, addConversation, upsertAiState, addAgentAssignment, getAgentWorkload, getConversationHistory, syncGhlDnd } from "./db";
+import { upsertLead, updateLeadFields, getLeadById, getRecentAiOutboundCount, addConversation, upsertAiState, addAgentAssignment, getAgentWorkload, getConversationHistory, syncGhlDnd, insertDeferredResponse, hasPendingDeferredResponse } from "./db";
 import { classifySegment } from "./ai-brain";
 import { researchLead } from "./lead-researcher";
 import { calculateNextFollowUp, checkRateLimits, checkLeadRateLimit, checkDnc } from "./scheduling-engine";
@@ -36,6 +36,7 @@ import {
 } from "./webhook-helpers";
 import { handleStageAutomation } from "./webhook-pipeline";
 import { runBrainCouncil } from "./brain-council-orchestrator";
+import { shouldDeferResponse, getDeferredSendAt } from "./deferred-response-processor";
 import { notifyOwner } from "./_core/notification";
 
 /** Delay before sending first-contact template (ms). Gives GHL time to index conversation data. */
@@ -631,6 +632,65 @@ async function sendDelayedFirstContact(
       console.log(`[Webhook] First-contact channel: detected=${channel}, brain=${brainResult.channel}, using=${brainChannel} (${isDetectedSocial ? 'detected social channel enforced' : 'brain override allowed'})`);
     }
 
+    // ================================================================
+    // AGENT-FIRST DELAY (15 minutes during business hours)
+    // During Mon-Fri 9am-5pm EST, new leads get a 15-minute window for
+    // the human agent to reach out first. The Brain Council has already
+    // run (appointment + task created), but the AI message is stored in
+    // deferred_responses instead of being sent immediately.
+    //
+    // This is the SAME deferral logic used in webhook-message.ts but
+    // applied to the contact webhook's first-contact path.
+    // ================================================================
+    if (shouldDeferResponse(lead, 0)) {
+      // Check if there's already a pending deferred response for this lead
+      const alreadyDeferred = await hasPendingDeferredResponse(leadId);
+      if (!alreadyDeferred) {
+        const sendAt = getDeferredSendAt();
+        const emailSubject = brainChannel === "Email"
+          ? (brainResult.subject || buildContextSubject({ name: lead.name, businessName: lead.businessName, formData: formFields }, fromName))
+          : undefined;
+        const emailHtml = brainChannel === "Email" ? formatEmailHtml(composedMessage) : undefined;
+
+        await insertDeferredResponse({
+          leadId,
+          ghlContactId: resolvedContactId,
+          channel: brainChannel,
+          messageBody: composedMessage,
+          emailSubject,
+          emailHtml,
+          fromName,
+          sendAt,
+          brainCouncilOutput: {
+            score: brainResult.score,
+            segment: brainResult.segment,
+            angle: brainResult.angle,
+            framework: brainResult.framework,
+            nextEngagementHours: brainResult.nextEngagementHours,
+          },
+        });
+
+        // Still update scheduling fields so the lead isn't "lost" in the system
+        const preservedChannel = channel;
+        await updateLeadFields(leadId, {
+          preferredChannel: preservedChannel,
+          lastOutboundChannel: brainChannel,
+        });
+
+        console.log(`[Webhook/AgentFirst] \u23F3 DEFERRED first-contact for NEW lead ${leadId} (${lead.name || "Unknown"}) \u2014 agent has 15min window until ${sendAt.toISOString()}. Channel=${brainChannel}`);
+
+        // Still update AI state so follow-up trigger knows Brain Council already ran
+        await upsertAiState(leadId, {
+          lastAngleUsed: brainResult.angle || "first_contact",
+          lastFrameworkUsed: brainResult.framework || "DIRECT_RESPONSE",
+          messageCount: 0, // Not sent yet — will be incremented when deferred processor sends
+        });
+
+        return; // Exit — deferred processor will handle the actual send
+      }
+    }
+
+    // --- IMMEDIATE SEND (outside business hours or deferral not applicable) ---
     const contextSubject = brainResult.subject || buildContextSubject({ name: lead.name, businessName: lead.businessName, formData: formFields }, fromName);
     const sendOpts = buildSendOpts(brainChannel, composedMessage, lead, {
       subject: contextSubject,
