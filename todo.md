@@ -1354,3 +1354,10 @@
 
 - [x] Fix Skill Catalog to dynamically show approved proposals (now 25: 6 built-in + 19 auto-learned)
 - [x] Update footer text: "Self-Learning Engine Active" with Monday schedule, auto-adopt, dynamic counts
+
+### Bug Fix: Double-Send / Wrong-Channel (Angel Gonzalez)
+- [x] Investigate why AI sent Email to a Facebook lead (should only send on FB or SMS, never Email for FB leads)
+- [x] Fix race condition: AI Email sent at 12:40 PM while live agent replied on FB at 12:41 PM — AI should have been blocked
+- [x] Add social-channel guard: FB/IG/WhatsApp/Live_Chat sends no longer fall back to Email on missing_phone or carrier_block errors
+- [x] Add GHL history re-check in sendDelayedFirstContact to detect agent activity during 45s delay window
+- [x] Ensure live agent activity blocks AI sends (fresh GHL scan catches outbound messages not yet processed by webhook)

@@ -53,3 +53,24 @@
 3. Redistribute across next 7-14 days, staggered 50-100/day
 4. Preserve relative ordering
 5. Admin tRPC endpoint to trigger manually
+
+
+## Fix 5: FB Lead → Wrong Email Bug (May 2026)
+
+### Root Cause
+Two issues combine:
+
+1. **`sendMessageWithRetry` cross-channel fallback**: When an FB send fails with `missing_phone`, 
+   the retry helper falls back to Email. This is wrong for social-channel leads.
+
+2. **Race condition in `sendDelayedFirstContact`**: The 45s delay isn't long enough for the human 
+   agent's outbound FB reply to be processed and set `humanTakeover=1`.
+
+### Fix (Two-Part)
+
+**Part A**: Block cross-channel fallback for social channels (FB/IG/WhatsApp) in `sendMessageWithRetry`.
+**Part B**: Add GHL conversation history re-check in `sendDelayedFirstContact` before sending.
+
+### Files Modified
+1. `server/webhook-helpers.ts` — `sendMessageWithRetry` (Part A)
+2. `server/webhook-contact.ts` — `sendDelayedFirstContact` (Part B)

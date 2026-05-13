@@ -276,7 +276,19 @@ export async function sendMessageWithRetry(
     }
 
     // ── MISSING PHONE: attempt email fallback if available ────────────────────
+    // GUARD: Do NOT fall back to Email when the original channel is a social channel
+    // (FB/IG/WhatsApp). These channels don't use phone numbers — a "missing phone"
+    // error means GHL can't route the message (conversation not linked), NOT that
+    // the lead should be contacted via Email instead. Falling back to Email for
+    // social-channel leads causes wrong-channel sends (e.g., emailing a FB lead
+    // who expects communication on Messenger).
     if (classified.type === "missing_phone") {
+      const SOCIAL_CHANNELS = ["FB", "IG", "WhatsApp", "Live_Chat"];
+      const isSocialChannel = SOCIAL_CHANNELS.includes(channel);
+      if (isSocialChannel) {
+        console.warn(`[SendRetry] Missing phone for lead ${lead.id} on SOCIAL channel ${channel} — NOT falling back to Email (social channels don't use phone). Send failed.`);
+        return { success: false, resolvedContactId: contactId, error: `Missing phone on social channel ${channel} — no fallback`, errorType: "missing_phone", correctionTaken: "social_channel_no_fallback" };
+      }
       if (lead.email) {
         console.log(`[SendRetry] Missing phone for lead ${lead.id} — attempting Email fallback`);
         try {
@@ -318,7 +330,15 @@ export async function sendMessageWithRetry(
     }
 
     // ── CARRIER BLOCK / 422: flag dndSms, attempt email fallback ──────────────
+    // GUARD: Do NOT fall back to Email for social channels on carrier block.
+    // Carrier blocks are an SMS/phone concept — if a social channel gets a 422,
+    // it's a GHL routing issue, not a carrier problem.
     if (classified.type === "carrier_block") {
+      const SOCIAL_CHANNELS_CB = ["FB", "IG", "WhatsApp", "Live_Chat"];
+      if (SOCIAL_CHANNELS_CB.includes(channel)) {
+        console.warn(`[SendRetry] Carrier block on SOCIAL channel ${channel} for lead ${lead.id} — NOT falling back to Email. Likely GHL routing issue.`);
+        return { success: false, resolvedContactId: contactId, error: `Carrier block on social channel ${channel} — no fallback`, errorType: "carrier_block", correctionTaken: "social_channel_no_fallback" };
+      }
       console.warn(`[SendRetry] Carrier block for lead ${lead.id} — flagging dndSms, attempting Email fallback`);
       try { await updateLeadFields(lead.id, { dndSms: 1 as any }); } catch { /* best effort */ }
       if (lead.email) {

@@ -276,6 +276,51 @@ async function sendDelayedFirstContact(
       }
     }
 
+    // --- FRESH GHL HISTORY CHECK (catches agent activity during the 45s delay) ---
+    // The humanTakeover DB flag may not be set yet because GHL's outbound webhook
+    // for the agent's reply hasn't been processed. Scan GHL conversation history
+    // directly to detect any outbound messages sent during the delay window.
+    try {
+      const freshGhlHistory = await fetchGhlConversationHistory(resolvedContactId);
+      if (freshGhlHistory.length > 0) {
+        const DELAY_WINDOW_MS = FIRST_CONTACT_DELAY_MS + 30_000; // 45s delay + 30s buffer
+        const now = Date.now();
+        // Find any outbound messages sent within the delay window that aren't system messages
+        const SYSTEM_PATTERNS_FC = [
+          "opportunity created", "opportunity moved", "created in stage", "moved to stage",
+          "workflow", "automation", "task created", "task completed",
+          "appointment", "booking confirmed", "note added", "pipeline",
+          "form submitted", "tag added", "tag removed",
+        ];
+        const recentAgentMsgs = freshGhlHistory.filter(m => {
+          if (m.direction !== "outbound" || !m.body?.trim() || !m.dateAdded) return false;
+          const msgAge = now - new Date(m.dateAdded).getTime();
+          if (msgAge > DELAY_WINDOW_MS) return false;
+          const body = m.body.toLowerCase().trim();
+          if (body.length < 10) return false;
+          if (SYSTEM_PATTERNS_FC.some(p => body.includes(p))) return false;
+          // Check for userId — messages with userId are from human agents
+          if (m.userId) return true;
+          // Even without userId, if it's a substantial outbound message during the delay,
+          // it's likely a human agent (our AI hasn't sent anything yet for this lead)
+          return true;
+        });
+
+        if (recentAgentMsgs.length > 0) {
+          const latestMsg = recentAgentMsgs.sort((a, b) =>
+            new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime()
+          )[0];
+          const minutesAgo = Math.round((now - new Date(latestMsg.dateAdded).getTime()) / 60000);
+          console.log(`[Webhook] \u{1F6D1} AGENT DETECTED during delay for lead ${leadId}: outbound message ${minutesAgo}min ago (userId=${latestMsg.userId || 'none'}): "${latestMsg.body.substring(0, 80)}". Setting humanTakeover=1 and SKIPPING first-contact.`);
+          await updateLeadFields(leadId, { humanTakeover: 1, lastAgentActivityAt: new Date(latestMsg.dateAdded) });
+          return;
+        }
+      }
+    } catch (ghlCheckErr) {
+      // Non-fatal — if we can't check GHL history, proceed with other guards
+      console.error(`[Webhook] GHL history re-check failed for lead ${leadId} (non-fatal):`, ghlCheckErr);
+    }
+
     // Rate limit checks
     const rateCheck = await checkRateLimits();
     if (!rateCheck.allowed) {
