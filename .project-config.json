@@ -1,0 +1,47 @@
+{
+  "build_command": "pnpm run build",
+  "capabilities": [
+    "db",
+    "server",
+    "user"
+  ],
+  "dev_command": "pnpm run dev",
+  "env_vars": {
+    "DATABASE_URL": "mysql://3aAiEZGvt2NNVee.8ab8154a3985:a7TwzpX4UA7k7p6rlo8l@gateway05.us-east-1.prod.aws.tidbcloud.com:4000/28AChv27iDSNmApuHCcaE5?ssl={\"rejectUnauthorized\":true}"
+  },
+  "experiments": [
+    "no_db_push"
+  ],
+  "git_remote": {
+    "repo_url": "s3://vida-prod-gitrepo/webdev-git/310519663494566154/28AChv27iDSNmApuHCcaE5",
+    "access_key_id": "ASIAZV3A2ECZC6B24VN3",
+    "secret_access_key": "RVKS43fK1ciXDK5XU7pRVRd9QxF885MY1T+VrDGW",
+    "session_token": "IQoJb3JpZ2luX2VjEJT//////////wEaCXVzLWVhc3QtMSJIMEYCIQDazTzEJNuq98bJ+qZkfBOsn6NUq/rjJkJrHUusVi0rcwIhALhkfLKzmOOk1QcOIOxqMBTL8/RcD2w8G0rjGl+SaRfSKvYDCFwQBBoMNjY1Mzg2MDk4ODY2IgwTkJ2DKk+wNNTSDP8q0wMo/1xM/jr+3q2dYGN8P75K6CXAxEN+eNbsH8rjFmpmxZurBr1GD+AkumUq5eNUXXvOD3XpmhWNwL1Y2DUIl1M+5cvYxwvukiReUcwh+3pdHIi5G/y59yUnFGu263DMW4mhcg7XEgqCT4XmWCcLiyT2lxILGuCuKmtuqFcwuMf+VkkbkNaIJiGYOlQdX+J/HV5gNoqfyjmnwi56L15ImQNqS+icBmqr6ukcRYVvi/T4Ibf1y4NriViNmqqIJ43SyUesvjMDHrE6JrU7S+ujjKgrsBJWdPPNZy6ukFap8wr+TxP4Ogt/HRgjNsyTUA/eQMAh6GJq8TT9HW1cKO840hBpTu1KuQfgp/wf11aYSzpQy5fw/9yEYx6aEtgs5rYD7JjlxzoaYZ1sG179aTd8xXve7vGk37ffDQsAzrSE/awDiVvyyI0iab/mvfOnBcftnqOdA7eZurnBFN7EAAgc9n9b4cjNdvm+t8s4LyT8y/08UFHShlmYWRWH+P4no1OAK5oCnwXfOIlDcvmHSQhWFkwa0/H/qQGih7vbqaxFkp5UKPAd+w2D8KFNOhOaAVN577jIS9d6XeM4N5DuySdXejEkSBZwJUrN2X0DeEc7prSrBNoAUTCH35bQBjqcAWuY9kGJ+6/i8nuAQW30tMaVEvEOeMj05o6DZbEFF5KLsWQ8TshOE/00zGtMS/mCq4odygprTmX2Yv1URDwcKjcwc9MpTwrE+pMd0NhsnoXqRt7AgS6rkq3zQt7gOdLQXP0+qDOmyvXe+dGoeml367o9af/1UvaHyx2mIhdiByrbM3c2f0OEC/1sBreb9ch9qNCPHmV+HlA1ICcoaw==",
+    "expiration": "2026-05-14T23:18:31.000Z"
+  },
+  "name": "adorb-outreach",
+  "path": "/home/ubuntu/adorb-outreach",
+  "port": 3000,
+  "secrets": {
+    "BUILT_IN_FORGE_API_KEY": "XbRFpd8XXyKHoUzn5J9o8J",
+    "BUILT_IN_FORGE_API_URL": "https://forge.manus.ai",
+    "GHL_API_KEY": "pit-1bf38880-6695-4845-980d-33e10016f900",
+    "GHL_LOCATION_ID": "L9D43jPdLtM19HQNSslG",
+    "JWT_SECRET": "cr76BhpkK5VPv3RXy9xK2M",
+    "OAUTH_SERVER_URL": "https://api.manus.im",
+    "OMNISEND_API_KEY": "68b8459eab4f8ff06d630a82-p7UObaQ2EuaW6qk282s39Qvg6TaWzOu4r4vBnrlYZ3vFpLlcWZ",
+    "OPENAI_API_KEY": "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",
+    "OWNER_NAME": "THE CEO",
+    "OWNER_OPEN_ID": "ndkSd5FaUw5k83SVWhumUg",
+    "VITE_ANALYTICS_ENDPOINT": "https://manus-analytics.com",
+    "VITE_ANALYTICS_WEBSITE_ID": "94c1e1fb-d400-4420-9271-9540365eab8d",
+    "VITE_APP_ID": "28AChv27iDSNmApuHCcaE5",
+    "VITE_APP_LOGO": "https://files.manuscdn.com/user_upload_by_module/web_dev_logo/310519663494566154/sCTOdftiIVyqYuhJ.png",
+    "VITE_APP_TITLE": "Adorb Outreach System",
+    "VITE_FRONTEND_FORGE_API_KEY": "gwausM6SiBg7jwVpbYw8C6",
+    "VITE_FRONTEND_FORGE_API_URL": "https://forge.manus.ai",
+    "VITE_OAUTH_PORTAL_URL": "https://manus.im"
+  },
+  "template_id": "web-db-user",
+  "test_command": "pnpm test"
+}

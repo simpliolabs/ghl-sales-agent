@@ -1388,3 +1388,8 @@
 - [x] Add open_rate as valid A/B experiment metric (alongside reply_rate, conversion_rate, positive_rate)
 - [x] Add subject line pattern learning to learning-loop.ts (classifySubjectPattern + analyzeSubjectLinePatterns)
 - [x] Auto-create subject line A/B experiments when enough data exists (via pattern analysis promotion)
+- [x] FIX: lost-lead-nurture.ts v3 — respects preferredChannel (SMS for 365+ day leads), TCPA quiet hours, business hours enforcement, shared send pipeline (buildSendOpts + sendMessageWithRetry), no more hardcoded Email
+- [x] FIX: lead-disposition.ts — 365+ day dormant lead guard prevents escalateToEmail from flipping aged imported contacts back to Email; adds createdAt to stale takeover query; permanent freeze path now checks phone first
+- [x] TESTS: lost-lead-nurture.test.ts v3 — 27 tests covering channel resolution, TCPA, shared send pipeline, Brain Council integration, NOT-INTERESTED detection, imported contact nurture
+- [x] TESTS: lead-disposition.test.ts — 35 tests including 7 new tests for 365+ day dormant lead guard, createdAt in query, phone-first permanent freeze path
+- [x] RESEARCH: ruflo repo (ruvnet/ruflo) — 50.5k star multi-agent orchestration framework. Assessment: overkill for our 4-agent fixed pipeline. No changes needed.

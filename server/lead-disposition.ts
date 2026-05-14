@@ -232,6 +232,7 @@ export async function runDispositionSweep(): Promise<DispositionStats> {
       dndSms: leads.dndSms,
       dndEmail: leads.dndEmail,
       preferredChannel: leads.preferredChannel,
+      createdAt: leads.createdAt,
     })
       .from(leads)
       .where(and(
@@ -298,9 +299,32 @@ export async function runDispositionSweep(): Promise<DispositionStats> {
 
       // Not DNC — check if email escalation is possible
       const hasEmail = candidate.email && candidate.email.trim() !== "";
+      const hasPhone = candidate.phone && candidate.phone.trim() !== "";
       const emailNotBlocked = !candidate.dndEmail;
+      const smsNotBlocked = !candidate.dndSms;
       const smsBlocked = !!candidate.dndSms;
       const alreadyOnEmail = candidate.preferredChannel === "EMAIL";
+
+      // ─── 365+ DAY DORMANT LEAD GUARD ──────────────────────────────────
+      // Leads older than 365 days are "aged imported contacts" — they respond
+      // better to SMS than email. Do NOT flip them to Email; instead release
+      // the takeover and keep their current preferredChannel (usually SMS).
+      const leadAgeMs = candidate.createdAt ? Date.now() - new Date(candidate.createdAt).getTime() : 0;
+      const isDormant365 = leadAgeMs > 365 * 24 * 60 * 60 * 1000;
+
+      if (isDormant365 && hasPhone && smsNotBlocked) {
+        // Release takeover but keep SMS — do NOT escalate to Email
+        const currentChannel = candidate.preferredChannel || "SMS";
+        await updateLeadFields(candidate.id, {
+          humanTakeover: 0,
+          preferredChannel: currentChannel === "EMAIL" ? "SMS" : currentChannel,
+          nextFollowUpAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
+        });
+        console.log(`[Disposition] Lead ${candidate.id} → 365+ day dormant lead — released takeover, KEEPING ${currentChannel === "EMAIL" ? "SMS" : currentChannel} (not flipping to Email)`);
+        stats.processed++;
+        stats.takeoverExpired++;
+        continue;
+      }
 
       if (hasEmail && emailNotBlocked && !alreadyOnEmail) {
         // Escalate to email — the lead has email and it's not blocked
@@ -317,12 +341,27 @@ export async function runDispositionSweep(): Promise<DispositionStats> {
       // No email available or email also blocked — release takeover and reschedule
       if (!candidate.lastAgentActivityAt) {
         // NULL lastAgentActivityAt with humanTakeover=1 — this is the permanent freeze bug
-        if (!hasEmail || !emailNotBlocked) {
+        // If lead has phone and SMS is not blocked, release on current channel
+        if (hasPhone && smsNotBlocked) {
+          const currentChannel = candidate.preferredChannel || "SMS";
+          await updateLeadFields(candidate.id, {
+            humanTakeover: 0,
+            preferredChannel: currentChannel,
+            nextFollowUpAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          });
+          stats.processed++;
+          stats.takeoverExpired++;
+        } else if (hasEmail && emailNotBlocked) {
+          // Has email — expire the takeover and let the AI try email
+          await updateLeadFields(candidate.id, { humanTakeover: 0, preferredChannel: "EMAIL", nextFollowUpAt: new Date(Date.now() + 24 * 60 * 60 * 1000) });
+          stats.processed++;
+          stats.takeoverExpired++;
+        } else {
           const success = await moveToNotQualified(
             candidate.id,
             candidate.ghlOpportunityId,
             candidate.ghlPipelineId,
-            "Permanently frozen (humanTakeover=1, no agent activity, no email available)"
+            "Permanently frozen (humanTakeover=1, no agent activity, no viable channel)"
           );
           stats.processed++;
           if (success) {
@@ -330,11 +369,6 @@ export async function runDispositionSweep(): Promise<DispositionStats> {
           } else {
             stats.errors++;
           }
-        } else {
-          // Has email — expire the takeover and let the AI try email
-          await updateLeadFields(candidate.id, { humanTakeover: 0, preferredChannel: "EMAIL", nextFollowUpAt: new Date(Date.now() + 24 * 60 * 60 * 1000) });
-          stats.processed++;
-          stats.takeoverExpired++;
         }
       } else {
         // HAS lastAgentActivityAt but it's >24hr old — agent went silent
