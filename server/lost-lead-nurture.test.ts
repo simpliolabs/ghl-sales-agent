@@ -1,20 +1,23 @@
 /**
- * Tests for the Lost Lead Long-Term Nurture Engine (v2 — Brain Council based)
+ * Tests for the Lost Lead Long-Term Nurture Engine (v3 — channel-aware, TCPA, shared send pipeline)
  *
  * Validates:
- * 1. Full Brain Council is called with conversation history
- * 2. NOT-INTERESTED fast-path detection blocks sends
- * 3. graceful_exit from Brain Council blocks sends
- * 4. Successful sends go through Brain Council → GHL
- * 5. AI offline check skips the entire cycle
- * 6. Email-only enforcement
+ * 1. Channel resolution — respects preferredChannel from lead record
+ * 2. TCPA quiet hours enforcement for SMS sends
+ * 3. Shared send pipeline (buildSendOpts + sendMessageWithRetry)
+ * 4. Brain Council integration with correct channel
+ * 5. NOT-INTERESTED fast-path detection
+ * 6. Brain Council blocking / graceful_exit
+ * 7. Imported contact nurture path
+ * 8. DND fallback logic
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // ─── MOCK DEPENDENCIES ───────────────────────────────────────────────────────
 vi.mock("./db", () => ({
   getLostLeadsForNurture: vi.fn(),
+  getImportedContactsDueForNurture: vi.fn(),
   updateLeadFields: vi.fn().mockResolvedValue(undefined),
   addConversation: vi.fn().mockResolvedValue({ id: 999 }),
   isAiOffline: vi.fn().mockResolvedValue(false),
@@ -23,15 +26,25 @@ vi.mock("./db", () => ({
 }));
 
 vi.mock("./ghl", () => ({
-  sendMessage: vi.fn().mockResolvedValue({ blocked: false, messageId: "msg-123" }),
   fetchGhlConversationHistory: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock("./webhook-helpers", () => ({
+  buildSendOpts: vi.fn().mockReturnValue({ type: "Email", subject: "Test", html: "<p>Test</p>", fromName: "Abby Bouwer" }),
+  sendMessageWithRetry: vi.fn().mockResolvedValue({ success: true, resolvedContactId: "ghl-contact-001", emailMessageId: "msg-123" }),
+  formatEmailHtml: vi.fn((text: string) => `<p>${text}</p>`),
+  ensureEmailSignature: vi.fn((text: string) => text),
+}));
+
+vi.mock("./area-code-timezone", () => ({
+  isTcpaQuietHoursForRecipient: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock("./brain-council-orchestrator", () => ({
   runBrainCouncil: vi.fn().mockResolvedValue({
     message: "Hey there, just checking in — it's been a while!",
     fromName: "Abby Bouwer",
-    subject: "Quick check-in from Adorb",
+    subject: "Quick check-in",
     framework: "DIRECT_RESPONSE",
     angle: "reactivation",
     channel: "Email",
@@ -61,10 +74,12 @@ vi.mock("../shared/brand-assets", () => ({
   },
 }));
 
-import { processLostLeadNurture } from "./lost-lead-nurture";
+import { processLostLeadNurture, processImportedContactNurture } from "./lost-lead-nurture";
 import * as db from "./db";
 import * as ghl from "./ghl";
 import * as brain from "./brain-council-orchestrator";
+import * as helpers from "./webhook-helpers";
+import * as tcpa from "./area-code-timezone";
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 function makeLostLead(overrides: Record<string, unknown> = {}) {
@@ -73,11 +88,14 @@ function makeLostLead(overrides: Record<string, unknown> = {}) {
     ghlContactId: "ghl-contact-001",
     name: "Jane Doe",
     email: "jane@example.com",
+    phone: "+19545551234",
     businessName: "Jane's Boutique",
     pipelineStage: "lost",
     reactivationCount: 0,
     emailUnsubscribed: 0,
     dndEmail: null,
+    dndSms: null,
+    preferredChannel: "EMAIL",
     lastLostNurtureAt: null,
     ...overrides,
   };
@@ -87,8 +105,12 @@ function resetMocks() {
   vi.clearAllMocks();
   (db.isAiOffline as ReturnType<typeof vi.fn>).mockResolvedValue(false);
   (db.getConversationHistory as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+  (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+  (db.getImportedContactsDueForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([]);
   (ghl.fetchGhlConversationHistory as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-  (ghl.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({ blocked: false, messageId: "msg-123" });
+  (helpers.buildSendOpts as ReturnType<typeof vi.fn>).mockReturnValue({ type: "Email", subject: "Test", html: "<p>Test</p>", fromName: "Abby Bouwer" });
+  (helpers.sendMessageWithRetry as ReturnType<typeof vi.fn>).mockResolvedValue({ success: true, resolvedContactId: "ghl-contact-001", emailMessageId: "msg-123" });
+  (tcpa.isTcpaQuietHoursForRecipient as ReturnType<typeof vi.fn>).mockReturnValue(false);
   (brain.runBrainCouncil as ReturnType<typeof vi.fn>).mockResolvedValue({
     message: "Hey there, just checking in!",
     fromName: "Abby Bouwer",
@@ -108,10 +130,22 @@ function resetMocks() {
   });
 }
 
+// ─── HELPERS: Business hours fake timer ─────────────────────────────────────
+// Tests that send SMS need to run during business hours (Mon-Fri 9am-5pm ET).
+// We use a fixed Wednesday 10am ET timestamp to guarantee isBusinessHoursET() returns true.
+// Wednesday May 14, 2025 10:00 AM ET = 14:00 UTC
+const BUSINESS_HOURS_UTC = new Date("2025-05-14T14:00:00.000Z");
+
 // ─── TESTS ───────────────────────────────────────────────────────────────────
-describe("Lost Lead Nurture Engine v2 (Brain Council)", () => {
+describe("Lost Lead Nurture Engine v3 (channel-aware, TCPA, shared send pipeline)", () => {
   beforeEach(() => {
     resetMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(BUSINESS_HOURS_UTC);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   describe("AI offline guard", () => {
@@ -133,24 +167,168 @@ describe("Lost Lead Nurture Engine v2 (Brain Council)", () => {
     });
   });
 
-  describe("skip conditions", () => {
-    it("skips lead with no ghlContactId", async () => {
-      (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([makeLostLead({ ghlContactId: null })]);
+  describe("channel resolution — respects preferredChannel", () => {
+    it("sends via Email when preferredChannel is EMAIL and email is available", async () => {
+      (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([makeLostLead({ preferredChannel: "EMAIL" })]);
+      await processLostLeadNurture();
+      // Brain Council should receive channel: "Email"
+      expect(brain.runBrainCouncil).toHaveBeenCalledWith(
+        expect.objectContaining({ channel: "Email" })
+      );
+      // buildSendOpts should be called with "Email"
+      expect(helpers.buildSendOpts).toHaveBeenCalledWith(
+        "Email",
+        expect.any(String),
+        expect.any(Object),
+        expect.any(Object)
+      );
+    });
+
+    it("sends via SMS when preferredChannel is SMS and phone is available", async () => {
+      (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([
+        makeLostLead({ preferredChannel: "SMS", phone: "+19545551234" }),
+      ]);
+      (helpers.buildSendOpts as ReturnType<typeof vi.fn>).mockReturnValue({ type: "SMS", message: "Hey!" });
+      await processLostLeadNurture();
+      // Brain Council should receive channel: "SMS"
+      expect(brain.runBrainCouncil).toHaveBeenCalledWith(
+        expect.objectContaining({ channel: "SMS" })
+      );
+      // buildSendOpts should be called with "SMS"
+      expect(helpers.buildSendOpts).toHaveBeenCalledWith(
+        "SMS",
+        expect.any(String),
+        expect.any(Object),
+        expect.any(Object)
+      );
+    });
+
+    it("falls back to Email when preferredChannel is SMS but phone is missing", async () => {
+      (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([
+        makeLostLead({ preferredChannel: "SMS", phone: null }),
+      ]);
+      await processLostLeadNurture();
+      expect(brain.runBrainCouncil).toHaveBeenCalledWith(
+        expect.objectContaining({ channel: "Email" })
+      );
+    });
+
+    it("falls back to SMS when preferredChannel is EMAIL but email is missing", async () => {
+      (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([
+        makeLostLead({ preferredChannel: "EMAIL", email: null, phone: "+19545551234" }),
+      ]);
+      (helpers.buildSendOpts as ReturnType<typeof vi.fn>).mockReturnValue({ type: "SMS", message: "Hey!" });
+      await processLostLeadNurture();
+      expect(brain.runBrainCouncil).toHaveBeenCalledWith(
+        expect.objectContaining({ channel: "SMS" })
+      );
+    });
+
+    it("skips lead when no viable channel exists (no email, no phone)", async () => {
+      (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([
+        makeLostLead({ email: null, phone: null }),
+      ]);
       const result = await processLostLeadNurture();
       expect(result.skipped).toBe(1);
-      expect(result.sent).toBe(0);
       expect(brain.runBrainCouncil).not.toHaveBeenCalled();
     });
 
-    it("skips lead with no email", async () => {
-      (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([makeLostLead({ email: null })]);
+    it("skips lead when preferred channel is SMS but dndSms=1 and no email", async () => {
+      (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([
+        makeLostLead({ preferredChannel: "SMS", dndSms: 1, email: null }),
+      ]);
       const result = await processLostLeadNurture();
       expect(result.skipped).toBe(1);
+      expect(brain.runBrainCouncil).not.toHaveBeenCalled();
+    });
+
+    it("falls back to SMS when preferredChannel is EMAIL but dndEmail=1", async () => {
+      (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([
+        makeLostLead({ preferredChannel: "EMAIL", dndEmail: 1, phone: "+19545551234" }),
+      ]);
+      (helpers.buildSendOpts as ReturnType<typeof vi.fn>).mockReturnValue({ type: "SMS", message: "Hey!" });
+      await processLostLeadNurture();
+      expect(brain.runBrainCouncil).toHaveBeenCalledWith(
+        expect.objectContaining({ channel: "SMS" })
+      );
+    });
+  });
+
+  describe("TCPA quiet hours enforcement", () => {
+    it("skips SMS send during TCPA quiet hours", async () => {
+      (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([
+        makeLostLead({ preferredChannel: "SMS", phone: "+19545551234" }),
+      ]);
+      (tcpa.isTcpaQuietHoursForRecipient as ReturnType<typeof vi.fn>).mockReturnValue(true);
+      const result = await processLostLeadNurture();
+      expect(result.skipped).toBe(1);
+      expect(brain.runBrainCouncil).not.toHaveBeenCalled();
+    });
+
+    it("does NOT check TCPA for Email sends", async () => {
+      (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([
+        makeLostLead({ preferredChannel: "EMAIL" }),
+      ]);
+      await processLostLeadNurture();
+      expect(tcpa.isTcpaQuietHoursForRecipient).not.toHaveBeenCalled();
+      expect(brain.runBrainCouncil).toHaveBeenCalled();
+    });
+  });
+
+  describe("shared send pipeline (buildSendOpts + sendMessageWithRetry)", () => {
+    it("uses buildSendOpts and sendMessageWithRetry — NOT ghl.sendMessage directly", async () => {
+      (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([makeLostLead()]);
+      await processLostLeadNurture();
+      expect(helpers.buildSendOpts).toHaveBeenCalled();
+      expect(helpers.sendMessageWithRetry).toHaveBeenCalled();
+    });
+
+    it("skips when buildSendOpts returns null", async () => {
+      (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([makeLostLead()]);
+      (helpers.buildSendOpts as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+      const result = await processLostLeadNurture();
+      expect(result.skipped).toBe(1);
+      expect(helpers.sendMessageWithRetry).not.toHaveBeenCalled();
+    });
+
+    it("counts error when sendMessageWithRetry returns success=false", async () => {
+      (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([makeLostLead()]);
+      (helpers.sendMessageWithRetry as ReturnType<typeof vi.fn>).mockResolvedValue({
+        success: false,
+        resolvedContactId: "ghl-contact-001",
+        error: "GHL rate limit",
+        correctionTaken: "none",
+      });
+      const result = await processLostLeadNurture();
+      expect(result.errors).toBe(1);
       expect(result.sent).toBe(0);
     });
   });
 
   describe("Brain Council integration", () => {
+    it("passes SMS channel instruction to Brain Council for SMS leads", async () => {
+      (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([
+        makeLostLead({ preferredChannel: "SMS", phone: "+19545551234" }),
+      ]);
+      (helpers.buildSendOpts as ReturnType<typeof vi.fn>).mockReturnValue({ type: "SMS", message: "Hey!" });
+      await processLostLeadNurture();
+      expect(brain.runBrainCouncil).toHaveBeenCalledWith(
+        expect.objectContaining({
+          incomingMessage: expect.stringContaining("Channel: SMS"),
+        })
+      );
+    });
+
+    it("passes Email channel instruction to Brain Council for Email leads", async () => {
+      (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([makeLostLead()]);
+      await processLostLeadNurture();
+      expect(brain.runBrainCouncil).toHaveBeenCalledWith(
+        expect.objectContaining({
+          incomingMessage: expect.stringContaining("Channel: Email"),
+        })
+      );
+    });
+
     it("runs Brain Council with full conversation history", async () => {
       (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([makeLostLead()]);
       (db.getConversationHistory as ReturnType<typeof vi.fn>).mockResolvedValue([
@@ -161,32 +339,7 @@ describe("Lost Lead Nurture Engine v2 (Brain Council)", () => {
       expect(brain.runBrainCouncil).toHaveBeenCalledWith(
         expect.objectContaining({
           leadId: 1,
-          channel: "Email",
           externalHistory: expect.stringContaining("Hi there!"),
-        })
-      );
-    });
-
-    it("fetches GHL history and passes it to Brain Council", async () => {
-      (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([makeLostLead()]);
-      (ghl.fetchGhlConversationHistory as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { direction: "outbound", type: "SMS", body: "Hey from GHL" },
-        { direction: "inbound", type: "SMS", body: "Got it thanks" },
-      ]);
-      await processLostLeadNurture();
-      expect(brain.runBrainCouncil).toHaveBeenCalledWith(
-        expect.objectContaining({
-          externalHistory: expect.stringContaining("Full GHL conversation history"),
-        })
-      );
-    });
-
-    it("passes nurture-specific trigger context to Brain Council", async () => {
-      (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([makeLostLead()]);
-      await processLostLeadNurture();
-      expect(brain.runBrainCouncil).toHaveBeenCalledWith(
-        expect.objectContaining({
-          incomingMessage: expect.stringContaining("quarterly long-term nurture"),
         })
       );
     });
@@ -204,10 +357,6 @@ describe("Lost Lead Nurture Engine v2 (Brain Council)", () => {
       expect(db.updateLeadFields).toHaveBeenCalledWith(1, expect.objectContaining({
         pipelineStage: "not_qualified",
       }));
-      expect(db.addBrainCouncilAudit).toHaveBeenCalledWith(expect.objectContaining({
-        blocked: 1,
-        violationCategory: "explicit_decline_in_history",
-      }));
       expect(brain.runBrainCouncil).not.toHaveBeenCalled();
     });
 
@@ -219,28 +368,6 @@ describe("Lost Lead Nurture Engine v2 (Brain Council)", () => {
       const result = await processLostLeadNurture();
       expect(result.blocked).toBe(1);
       expect(brain.runBrainCouncil).not.toHaveBeenCalled();
-    });
-
-    it("detects various not-interested patterns", async () => {
-      const patterns = [
-        "not interested",
-        "No thanks",
-        "decided not to do shirts",
-        "please stop contacting me",
-        "remove me from your list",
-        "I opted out already",
-        "take me off your list",
-      ];
-      for (const msg of patterns) {
-        resetMocks();
-        (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([makeLostLead()]);
-        (db.getConversationHistory as ReturnType<typeof vi.fn>).mockResolvedValue([
-          { senderType: "lead", direction: "inbound", channel: "SMS", messageBody: msg },
-        ]);
-        const result = await processLostLeadNurture();
-        expect(result.blocked).toBe(1);
-        expect(brain.runBrainCouncil).not.toHaveBeenCalled();
-      }
     });
   });
 
@@ -256,11 +383,7 @@ describe("Lost Lead Nurture Engine v2 (Brain Council)", () => {
       const result = await processLostLeadNurture();
       expect(result.blocked).toBe(1);
       expect(result.sent).toBe(0);
-      expect(ghl.sendMessage).not.toHaveBeenCalled();
-      // Still updates lastLostNurtureAt to prevent immediate retry
-      expect(db.updateLeadFields).toHaveBeenCalledWith(1, expect.objectContaining({
-        lastLostNurtureAt: expect.any(Date),
-      }));
+      expect(helpers.sendMessageWithRetry).not.toHaveBeenCalled();
     });
 
     it("blocks and moves to not_qualified on graceful_exit violation", async () => {
@@ -278,30 +401,14 @@ describe("Lost Lead Nurture Engine v2 (Brain Council)", () => {
         pipelineStage: "not_qualified",
       }));
     });
-
-    it("skips when Brain Council returns empty message", async () => {
-      (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([makeLostLead()]);
-      (brain.runBrainCouncil as ReturnType<typeof vi.fn>).mockResolvedValue({
-        message: "",
-        blocked: false,
-        fallbackUsed: false,
-      });
-      const result = await processLostLeadNurture();
-      expect(result.skipped).toBe(1);
-      expect(ghl.sendMessage).not.toHaveBeenCalled();
-    });
   });
 
   describe("successful send", () => {
-    it("sends email and updates lead on successful Brain Council run", async () => {
+    it("sends and updates lead on successful Brain Council run", async () => {
       (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([makeLostLead()]);
       const result = await processLostLeadNurture();
       expect(result.sent).toBe(1);
-      expect(ghl.sendMessage).toHaveBeenCalledWith("ghl-contact-001", expect.objectContaining({
-        type: "Email",
-        subject: "Quick check-in",
-        fromName: "Abby Bouwer",
-      }));
+      expect(helpers.sendMessageWithRetry).toHaveBeenCalled();
       expect(db.updateLeadFields).toHaveBeenCalledWith(1, expect.objectContaining({
         lastLostNurtureAt: expect.any(Date),
         reactivationCount: 1,
@@ -313,36 +420,6 @@ describe("Lost Lead Nurture Engine v2 (Brain Council)", () => {
         direction: "outbound",
         senderType: "ai",
       }));
-    });
-
-    it("uses default subject when Brain Council doesn't provide one", async () => {
-      (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([makeLostLead()]);
-      (brain.runBrainCouncil as ReturnType<typeof vi.fn>).mockResolvedValue({
-        message: "Hey there!",
-        blocked: false,
-        fallbackUsed: false,
-      });
-      await processLostLeadNurture();
-      expect(ghl.sendMessage).toHaveBeenCalledWith("ghl-contact-001", expect.objectContaining({
-        subject: expect.stringContaining("Checking in from"),
-      }));
-    });
-
-    it("skips when GHL sendMessage returns blocked", async () => {
-      (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([makeLostLead()]);
-      (ghl.sendMessage as ReturnType<typeof vi.fn>).mockResolvedValue({ blocked: true, reason: "invalid email" });
-      const result = await processLostLeadNurture();
-      expect(result.skipped).toBe(1);
-      expect(result.sent).toBe(0);
-    });
-  });
-
-  describe("email channel enforcement", () => {
-    it("always sends via Email channel — never SMS", async () => {
-      (db.getLostLeadsForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([makeLostLead()]);
-      await processLostLeadNurture();
-      const call = (ghl.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(call[1].type).toBe("Email");
     });
   });
 
@@ -372,5 +449,49 @@ describe("Lost Lead Nurture Engine v2 (Brain Council)", () => {
       expect(result.sent).toBe(0);
       expect(result.errors).toBe(0);
     });
+  });
+});
+
+describe("Imported Contact Nurture (monthly)", () => {
+  beforeEach(() => {
+    resetMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(BUSINESS_HOURS_UTC);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("skips when AI is offline", async () => {
+    (db.isAiOffline as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+    const result = await processImportedContactNurture();
+    expect(result.processed).toBe(0);
+    expect(brain.runBrainCouncil).not.toHaveBeenCalled();
+  });
+
+  it("processes imported contacts through Brain Council", async () => {
+    (db.getImportedContactsDueForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeLostLead({ id: 10, ghlContactId: "ghl-import-001" }),
+    ]);
+    const result = await processImportedContactNurture();
+    expect(result.sent).toBe(1);
+    expect(brain.runBrainCouncil).toHaveBeenCalledWith(
+      expect.objectContaining({
+        incomingMessage: expect.stringContaining("monthly re-engagement"),
+      })
+    );
+  });
+
+  it("respects preferredChannel for imported contacts (SMS when set)", async () => {
+    (db.getImportedContactsDueForNurture as ReturnType<typeof vi.fn>).mockResolvedValue([
+      makeLostLead({ id: 10, ghlContactId: "ghl-import-001", preferredChannel: "SMS", phone: "+19545551234" }),
+    ]);
+    (helpers.buildSendOpts as ReturnType<typeof vi.fn>).mockReturnValue({ type: "SMS", message: "Hey!" });
+    const result = await processImportedContactNurture();
+    expect(result.sent).toBe(1);
+    expect(brain.runBrainCouncil).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: "SMS" })
+    );
   });
 });

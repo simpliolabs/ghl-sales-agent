@@ -139,6 +139,59 @@ describe("Email Escalation Logic", () => {
   });
 });
 
+describe("365+ Day Dormant Lead Guard (v3)", () => {
+  it("lead-disposition.ts includes createdAt in stale takeover query", () => {
+    const src = readFile("lead-disposition.ts");
+    // The stale takeover query must select createdAt to calculate lead age
+    expect(src).toContain("createdAt: leads.createdAt");
+  });
+
+  it("lead-disposition.ts has 365+ day dormant lead guard before email escalation", () => {
+    const src = readFile("lead-disposition.ts");
+    expect(src).toContain("365+ DAY DORMANT LEAD GUARD");
+    expect(src).toContain("isDormant365");
+    // Guard must come BEFORE the email escalation check
+    const guardIdx = src.indexOf("isDormant365");
+    const emailEscIdx = src.indexOf("Escalate to email");
+    expect(guardIdx).toBeLessThan(emailEscIdx);
+  });
+
+  it("lead-disposition.ts does NOT flip 365+ day leads to Email when they have phone+SMS", () => {
+    const src = readFile("lead-disposition.ts");
+    // When isDormant365 && hasPhone && smsNotBlocked → keep current channel, do NOT call escalateToEmail
+    expect(src).toContain('not flipping to Email');
+    // The guard should set preferredChannel to current (not "EMAIL")
+    expect(src).toContain('currentChannel === "EMAIL" ? "SMS" : currentChannel');
+  });
+
+  it("lead-disposition.ts releases humanTakeover for 365+ day dormant leads", () => {
+    const src = readFile("lead-disposition.ts");
+    // The guard should release humanTakeover (set to 0)
+    const guardSection = src.split("365+ DAY DORMANT LEAD GUARD")[1]?.split("continue;")[0] || "";
+    expect(guardSection).toContain("humanTakeover: 0");
+  });
+
+  it("lead-disposition.ts schedules follow-up for 365+ day dormant leads", () => {
+    const src = readFile("lead-disposition.ts");
+    // The guard should schedule a follow-up (2hr from now)
+    const guardSection = src.split("365+ DAY DORMANT LEAD GUARD")[1]?.split("continue;")[0] || "";
+    expect(guardSection).toContain("nextFollowUpAt");
+  });
+
+  it("lead-disposition.ts still escalates to Email for NON-dormant leads", () => {
+    const src = readFile("lead-disposition.ts");
+    // After the 365+ day guard, the normal email escalation path should still exist
+    expect(src).toContain("escalateToEmail(candidate.id, reason)");
+  });
+
+  it("lead-disposition.ts permanent freeze path now checks phone first", () => {
+    const src = readFile("lead-disposition.ts");
+    // The permanent freeze section should check hasPhone && smsNotBlocked before Email
+    const freezeSection = src.split("permanent freeze bug")[1]?.split("} else {")[0] || "";
+    expect(freezeSection).toContain("hasPhone && smsNotBlocked");
+  });
+});
+
 describe("Stale Takeover Expiry", () => {
   it("lead-disposition.ts handles NULL lastAgentActivityAt as permanent freeze", () => {
     const src = readFile("lead-disposition.ts");
@@ -153,23 +206,26 @@ describe("Stale Takeover Expiry", () => {
 
   it("lead-disposition.ts stale takeover query does NOT have 3-day age filter (removed to fix lead #690005)", () => {
     const src = readFile("lead-disposition.ts");
-    // The 3-day filter was removed from the stale takeover query specifically
-    // (DNC query still has it, which is correct — DNC decisions need more history)
     expect(src).toContain("Removed 3-day age filter");
-    // The stale takeover WHERE clause should NOT have INTERVAL 3 DAY
-    // Find the stale takeover section and verify
-    const staleTakeoverSection = src.split("Pass 2: Stale humanTakeover")[1] || src.split("humanTakeover, 1")[1] || "";
-    // The comment about removal should be present
     expect(src).toContain("24hr agent inactivity window is sufficient");
   });
 
   it("lead-disposition.ts handles agent-silent leads with >24hr stale takeover", () => {
     const src = readFile("lead-disposition.ts");
-    // When agent was on FB/IG, AI should try email/SMS as support role
     expect(src).toContain("agent went silent");
     expect(src).toContain("Released stale takeover");
-    // Should reschedule for near-future (2hr)
     expect(src).toContain("2 * 60 * 60 * 1000");
+  });
+
+  it("lead-disposition.ts permanent freeze path prioritizes phone over email", () => {
+    const src = readFile("lead-disposition.ts");
+    // The permanent freeze section should check hasPhone && smsNotBlocked FIRST
+    const freezeSection = src.split("permanent freeze bug")[1] || "";
+    const phoneIdx = freezeSection.indexOf("hasPhone && smsNotBlocked");
+    const emailIdx = freezeSection.indexOf("hasEmail && emailNotBlocked");
+    expect(phoneIdx).toBeGreaterThan(-1);
+    expect(emailIdx).toBeGreaterThan(-1);
+    expect(phoneIdx).toBeLessThan(emailIdx);
   });
 });
 
