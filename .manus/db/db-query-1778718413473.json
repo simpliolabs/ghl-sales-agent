@@ -1,0 +1,18 @@
+{
+  "query": "SELECT \n  CASE WHEN phone IS NOT NULL AND phone != '' THEN 'has_phone' ELSE 'no_phone' END AS phone_status,\n  COUNT(*) AS total\nFROM leads \nWHERE DATEDIFF(NOW(), createdAt) >= 365\n  AND preferredChannel = 'Email'\n  AND (opportunityStatus IS NULL OR opportunityStatus NOT IN ('won', 'lost', 'abandoned'))\n  AND humanTakeover = 0\nGROUP BY CASE WHEN phone IS NOT NULL AND phone != '' THEN 'has_phone' ELSE 'no_phone' END;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT \n  CASE WHEN phone IS NOT NULL AND phone != '' THEN 'has_phone' ELSE 'no_phone' END AS phone_status,\n  COUNT(*) AS total\nFROM leads \nWHERE DATEDIFF(NOW(), createdAt) >= 365\n  AND preferredChannel = 'Email'\n  AND (opportunityStatus IS NULL OR opportunityStatus NOT IN ('won', 'lost', 'abandoned'))\n  AND humanTakeover = 0\nGROUP BY CASE WHEN phone IS NOT NULL AND phone != '' THEN 'has_phone' ELSE 'no_phone' END;",
+  "rows": [
+    {
+      "phone_status": "no_phone",
+      "total": "74"
+    },
+    {
+      "phone_status": "has_phone",
+      "total": "2142"
+    }
+  ],
+  "messages": [],
+  "stdout": "phone_status\ttotal\nno_phone\t74\nhas_phone\t2142\n",
+  "stderr": "",
+  "execution_time_ms": 278
+}

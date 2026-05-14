@@ -1375,3 +1375,7 @@
 - [x] Update brain-council-orchestrator: 61-364d → Email, 365+ → SMS override
 - [x] Update QC: allow SMS for 365+ day leads (no longer flagged as channel_mismatch)
 - [x] Update lookback engine prompt and post-analysis override for 365+ day SMS
+- [x] Audit 365+ day leads with Email as preferred channel and flip to SMS (2,070 flipped, 74 no-phone kept, 72 DND-SMS kept)
+- [x] Verify SMS sends are gated to business hours — was hardcoded to ET only
+- [x] Implement recipient-timezone-aware TCPA quiet hours using phone area code → timezone lookup
+- [x] Wire recipient-TZ TCPA checks into follow-up-trigger.ts (2 gates) and webhook-message.ts (2 gates)

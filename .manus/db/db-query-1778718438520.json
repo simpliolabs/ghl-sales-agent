@@ -1,0 +1,31 @@
+{
+  "query": "SELECT DISTINCT dndSms FROM leads WHERE dndSms IS NOT NULL LIMIT 20;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT DISTINCT dndSms FROM leads WHERE dndSms IS NOT NULL LIMIT 20;",
+  "rows": [
+    {
+      "dndSms": "active/104"
+    },
+    {
+      "dndSms": "1"
+    },
+    {
+      "dndSms": "active/TWILIO_ERROR_CODE: 30006"
+    },
+    {
+      "dndSms": "active/TWILIO_ERROR_CODE: 30003"
+    },
+    {
+      "dndSms": "active/103"
+    },
+    {
+      "dndSms": "permanent/STOP_KEYWORD"
+    },
+    {
+      "dndSms": "active/TWILIO_ERROR_CODE: 30005"
+    }
+  ],
+  "messages": [],
+  "stdout": "dndSms\nactive/104\n1\nactive/TWILIO_ERROR_CODE: 30006\nactive/TWILIO_ERROR_CODE: 30003\nactive/103\npermanent/STOP_KEYWORD\nactive/TWILIO_ERROR_CODE: 30005\n",
+  "stderr": "",
+  "execution_time_ms": 273
+}

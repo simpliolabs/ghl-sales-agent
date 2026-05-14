@@ -690,11 +690,12 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   }
 
   // --- TCPA QUIET HOURS GATE (inbound SMS response) ---
+  const { isTcpaQuietHoursForRecipient, nextTcpaWindowForRecipient } = await import("./area-code-timezone");
   const { isSmsQuietHours, nextSmsWindowStart } = await import("./scheduling-engine");
-  if (isSmsQuietHours() && channel === "SMS" && !lead!.email) {
-    // SMS-only lead during quiet hours — defer, don't respond
-    console.log(`[Webhook] ⚠️ TCPA quiet hours — deferring SMS response for lead ${lead!.id}`);
-    await updateLeadFields(lead!.id, { nextFollowUpAt: nextSmsWindowStart() });
+  if (isTcpaQuietHoursForRecipient(lead!.phone) && channel === "SMS" && !lead!.email) {
+    // SMS-only lead during quiet hours in their timezone — defer, don't respond
+    console.log(`[Webhook] ⚠️ TCPA quiet hours (recipient TZ) — deferring SMS response for lead ${lead!.id}`);
+    await updateLeadFields(lead!.id, { nextFollowUpAt: nextTcpaWindowForRecipient(lead!.phone) });
     res.json({ success: true, action: "tcpa_deferred", leadId: lead!.id });
     return;
   }
@@ -816,16 +817,16 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   //   2. Conversation state machine (processInboundState) → action-dispatcher (handleCommitted)
   //   3. Brain Council's Strategist (which knows when to escalate)
 
-  // --- TCPA POST-DECISION GATE: Block SMS if quiet hours (Brain Council may have chosen SMS) ---
-  if (isSmsQuietHours() && normalizeChannel(aiResponse.channel || channel) === "SMS") {
+  // --- TCPA POST-DECISION GATE: Block SMS if quiet hours in recipient's timezone ---
+  if (isTcpaQuietHoursForRecipient(lead!.phone) && normalizeChannel(aiResponse.channel || channel) === "SMS") {
     if (lead!.email) {
       // Switch to email
-      console.log(`[Webhook] TCPA gate: switching Brain Council SMS to Email for lead ${lead!.id}`);
+      console.log(`[Webhook] TCPA gate (recipient TZ): switching Brain Council SMS to Email for lead ${lead!.id}`);
       aiResponse = { ...aiResponse, channel: "Email" };
     } else {
       // Defer
-      console.log(`[Webhook] TCPA gate: deferring SMS for lead ${lead!.id}`);
-      await updateLeadFields(lead!.id, { nextFollowUpAt: nextSmsWindowStart() });
+      console.log(`[Webhook] TCPA gate (recipient TZ): deferring SMS for lead ${lead!.id}`);
+      await updateLeadFields(lead!.id, { nextFollowUpAt: nextTcpaWindowForRecipient(lead!.phone) });
       res.json({ success: true, action: "tcpa_deferred", leadId: lead!.id });
       return;
     }

@@ -1,0 +1,90 @@
+{
+  "query": "SELECT \n  LEFT(REPLACE(phone, '+1', ''), 3) AS area_code,\n  COUNT(*) AS total\nFROM leads \nWHERE phone IS NOT NULL AND phone != '' AND phone LIKE '+1%'\n  AND DATEDIFF(NOW(), createdAt) >= 365\n  AND preferredChannel = 'SMS'\n  AND (opportunityStatus IS NULL OR opportunityStatus NOT IN ('won', 'lost', 'abandoned'))\nGROUP BY LEFT(REPLACE(phone, '+1', ''), 3)\nORDER BY total DESC\nLIMIT 20;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT \n  LEFT(REPLACE(phone, '+1', ''), 3) AS area_code,\n  COUNT(*) AS total\nFROM leads \nWHERE phone IS NOT NULL AND phone != '' AND phone LIKE '+1%'\n  AND DATEDIFF(NOW(), createdAt) >= 365\n  AND preferredChannel = 'SMS'\n  AND (opportunityStatus IS NULL OR opportunityStatus NOT IN ('won', 'lost', 'abandoned'))\nGROUP BY LEFT(REPLACE(phone, '+1', ''), 3)\nORDER BY total DESC\nLIMIT 20;",
+  "rows": [
+    {
+      "area_code": "305",
+      "total": "164"
+    },
+    {
+      "area_code": "954",
+      "total": "140"
+    },
+    {
+      "area_code": "786",
+      "total": "117"
+    },
+    {
+      "area_code": "561",
+      "total": "68"
+    },
+    {
+      "area_code": "313",
+      "total": "29"
+    },
+    {
+      "area_code": "267",
+      "total": "28"
+    },
+    {
+      "area_code": "347",
+      "total": "28"
+    },
+    {
+      "area_code": "832",
+      "total": "28"
+    },
+    {
+      "area_code": "404",
+      "total": "27"
+    },
+    {
+      "area_code": "843",
+      "total": "26"
+    },
+    {
+      "area_code": "318",
+      "total": "26"
+    },
+    {
+      "area_code": "443",
+      "total": "26"
+    },
+    {
+      "area_code": "252",
+      "total": "25"
+    },
+    {
+      "area_code": "757",
+      "total": "25"
+    },
+    {
+      "area_code": "910",
+      "total": "25"
+    },
+    {
+      "area_code": "704",
+      "total": "23"
+    },
+    {
+      "area_code": "205",
+      "total": "23"
+    },
+    {
+      "area_code": "214",
+      "total": "23"
+    },
+    {
+      "area_code": "678",
+      "total": "22"
+    },
+    {
+      "area_code": "706",
+      "total": "22"
+    }
+  ],
+  "messages": [],
+  "stdout": "area_code\ttotal\n305\t164\n954\t140\n786\t117\n561\t68\n313\t29\n267\t28\n347\t28\n832\t28\n404\t27\n843\t26\n318\t26\n443\t26\n252\t25\n757\t25\n910\t25\n704\t23\n205\t23\n214\t23\n678\t22\n706\t22\n",
+  "stderr": "",
+  "execution_time_ms": 307
+}

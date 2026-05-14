@@ -1,0 +1,18 @@
+{
+  "query": "SELECT \n  CASE \n    WHEN phone IS NULL OR phone = '' THEN 'no_phone'\n    WHEN dndSms IS NOT NULL AND dndSms != '' AND dndSms != '0' THEN 'dnd_sms'\n    ELSE 'has_phone_no_dnd'\n  END AS reason,\n  COUNT(*) AS total\nFROM leads \nWHERE DATEDIFF(NOW(), createdAt) >= 365\n  AND preferredChannel = 'Email'\n  AND (opportunityStatus IS NULL OR opportunityStatus NOT IN ('won', 'lost', 'abandoned'))\n  AND humanTakeover = 0\nGROUP BY CASE \n    WHEN phone IS NULL OR phone = '' THEN 'no_phone'\n    WHEN dndSms IS NOT NULL AND dndSms != '' AND dndSms != '0' THEN 'dnd_sms'\n    ELSE 'has_phone_no_dnd'\n  END;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT \n  CASE \n    WHEN phone IS NULL OR phone = '' THEN 'no_phone'\n    WHEN dndSms IS NOT NULL AND dndSms != '' AND dndSms != '0' THEN 'dnd_sms'\n    ELSE 'has_phone_no_dnd'\n  END AS reason,\n  COUNT(*) AS total\nFROM leads \nWHERE DATEDIFF(NOW(), createdAt) >= 365\n  AND preferredChannel = 'Email'\n  AND (opportunityStatus IS NULL OR opportunityStatus NOT IN ('won', 'lost', 'abandoned'))\n  AND humanTakeover = 0\nGROUP BY CASE \n    WHEN phone IS NULL OR phone = '' THEN 'no_phone'\n    WHEN dndSms IS NOT NULL AND dndSms != '' AND dndSms != '0' THEN 'dnd_sms'\n    ELSE 'has_phone_no_dnd'\n  END;",
+  "rows": [
+    {
+      "reason": "no_phone",
+      "total": "74"
+    },
+    {
+      "reason": "dnd_sms",
+      "total": "72"
+    }
+  ],
+  "messages": [],
+  "stdout": "reason\ttotal\nno_phone\t74\ndnd_sms\t72\n",
+  "stderr": "",
+  "execution_time_ms": 274
+}

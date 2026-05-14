@@ -1,0 +1,46 @@
+{
+  "query": "SELECT preferredChannel, COUNT(*) AS total\nFROM leads \nWHERE DATEDIFF(NOW(), createdAt) >= 365\n  AND (opportunityStatus IS NULL OR opportunityStatus NOT IN ('won', 'lost', 'abandoned'))\n  AND humanTakeover = 0\nGROUP BY preferredChannel;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway05.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3aAiEZGvt2NNVee.8ab8154a3985 --database 28AChv27iDSNmApuHCcaE5 --execute SELECT preferredChannel, COUNT(*) AS total\nFROM leads \nWHERE DATEDIFF(NOW(), createdAt) >= 365\n  AND (opportunityStatus IS NULL OR opportunityStatus NOT IN ('won', 'lost', 'abandoned'))\n  AND humanTakeover = 0\nGROUP BY preferredChannel;",
+  "rows": [
+    {
+      "preferredChannel": "ghl_import",
+      "total": "157"
+    },
+    {
+      "preferredChannel": "NULL",
+      "total": "1"
+    },
+    {
+      "preferredChannel": "transferred_contact",
+      "total": "28"
+    },
+    {
+      "preferredChannel": "SMS",
+      "total": "2725"
+    },
+    {
+      "preferredChannel": "FB",
+      "total": "1"
+    },
+    {
+      "preferredChannel": "Email",
+      "total": "146"
+    },
+    {
+      "preferredChannel": "ghl",
+      "total": "93"
+    },
+    {
+      "preferredChannel": "r",
+      "total": "5"
+    },
+    {
+      "preferredChannel": "WhatsApp",
+      "total": "2"
+    }
+  ],
+  "messages": [],
+  "stdout": "preferredChannel\ttotal\nghl_import\t157\nNULL\t1\ntransferred_contact\t28\nSMS\t2725\nFB\t1\nEmail\t146\nghl\t93\nr\t5\nWhatsApp\t2\n",
+  "stderr": "",
+  "execution_time_ms": 274
+}

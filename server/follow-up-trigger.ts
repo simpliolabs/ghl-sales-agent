@@ -311,10 +311,11 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
         // ARCHITECTURE FIX: During quiet hours, ALWAYS defer to next business hours.
         // Never switch SMS→Email at night — the message was composed for SMS (short, casual)
         // and sending it as a plain-text email at 10 PM is a terrible customer experience.
-        const { isSmsQuietHours, nextSmsWindowStart, isEmailOutsideOptimalWindow, nextEmailWindowStart } = await import("./scheduling-engine");
-        if (isSmsQuietHours() && hintChannel === "SMS") {
-          const nextWindow = nextSmsWindowStart();
-          console.log(`[FollowUp] ⚠️ TCPA quiet hours — deferring lead ${leadId} to next business hours: ${nextWindow.toISOString()} (NO channel switch)`);
+        const { isEmailOutsideOptimalWindow, nextEmailWindowStart } = await import("./scheduling-engine");
+        const { isTcpaQuietHoursForRecipient, nextTcpaWindowForRecipient } = await import("./area-code-timezone");
+        if (isTcpaQuietHoursForRecipient((lead as any).phone) && hintChannel === "SMS") {
+          const nextWindow = nextTcpaWindowForRecipient((lead as any).phone);
+          console.log(`[FollowUp] ⚠️ TCPA quiet hours (recipient TZ) — deferring lead ${leadId} to ${nextWindow.toISOString()} (NO channel switch)`);
           await updateLeadFields(leadId, { nextFollowUpAt: nextWindow });
           stats.skipped++;
           continue;
@@ -455,9 +456,9 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
         // --- TCPA POST-DECISION GATE: Block SMS if quiet hours (Brain Council may have chosen SMS despite hint) ---
         // ARCHITECTURE FIX: ALWAYS defer — never switch SMS→Email at night.
         // The message was composed for SMS and is not formatted for email.
-        if (isSmsQuietHours() && channel === "SMS") {
-          const nextWindow = nextSmsWindowStart();
-          console.log(`[FollowUp] TCPA post-decision gate: deferring SMS for lead ${leadId} to next business hours: ${nextWindow.toISOString()} (NO channel switch)`);
+        if (isTcpaQuietHoursForRecipient((lead as any).phone) && channel === "SMS") {
+          const nextWindow = nextTcpaWindowForRecipient((lead as any).phone);
+          console.log(`[FollowUp] TCPA post-decision gate (recipient TZ): deferring SMS for lead ${leadId} to ${nextWindow.toISOString()} (NO channel switch)`);
           await updateLeadFields(leadId, { nextFollowUpAt: nextWindow });
           stats.skipped++;
           continue;
