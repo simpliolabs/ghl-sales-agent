@@ -569,10 +569,12 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
 
     // ============================================================
     // PROGRAMMATIC DORMANT LEAD CHANNEL OVERRIDE (PRE-FRAMEWORK)
-    // Leads dormant >60 days MUST be re-engaged via Email, not SMS.
+    // Leads dormant 61-364 days: re-engage via Email (less invasive).
+    // Leads dormant 365+ days: SMS FIRST (emails ineffective for deeply dormant leads).
     // The Strategist prompt says this but LLMs ignore it. Enforce here.
     // ============================================================
-    if (strategy.channel === 'SMS' && context.leadAgeDays > 60) {
+    if (strategy.channel === 'SMS' && context.leadAgeDays > 60 && context.leadAgeDays < 365) {
+      // 61-364 days dormant: override SMS → Email (less invasive for moderately dormant)
       const hasEmail = !!(context.lead.email && context.lead.email.includes('@'));
       if (hasEmail) {
         console.log(`[SalesManager] ⚠️ DORMANT CHANNEL OVERRIDE: lead ${input.leadId} is ${context.leadAgeDays}d dormant — SMS → Email (has email: ${context.lead.email})`);
@@ -580,6 +582,16 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
         (strategy as any).reasoning = `[DORMANT CHANNEL OVERRIDE: ${context.leadAgeDays}d dormant, SMS→Email] ${strategy.reasoning}`;
       } else {
         console.log(`[SalesManager] ⚠️ DORMANT CHANNEL: lead ${input.leadId} is ${context.leadAgeDays}d dormant but has no email — keeping SMS (no alternative)`);
+      }
+    } else if (strategy.channel === 'Email' && context.leadAgeDays >= 365) {
+      // 365+ days dormant: override Email → SMS (emails ineffective for deeply dormant leads)
+      const hasPhone = !!(context.lead.phone);
+      if (hasPhone) {
+        console.log(`[SalesManager] ⚠️ DEEP DORMANT CHANNEL OVERRIDE: lead ${input.leadId} is ${context.leadAgeDays}d dormant — Email → SMS (emails ineffective for 1yr+ leads)`);
+        (strategy as any).channel = 'SMS';
+        (strategy as any).reasoning = `[DEEP DORMANT OVERRIDE: ${context.leadAgeDays}d dormant, Email→SMS — emails ineffective] ${strategy.reasoning}`;
+      } else {
+        console.log(`[SalesManager] ⚠️ DEEP DORMANT CHANNEL: lead ${input.leadId} is ${context.leadAgeDays}d dormant but has no phone — keeping Email (no alternative)`);
       }
     }
 

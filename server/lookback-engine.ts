@@ -98,7 +98,8 @@ Analyze this lead and determine:
    Example: "Asked about bulk pricing for HVAC uniforms, never got a quote. Still interested."
 
 7. RECOMMENDED CHANNEL — Best channel to re-engage: "Email", "SMS", "WhatsApp"
-   - Dormant 30+ days → Email (less invasive)
+   - Dormant 30-364 days → Email (less invasive)
+   - Dormant 365+ days → SMS (emails are ineffective for deeply dormant leads — SMS gets replies)
    - Active/recent → same channel they last used
    - Has email but no phone → Email
    - Has phone but no email → SMS
@@ -402,6 +403,11 @@ export async function runLookback(options?: {
         // This prevents historical Facebook leads from being contacted via SMS when they
         // originally came through a Facebook lead form.
         let resolvedChannel = analysis.recommendedChannel;
+        // DEEP DORMANT OVERRIDE: 365+ day leads should use SMS (emails are ineffective)
+        if (resolvedChannel === 'Email' && daysSinceLastActivity >= 365 && lead.phone) {
+          console.log(`[Lookback] DEEP DORMANT CHANNEL OVERRIDE for lead ${leadId}: ${Math.round(daysSinceLastActivity)}d dormant — Email → SMS (emails ineffective for 1yr+ leads)`);
+          resolvedChannel = 'SMS';
+        }
         if (!historyStr && lead.source) {
           // Use the centralised sourceToChannel() — single source of truth in webhook-helpers
           const srcChannel = sourceToChannel(lead.source as string);

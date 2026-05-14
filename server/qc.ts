@@ -745,9 +745,10 @@ export function detectViolations(
       }
     }
   }
-  // Also flag SMS for highly dormant leads (should use Email for re-engagement)
-  if (strategy.channel === "SMS" && context.leadAgeDays > 60) {
-    return { category: "channel_mismatch", reason: `Strategy chose SMS for a lead dormant ${context.leadAgeDays} days (>60). Per dormancy rules, Email should be used for re-engagement of highly dormant leads.` };
+  // Also flag SMS for moderately dormant leads (61-364 days: should use Email for re-engagement)
+  // BUT allow SMS for deeply dormant leads (365+ days: emails are ineffective)
+  if (strategy.channel === "SMS" && context.leadAgeDays > 60 && context.leadAgeDays < 365) {
+    return { category: "channel_mismatch", reason: `Strategy chose SMS for a lead dormant ${context.leadAgeDays} days (61-364 range). Per dormancy rules, Email should be used for re-engagement of moderately dormant leads.` };
   }
 
   // 10. CONTEXT-FREE EMAIL SUBJECT — email subject line doesn't reference any lead-specific context

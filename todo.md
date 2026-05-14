@@ -1364,3 +1364,14 @@
 - [x] Wire 15-minute Agent-First Delay into contact webhook first-contact path (was only in inbound-message path)
 - [x] Expand 15-min Agent-First Delay to ALL inbound messages during business hours (not just new leads with conversationCount=0)
 - [x] Ensure existing customers like Earl Wheeler get the 15-min agent window before AI responds
+- [x] Fix AI re-engagement messaging: frame outreach as "custom apparel for your sports team/church/organization" NOT "online store for your business"
+- [x] Update knowledge base / Brain Council prompts to clarify that online stores are a delivery mechanism, not the core offering
+- [x] Fix AI framing: outreach should say "custom apparel for your sports team/church/org" NOT "online store for your business"
+- [x] Add hard constraint to Composer: online store is a delivery mechanism, not what the customer reached out about
+- [x] Update Strategist reactivation rules to reference custom apparel, not online stores
+- [x] Update reactivation_90d skill overlay with custom apparel framing rule
+- [x] Fix channel for 1+ year old leads: use SMS primary (emails don't work for these dormant leads), Email as secondary
+- [x] Override the 60-day dormant→Email rule for 365+ day leads to use SMS instead
+- [x] Update brain-council-orchestrator: 61-364d → Email, 365+ → SMS override
+- [x] Update QC: allow SMS for 365+ day leads (no longer flagged as channel_mismatch)
+- [x] Update lookback engine prompt and post-analysis override for 365+ day SMS

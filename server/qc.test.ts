@@ -319,7 +319,7 @@ describe("detectViolations — Layer 3 Expanded", () => {
   });
 
   describe("channel_mismatch", () => {
-    it("detects SMS for highly dormant leads (>60 days)", () => {
+    it("detects SMS for moderately dormant leads (61-364 days)", () => {
       const context = makeContext({ leadAgeDays: 90 });
       const strategy = makeStrategy({ channel: "SMS" });
 
@@ -327,6 +327,30 @@ describe("detectViolations — Layer 3 Expanded", () => {
       expect(result.category).toBe("channel_mismatch");
       expect(result.reason).toContain("dormant");
       expect(result.reason).toContain("90 days");
+    });
+
+    it("does NOT flag SMS for deeply dormant leads (365+ days) — emails are ineffective", () => {
+      const context = makeContext({ leadAgeDays: 400 });
+      const strategy = makeStrategy({ channel: "SMS" });
+
+      const result = detectViolations(makeComposed(), makeQC(), strategy, context, makeInput(), makeResearch());
+      expect(result.category).not.toBe("channel_mismatch");
+    });
+
+    it("does NOT flag SMS for leads at exactly 365 days", () => {
+      const context = makeContext({ leadAgeDays: 365 });
+      const strategy = makeStrategy({ channel: "SMS" });
+
+      const result = detectViolations(makeComposed(), makeQC(), strategy, context, makeInput(), makeResearch());
+      expect(result.category).not.toBe("channel_mismatch");
+    });
+
+    it("still flags SMS for 364-day dormant leads (just under the 365 threshold)", () => {
+      const context = makeContext({ leadAgeDays: 364 });
+      const strategy = makeStrategy({ channel: "SMS" });
+
+      const result = detectViolations(makeComposed(), makeQC(), strategy, context, makeInput(), makeResearch());
+      expect(result.category).toBe("channel_mismatch");
     });
 
     it("does NOT flag Email for dormant leads", () => {
@@ -471,11 +495,17 @@ describe("ViolationCategory type coverage", () => {
     const r2 = detectViolations(comp2, makeQC(), makeStrategy(), makeContext(), inp2, makeResearch());
     expect(["ignored_request", null]).toContain(r2.category);
 
-    // channel_mismatch
+    // channel_mismatch (100 days = moderately dormant, SMS should be flagged)
     const ctx3 = makeContext({ leadAgeDays: 100 });
     const strat3 = makeStrategy({ channel: "SMS" });
     const r3 = detectViolations(makeComposed(), makeQC(), strat3, ctx3, makeInput(), makeResearch());
     expect(r3.category).toBe("channel_mismatch");
+
+    // channel_mismatch (400 days = deeply dormant, SMS should NOT be flagged)
+    const ctx4 = makeContext({ leadAgeDays: 400 });
+    const strat4 = makeStrategy({ channel: "SMS" });
+    const r4 = detectViolations(makeComposed(), makeQC(), strat4, ctx4, makeInput(), makeResearch());
+    expect(r4.category).not.toBe("channel_mismatch");
   });
 });
 
