@@ -596,6 +596,8 @@ export async function addBrainCouncilAudit(data: {
   // Fine-tuning A/B tracking
   modelUsed?: string | null;
   fineTuningJobId?: number | null;
+  // Email subject tracking
+  emailSubject?: string;
 }) {
   const db = await getDb();
   if (!db) return;

@@ -1383,3 +1383,8 @@
 - [x] Add hard constraint to Composer: subject lines must hook the reader with a question, benefit, or personalized reference — never just "[Org] + [Company]"
 - [x] Add QC hard-reject for "[Org] + Adorb" subject format (fires before context check)
 - [x] Update all EMB framework subject line rules: under 25 chars, no company name, curiosity-driven
+- [x] Add emailSubject + emailOpened + emailOpenedAt columns to brain_council_audit + message_outcomes schema
+- [x] Link email open webhook events to specific sent messages (7-day attribution window, audit → outcome)
+- [x] Add open_rate as valid A/B experiment metric (alongside reply_rate, conversion_rate, positive_rate)
+- [x] Add subject line pattern learning to learning-loop.ts (classifySubjectPattern + analyzeSubjectLinePatterns)
+- [x] Auto-create subject line A/B experiments when enough data exists (via pattern analysis promotion)

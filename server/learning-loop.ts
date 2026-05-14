@@ -1078,6 +1078,146 @@ export async function recordAgentLearning(leadId: number, patterns: AgentPattern
 }
 
 // =================================================================
+// 8. SUBJECT LINE PATTERN LEARNING
+// =================================================================
+
+/**
+ * Analyzes email subject line performance from message_outcomes.
+ * Groups subjects by pattern (question, personalized, urgency, etc.)
+ * and records which patterns get the best open rates.
+ * 
+ * Called periodically (e.g., daily) to build subject line intelligence.
+ */
+export async function analyzeSubjectLinePatterns(): Promise<{ analyzed: number; patternsRecorded: number }> {
+  const db = await getDb();
+  if (!db) return { analyzed: 0, patternsRecorded: 0 };
+
+  try {
+    const { messageOutcomes: mo } = await import("../drizzle/schema");
+
+    // Get all email outcomes with subject lines from the last 90 days
+    const windowStart = new Date(Date.now() - PATTERN_SCAN_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    const outcomes = await db.select({
+      emailSubject: mo.emailSubject,
+      emailOpened: mo.emailOpened,
+      gotReply: mo.gotReply,
+      replySentiment: mo.replySentiment,
+      converted: mo.converted,
+    })
+      .from(mo)
+      .where(and(
+        sql`${mo.emailSubject} IS NOT NULL AND ${mo.emailSubject} != ''`,
+        eq(mo.channel, "Email"),
+        gte(mo.attributedAt, windowStart),
+      ));
+
+    if (outcomes.length < MIN_SAMPLE_SIZE) {
+      return { analyzed: outcomes.length, patternsRecorded: 0 };
+    }
+
+    // Classify subject lines into patterns
+    const patternBuckets: Record<string, { opens: number; total: number; replies: number; positive: number; examples: string[] }> = {};
+
+    for (const o of outcomes) {
+      const subject = (o.emailSubject || "").toLowerCase();
+      const pattern = classifySubjectPattern(subject);
+
+      if (!patternBuckets[pattern]) {
+        patternBuckets[pattern] = { opens: 0, total: 0, replies: 0, positive: 0, examples: [] };
+      }
+      patternBuckets[pattern].total++;
+      if (o.emailOpened) patternBuckets[pattern].opens++;
+      if (o.gotReply) patternBuckets[pattern].replies++;
+      if (o.replySentiment === "positive") patternBuckets[pattern].positive++;
+      if (patternBuckets[pattern].examples.length < 3) {
+        patternBuckets[pattern].examples.push(o.emailSubject || "");
+      }
+    }
+
+    // Record patterns with enough data
+    let patternsRecorded = 0;
+    const now = Date.now();
+
+    for (const [pattern, stats] of Object.entries(patternBuckets)) {
+      if (stats.total < MIN_SAMPLE_SIZE) continue;
+
+      const openRate = Math.round((stats.opens / stats.total) * 100);
+      const replyRate = Math.round((stats.replies / stats.total) * 100);
+      const patternKey = `subject.${pattern}`;
+      const isPositive = openRate >= 40; // 40%+ open rate is good
+      const isNegative = openRate < 15;  // <15% open rate is bad
+
+      const description = `Email subject pattern '${pattern}': ${openRate}% open rate, ${replyRate}% reply rate (n=${stats.total})`;
+      const details = `Examples: ${stats.examples.join(" | ")}`;
+
+      // Upsert the learning
+      const [existing] = await db.select()
+        .from(learnings)
+        .where(eq(learnings.patternKey, patternKey))
+        .limit(1);
+
+      if (existing) {
+        await db.update(learnings).set({
+          description,
+          details,
+          recurrenceCount: stats.total,
+          positiveOutcomes: isPositive ? stats.total : (existing.positiveOutcomes || 0),
+          negativeOutcomes: isNegative ? stats.total : (existing.negativeOutcomes || 0),
+          category: isNegative ? "avoid" : "best_practice",
+          updatedAt: now,
+        }).where(eq(learnings.id, existing.id));
+      } else {
+        await db.insert(learnings).values({
+          patternKey,
+          category: isNegative ? "avoid" : "best_practice",
+          description,
+          details,
+          suggestedAction: isPositive
+            ? `Prefer '${pattern}' subject line pattern — ${openRate}% open rate`
+            : isNegative
+            ? `Avoid '${pattern}' subject line pattern — only ${openRate}% open rate`
+            : undefined,
+          recurrenceCount: stats.total,
+          positiveOutcomes: isPositive ? stats.total : 0,
+          negativeOutcomes: isNegative ? stats.total : 0,
+          priority: isPositive ? "high" : isNegative ? "high" : "medium",
+          source: "subject_analysis",
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      patternsRecorded++;
+    }
+
+    if (patternsRecorded > 0) {
+      console.log(`[LearningLoop/Subject] Analyzed ${outcomes.length} emails, recorded ${patternsRecorded} subject patterns`);
+    }
+
+    return { analyzed: outcomes.length, patternsRecorded };
+  } catch (err) {
+    console.error("[LearningLoop/Subject] Error:", err);
+    return { analyzed: 0, patternsRecorded: 0 };
+  }
+}
+
+/**
+ * Classify a subject line into a pattern category.
+ */
+function classifySubjectPattern(subject: string): string {
+  if (subject.endsWith("?")) return "question";
+  if (/\byour\b/.test(subject) || /\byou\b/.test(subject)) return "personalized_you";
+  if (/still|yet|update/.test(subject)) return "follow_up";
+  if (/quick|fast|just/.test(subject)) return "casual_short";
+  if (/idea|thought/.test(subject)) return "suggestion";
+  if (/ready|need|looking/.test(subject)) return "need_based";
+  if (/new|fresh|latest|just launched/.test(subject)) return "novelty";
+  if (/save|deal|offer|free|discount/.test(subject)) return "promotional";
+  if (subject.length <= 20) return "ultra_short";
+  if (subject.length <= 35) return "short";
+  return "standard";
+}
+
+// =================================================================
 // EXPORTS for testing
 // =================================================================
-export { generatePatternKeys, PROMOTION_THRESHOLD, DEMOTION_THRESHOLD, MIN_SAMPLE_SIZE, MAX_PROMOTED_RULES, getViolationFixAdvice };
+export { generatePatternKeys, classifySubjectPattern, PROMOTION_THRESHOLD, DEMOTION_THRESHOLD, MIN_SAMPLE_SIZE, MAX_PROMOTED_RULES, getViolationFixAdvice };

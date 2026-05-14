@@ -226,6 +226,7 @@ export const brainCouncilAudit = mysqlTable("brain_council_audit", {
   // Composer output
   composedMessage: text("composedMessage"),
   composerFromName: varchar("composerFromName", { length: 128 }),
+  emailSubject: varchar("emailSubject", { length: 512 }), // email subject line (for subject-line performance tracking)
   // QC output
   qcScore: int("qcScore"),
   qcApproved: tinyint("qcApproved"),
@@ -299,6 +300,10 @@ export const messageOutcomes = mysqlTable("message_outcomes", {
   scoreChange: int("scoreChange"), // opportunity score delta
   converted: tinyint("converted").default(0), // 1 = reached Paid/Approved/Delivered
   dncTriggered: tinyint("dncTriggered").default(0), // 1 = lead replied with DNC keywords within attribution window
+  // Email open tracking
+  emailSubject: varchar("emailSubject", { length: 512 }), // subject line used (for A/B testing)
+  emailOpened: tinyint("emailOpened").default(0), // 1 = email was opened
+  emailOpenedAt: timestamp("emailOpenedAt"), // when the email was first opened
   // Metadata
   attributedAt: timestamp("attributedAt"), // when the outcome was recorded
   createdAt: timestamp("createdAt").defaultNow().notNull(),

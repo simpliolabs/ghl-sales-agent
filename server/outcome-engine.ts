@@ -98,6 +98,8 @@ export async function attributeReply(opts: {
     experimentId: (audit as any).experimentId || undefined,
     variant: (audit as any).variant || undefined,
     persona: (audit as any).persona || undefined,
+    // Email subject tracking
+    emailSubject: (audit as any).emailSubject || undefined,
     gotReply: 1,
     replyMinutes,
     replySentiment: sentiment,
@@ -541,6 +543,7 @@ export async function backfillOutcomes(): Promise<number> {
     experimentId: brainCouncilAudit.experimentId,
     variant: brainCouncilAudit.variant,
     persona: brainCouncilAudit.persona,
+    emailSubject: brainCouncilAudit.emailSubject,
   })
     .from(brainCouncilAudit)
     .leftJoin(messageOutcomes, eq(brainCouncilAudit.id, messageOutcomes.auditId))
@@ -611,6 +614,8 @@ export async function backfillOutcomes(): Promise<number> {
       experimentId: entry.experimentId || undefined,
       variant: entry.variant || undefined,
       persona: entry.persona || undefined,
+      // Email subject tracking
+      emailSubject: entry.emailSubject || undefined,
       gotReply: gotReply ? 1 : 0,
       replyMinutes,
       replySentiment: sentiment,

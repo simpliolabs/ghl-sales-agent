@@ -1422,6 +1422,8 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
         // Fine-tuning A/B tracking
         modelUsed: composed._modelMeta?.model || null,
         fineTuningJobId: composed._modelMeta?.jobId || null,
+        // Email subject tracking (for self-learning)
+        emailSubject: composed.subject || undefined,
       });
     } catch (auditErr) {
       console.error('[SalesManager] Audit log error (non-fatal):', auditErr);

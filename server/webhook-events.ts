@@ -15,8 +15,8 @@
 
 import { Response } from "express";
 import { getDb, updateLeadFields, syncGhlDnd } from "./db";
-import { leads } from "../drizzle/schema";
-import { eq, sql } from "drizzle-orm";
+import { leads, brainCouncilAudit, messageOutcomes } from "../drizzle/schema";
+import { eq, sql, desc, and, gte, isNull } from "drizzle-orm";
 
 // ============================================================
 // APPOINTMENT HANDLER
@@ -195,6 +195,66 @@ export async function handleEmailEventWebhook(payload: Record<string, unknown>, 
       lastEmailOpenAt: now,
       lastMessageAt: now, // count as engagement
     }).where(eq(leads.id, lead.id));
+
+    // --- Attribute email open to the most recent AI-sent email for this lead ---
+    try {
+      const openWindow = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000); // 7-day attribution window
+      const [recentAudit] = await db.select({ id: brainCouncilAudit.id })
+        .from(brainCouncilAudit)
+        .where(and(
+          eq(brainCouncilAudit.leadId, lead.id),
+          eq(brainCouncilAudit.messageSent, 1),
+          eq(brainCouncilAudit.channel, "Email"),
+          gte(brainCouncilAudit.createdAt, openWindow),
+        ))
+        .orderBy(desc(brainCouncilAudit.createdAt))
+        .limit(1);
+
+      if (recentAudit) {
+        // Find or create the outcome record for this audit entry
+        const [existing] = await db.select({ id: messageOutcomes.id, emailOpened: messageOutcomes.emailOpened })
+          .from(messageOutcomes)
+          .where(eq(messageOutcomes.auditId, recentAudit.id))
+          .limit(1);
+
+        if (existing) {
+          // Update existing outcome with email open data (only if not already marked)
+          if (!existing.emailOpened) {
+            await db.update(messageOutcomes)
+              .set({ emailOpened: 1, emailOpenedAt: now })
+              .where(eq(messageOutcomes.id, existing.id));
+          }
+        } else {
+          // Create a minimal outcome record with the email open
+          const [audit] = await db.select()
+            .from(brainCouncilAudit)
+            .where(eq(brainCouncilAudit.id, recentAudit.id))
+            .limit(1);
+          if (audit) {
+            await db.insert(messageOutcomes).values({
+              auditId: audit.id,
+              leadId: lead.id,
+              framework: audit.strategyFramework,
+              angle: audit.strategyApproach,
+              approach: audit.strategyApproach,
+              channel: "Email",
+              agentName: audit.composerFromName,
+              emailSubject: (audit as any).emailSubject || undefined,
+              emailOpened: 1,
+              emailOpenedAt: now,
+              gotReply: 0,
+              experimentId: (audit as any).experimentId || undefined,
+              variant: (audit as any).variant || undefined,
+              persona: (audit as any).persona || undefined,
+            });
+          }
+        }
+        console.log(`[Webhook/Email] Lead ${lead.id}: email open attributed to audit #${recentAudit.id}`);
+      }
+    } catch (attrErr) {
+      console.error('[Webhook/Email] Email open attribution error (non-fatal):', attrErr);
+    }
+
     console.log(`[Webhook/Email] Lead ${lead.id} (${lead.name}): email opened (total: ${(lead.emailOpens || 0) + 1})`);
 
   } else if (e.includes("click")) {

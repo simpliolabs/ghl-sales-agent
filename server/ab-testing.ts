@@ -263,6 +263,7 @@ export async function evaluateExperiment(experimentId: string): Promise<Experime
     const metric = exp.primaryMetric || "reply_rate";
     const successColumn = metric === "reply_rate" ? messageOutcomes.gotReply
       : metric === "conversion_rate" ? messageOutcomes.converted
+      : metric === "open_rate" ? messageOutcomes.emailOpened
       : messageOutcomes.replySentiment; // positive_rate
 
     const variantStats = await db.select({
