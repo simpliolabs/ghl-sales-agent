@@ -1320,3 +1320,101 @@ describe("detectViolations — referral_ask_in_inquiry", () => {
     expect(result.category).toBe("referral_ask_in_inquiry");
   });
 });
+
+// --- SMS LENGTH ENFORCEMENT (sms_too_long) ---
+
+describe("detectViolations — sms_too_long", () => {
+  // Helper to create a context/strategy/input for SMS tests
+  const smsContext = (isFirst: boolean, ageDays = 10) =>
+    makeContext({
+      lead: { name: "Carolyn Culver", businessName: "Test Biz", assignedAgent: "Chris" },
+      isFirstResponse: isFirst,
+      leadAgeDays: ageDays,
+    });
+
+  describe("first_contact SMS", () => {
+    it("BLOCKS a 4-paragraph cold opener SMS (Carolyn Culver bug)", () => {
+      const longMsg =
+        "Hi there Carolyn,\n\nChris here from Adorb Custom Printing. I just wanted to follow up regarding your T-shirt inquiry and the pricing information we sent through.\n\nWe'd love to help bring your order together, and I wanted to check in to see if you had any questions or if you'd like to move forward with the next steps.\n\nFeel free to let us know what you're thinking when you have a moment, we're happy to assist!\n\nLooking forward to hearing from you.";
+      const composed = makeComposed({ message: longMsg });
+      const strategy = makeStrategy({ approach: "first_contact", channel: "SMS" });
+      const result = detectViolations(
+        composed, makeQC(), strategy, smsContext(true), makeInput(), makeResearch()
+      );
+      expect(result.category).toBe("sms_too_long");
+      expect(result.reason).toContain("First-contact SMS is too long");
+    });
+
+    it("BLOCKS a first_contact SMS over 200 chars even if only 2 sentences", () => {
+      // 2 sentences but way too many characters
+      const longMsg =
+        "Hey Carolyn, Chris here from Adorb Custom Printing and we specialize in custom t-shirts, hoodies, hats, mugs, and all kinds of promotional products for churches, businesses, and events! What kind of project are you working on today?";
+      const composed = makeComposed({ message: longMsg });
+      const strategy = makeStrategy({ approach: "first_contact", channel: "SMS" });
+      const result = detectViolations(
+        composed, makeQC(), strategy, smsContext(true), makeInput(), makeResearch()
+      );
+      expect(result.category).toBe("sms_too_long");
+    });
+
+    it("ALLOWS a short 2-sentence cold opener SMS under 160 chars", () => {
+      const shortMsg = "Hey Carolyn! Chris from Adorb — saw your tee inquiry. How many pieces?";
+      const composed = makeComposed({ message: shortMsg });
+      const strategy = makeStrategy({ approach: "first_contact", channel: "SMS" });
+      const result = detectViolations(
+        composed, makeQC(), strategy, smsContext(true), makeInput({
+          formData: [{ label: "Product", value: "tee" }],
+        }), makeResearch()
+      );
+      expect(result.category).toBeNull();
+    });
+
+    it("also triggers for isFirstResponse=true even if approach is not first_contact", () => {
+      const longMsg =
+        "Hi there Carolyn, Chris here from Adorb Custom Printing. I just wanted to follow up regarding your T-shirt inquiry and the pricing information we sent through. We'd love to help bring your order together. Feel free to let us know what you're thinking!";
+      const composed = makeComposed({ message: longMsg });
+      const strategy = makeStrategy({ approach: "follow_up", channel: "SMS" });
+      const result = detectViolations(
+        composed, makeQC(), strategy, smsContext(true), makeInput(), makeResearch()
+      );
+      expect(result.category).toBe("sms_too_long");
+    });
+  });
+
+  describe("follow-up SMS", () => {
+    it("BLOCKS a follow-up SMS over 400 chars", () => {
+      const longMsg =
+        "Hey Carolyn, just circling back on your custom t-shirt inquiry from last week. We've been working with a lot of churches and ministries lately on bulk orders and the feedback has been amazing. Our turnaround is typically 2-3 weeks and we can do quantities as low as 12 pieces with no minimum order requirements. Would love to chat about your specific needs and put together some options for you. What works best for a quick call this week?";
+      const composed = makeComposed({ message: longMsg });
+      const strategy = makeStrategy({ approach: "follow_up", channel: "SMS" });
+      const result = detectViolations(
+        composed, makeQC(), strategy, smsContext(false), makeInput(), makeResearch()
+      );
+      expect(result.category).toBe("sms_too_long");
+    });
+
+    it("ALLOWS a 3-sentence follow-up SMS under 320 chars", () => {
+      const shortMsg = "Hey Carolyn, still here for your tee order. Should we close your file or are you still interested? No pressure either way.";
+      const composed = makeComposed({ message: shortMsg });
+      const strategy = makeStrategy({ approach: "follow_up", channel: "SMS" });
+      const result = detectViolations(
+        composed, makeQC(), strategy, smsContext(false), makeInput({
+          formData: [{ label: "Product", value: "tee" }],
+        }), makeResearch()
+      );
+      expect(result.category).toBeNull();
+    });
+
+    it("does NOT trigger sms_too_long for Email channel even if message is long", () => {
+      const longMsg =
+        "Hi there Carolyn,\n\nChris here from Adorb Custom Printing. I just wanted to follow up regarding your T-shirt inquiry. We'd love to help bring your order together.\n\nFeel free to let us know!\n\n---\nBest,\nChris | Adorb Custom Printing\n(954) 932-8543\nprint@adorbcustomtees.com\nadorbcustomtees.com";
+      const composed = makeComposed({ message: longMsg });
+      const strategy = makeStrategy({ approach: "follow_up", channel: "Email" });
+      const result = detectViolations(
+        composed, makeQC(), strategy, smsContext(false), makeInput(), makeResearch()
+      );
+      // Should NOT be sms_too_long (it's email)
+      expect(result.category).not.toBe("sms_too_long");
+    });
+  });
+});

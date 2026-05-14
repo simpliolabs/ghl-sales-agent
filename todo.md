@@ -1394,3 +1394,4 @@
 - [x] TESTS: lead-disposition.test.ts — 35 tests including 7 new tests for 365+ day dormant lead guard, createdAt in query, phone-first permanent freeze path
 - [x] RESEARCH: ruflo repo (ruvnet/ruflo) — 50.5k star multi-agent orchestration framework. Assessment: overkill for our 4-agent fixed pipeline. No changes needed.
 - [x] BUG: No channel escalation after repeated unanswered SMS — Sarah Weiss got 5+ SMS with zero replies, system never switched to Email. Need auto-escalation: SMS→Email after 3 unanswered, Email→SMS after 2 unanswered
+- [x] BUG: SMS cold openers are way too long (4 paragraphs) — Carolyn Culver example shows email-length SMS. Need strict 2-3 sentence / 160-320 char limit for SMS cold openers in Composer prompt and QC gate

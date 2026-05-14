@@ -87,6 +87,12 @@ If ANY of these are true, set approved=false immediately. Do not score the rest.
    - If stage is "reactivation" but the message treats the lead as brand new (no time-gap acknowledgment) → REJECT.
      Set violationCategory="fresh_outreach_on_aged_lead".
 
+8. SMS TOO LONG: If channel is SMS and the message exceeds 3 sentences OR 320 characters, REJECT.
+   For first_contact SMS: reject if more than 2 sentences OR more than 160 characters.
+   SMS must be punchy and conversational — like a text from a friend, not an email.
+   Multi-paragraph SMS = automatic rejection.
+   Set violationCategory="sms_too_long".
+
 If none of the auto-reject rules trigger, proceed to the quality checklist below.
 
 === QUALITY CHECKLIST (score each 0-10, total = quality score) ===
@@ -994,6 +1000,33 @@ export function detectViolations(
         category: "fresh_outreach_on_aged_lead" as ViolationCategory,
         reason: `Strategy used approach "${strategy.approach}" for a ${context.leadAgeDays}-day-old lead. Aged leads (90+ days) MUST use "reactivation" or "win_back" approach, not "${strategy.approach}".`
       };
+    }
+  }
+
+  // 16. SMS TOO LONG — deterministic hard-reject for SMS messages exceeding length limits
+  // This is the LAST LINE OF DEFENSE — catches any SMS that the LLM QC prompt didn't reject.
+  if (normalizeChannelForQC(strategy.channel) === "sms" && composed.message) {
+    const smsMsg = composed.message.trim();
+    const smsSentences = smsMsg.split(/[.!?]+/).filter(s => s.trim().length > 0);
+    const isFirstContact = strategy.approach === "first_contact" || context.isFirstResponse;
+
+    if (isFirstContact) {
+      // Cold opener: max 3 sentence fragments (accounts for dashes/ellipses splitting),
+      // but primary gate is character count — must be under 200 chars.
+      if (smsSentences.length > 3 || smsMsg.length > 200) {
+        return {
+          category: "sms_too_long" as ViolationCategory,
+          reason: `First-contact SMS is too long: ${smsSentences.length} sentences, ${smsMsg.length} chars. Cold opener SMS must be max 2 sentences / ~160 chars. Current message: "${smsMsg.substring(0, 80)}..."`
+        };
+      }
+    } else {
+      // Follow-up: max 3 sentences, max 320 chars
+      if (smsSentences.length > 4 || smsMsg.length > 400) {
+        return {
+          category: "sms_too_long" as ViolationCategory,
+          reason: `Follow-up SMS is too long: ${smsSentences.length} sentences, ${smsMsg.length} chars. Follow-up SMS must be max 3 sentences / 320 chars. Current message: "${smsMsg.substring(0, 80)}..."`
+        };
+      }
     }
   }
 
