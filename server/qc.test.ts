@@ -665,7 +665,25 @@ describe("context_free_subject violation", () => {
     expect(category).toBe("context_free_subject");
   });
 
-  it("does NOT flag 'Hughes Reunion + Adorb' when lead name contains 'Hughes' (Paulette scenario)", () => {
+  it("flags 'Hughes Reunion + Adorb' because [Org] + Adorb format is now banned", () => {
+    const context = makeContext({
+      lead: { name: "Paulette Hughes Kornegay", businessName: "Kornegay Crafters", assignedAgent: "Abby", omnisendSegment: "" },
+      convHistory: [
+        { direction: "outbound", messageBody: "Hey Paulette! Heard you're planning the Hughes family reunion.", channel: "Email", timestamp: new Date().toISOString() },
+      ],
+    });
+    const strategy = makeStrategy({ channel: "Email" });
+    const composed = makeComposed({
+      message: "Hi Paulette, excited about the Hughes Reunion shirts.\n\nWe've helped lots of families create awesome reunion gear.\n\nWant me to send some design ideas?\n\n---\nBest,\nAbby | Adorb Custom Printing\n(954) 932-8543\nprint@adorbcustomtees.com\nadorbcustomtees.com",
+      subject: "Hughes Reunion + Adorb",
+    });
+    // The [Org] + Adorb format is now banned — subject must create curiosity, not label the email
+    const result = detectViolations(composed, makeQC(), strategy, context, makeInput({ channel: "Email" }), makeResearch());
+    expect(result.category).toBe("context_free_subject");
+    expect(result.reason).toContain("[Org] + Adorb");
+  });
+
+  it("does NOT flag 'Hughes Reunion tees' (good subject without company name)", () => {
     const context = makeContext({
       lead: { name: "Paulette Hughes Kornegay", businessName: "Kornegay Crafters", assignedAgent: "Abby", omnisendSegment: "" },
       convHistory: [
@@ -675,9 +693,8 @@ describe("context_free_subject violation", () => {
     const strategy = makeStrategy({ channel: "Email" });
     const composed = makeComposed({
       message: "Hi Paulette, excited about the Hughes Reunion shirts...",
-      subject: "Hughes Reunion + Adorb",
+      subject: "Hughes Reunion tees",
     });
-    // "Hughes" is a non-first-name part of the lead name AND "reunion" is an event keyword from conversation
     const result = detectViolations(composed, makeQC(), strategy, context, makeInput({ channel: "Email" }), makeResearch());
     expect(result.category).not.toBe("context_free_subject");
   });

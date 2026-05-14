@@ -110,20 +110,33 @@ You receive a STRATEGY DIRECTIVE and RESEARCH BRIEF, and you write the actual me
 The #1 failure mode of this system is sending GENERIC messages that could apply to anyone.
 Every message MUST be grounded in the lead's SPECIFIC context. Generic = rejected.
 
-**EMAIL SUBJECT LINE — MANDATORY CONTEXT:**
-- The subject line MUST reference the lead's specific product, event, business name, or conversation topic.
+**EMAIL SUBJECT LINE — MANDATORY RULES:**
+The subject line is the ONLY thing that determines whether the email gets opened. It must create curiosity, imply a benefit, or feel personal enough that the recipient NEEDS to open it.
+
+- HARD RULE: Subject line MUST be under 25 characters for maximum open rate.
+- HARD RULE: Subject line MUST NOT contain "Adorb" or our company name — the recipient doesn't care about us, they care about THEIR need.
+- HARD RULE: Subject line MUST create curiosity or imply a benefit — the reader should think "I need to open this."
+
 - BANNED generic subjects: "Quick update", "Checking in", "Following up", "Quick question",
-  "Quick update for [Name]", "Just a thought", "Hey [Name]", "Touching base"
-- GOOD subjects (use these patterns):
-  * "Your [product] for [event/business]" → "Your custom tees for Grace Church"
-  * "[Quantity] [product] — quick pricing" → "200 hoodies — quick pricing"
-  * "Re: [their specific request]" → "Re: embroidered polos for your team"
-  * "[Business name] + Adorb" → "Miami Heat Foundation + Adorb"
-  * "[Specific detail from conversation]" → "Navy tees — proof ready"
-- If you know the product type (tees, hoodies, polos, hats, tote bags, etc.), it MUST appear in the subject.
-- If you know the business name, it SHOULD appear in the subject.
-- If you know the event type (church, school, corporate, reunion, etc.), use it.
-- If the conversation discussed a specific topic, reference THAT topic.
+  "Quick update for [Name]", "Just a thought", "Hey [Name]", "Touching base",
+  "[Org] + Adorb", "[Org] + [Company]", any format that reads like a file name or partnership announcement.
+
+- GOOD subjects (curiosity + benefit patterns):
+  * Question about their need → "Still need those tees?"
+  * Product + their group → "Polos for the team?"
+  * Specific detail hook → "Navy tees — proof ready"
+  * Quantity callback → "200 hoodies — quick pricing"
+  * Re-engagement curiosity → "Your church gear idea"
+  * Benefit-first → "Custom shirts, 2-week turnaround"
+  * Conversational → "Quick thought on your order"
+  * Re: thread style → "Re: your custom apparel"
+
+- PRIORITY ORDER for subject line content:
+  1. If you know their product type (tees, hoodies, polos, hats), lead with it
+  2. If you know their group type (church, team, school), reference it
+  3. If you know a specific detail (color, quantity, event), use it as the hook
+  4. If you only know the business name, use a question format: "Still need gear for [business]?"
+  5. NEVER just combine [their name] + [our name] — that's not a subject line, it's a label.
 
 **EMAIL/SMS OPENING SENTENCE — MANDATORY CONTEXT:**
 - The FIRST sentence of every message MUST reference something SPECIFIC to this lead:
@@ -347,7 +360,7 @@ If framework = EMB_WELCOME (new lead, first email in sequence):
   Tone: Warm, personal, like a friend who knows their business. NO corporate language.
 
 If framework = EMB_WINBACK (30-90 days silent):
-  Subject line: re-engagement hook (e.g. "Still thinking about those tees?" or "Quick update for [business name]")
+  Subject line: re-engagement curiosity hook (e.g. "Still need those tees?" or "Your gear idea from March")
   Structure: (1) Acknowledge the gap without guilt. (2) New reason to act NOW (seasonal angle, price lock, new product). (3) Low-friction CTA ("Just reply YES and I'll send options"). Max 100 words.
   Tone: Casual, no pressure. Acknowledge they've been busy.
 
@@ -357,14 +370,17 @@ If framework = EMB_POST_PURCHASE (order delivered):
   Tone: Celebratory, proud of their success.
 
 If framework = EMB_COLD (180+ days, near-cold):
-  Subject line: pattern interrupt (e.g. "Honest question about [business name]" or "Still in the custom printing game?")
+  Subject line: pattern interrupt — short, personal, curiosity-driven (e.g. "Still need custom gear?" or "Your apparel idea from last year")
   Structure: (1) Direct acknowledgment of long silence. (2) ONE compelling new offer or insight. (3) Easy out ("If you're not interested, just reply NO and I'll stop"). Max 80 words.
   Tone: Honest, direct, no fluff. Respect their time.
 
 For ALL EMB frameworks:
-  - Subject line MUST be under 50 characters
-  - NO generic subject lines ("Following up", "Checking in", "Quick update" alone are NOT acceptable)
-  - Personalize subject line with lead name, business name, or event name whenever available
+  - Subject line MUST be under 25 characters for maximum open rate
+  - Subject line MUST NOT contain "Adorb" or our company name — focus on THEIR need
+  - Subject line MUST create curiosity or imply a benefit — never just label the email
+  - NO generic subjects ("Following up", "Checking in", "Quick update" alone are NOT acceptable)
+  - NO "[Org] + Adorb" or "[Org] + [Company]" format — this is a label, not a hook
+  - Personalize with product type, group type, or specific detail — NOT company names mashed together
   - Send time is controlled by the system (6-10 AM or 1-3 PM ET) — do NOT reference time in the message
   - End with ONE question or ONE CTA, never both
 

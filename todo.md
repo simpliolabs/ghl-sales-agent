@@ -1379,3 +1379,7 @@
 - [x] Verify SMS sends are gated to business hours — was hardcoded to ET only
 - [x] Implement recipient-timezone-aware TCPA quiet hours using phone area code → timezone lookup
 - [x] Wire recipient-TZ TCPA checks into follow-up-trigger.ts (2 gates) and webhook-message.ts (2 gates)
+- [x] Fix email subject lines: "[Org] + Adorb" format doesn't sell or create curiosity — need benefit-focused, curiosity-driven subject lines
+- [x] Add hard constraint to Composer: subject lines must hook the reader with a question, benefit, or personalized reference — never just "[Org] + [Company]"
+- [x] Add QC hard-reject for "[Org] + Adorb" subject format (fires before context check)
+- [x] Update all EMB framework subject line rules: under 25 chars, no company name, curiosity-driven

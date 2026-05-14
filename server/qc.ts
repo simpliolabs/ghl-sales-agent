@@ -812,7 +812,16 @@ export function detectViolations(
       if (eventMentions) contextTokens.push(...eventMentions);
     }
 
-    // Only enforce if we have REAL context tokens (product, business, event — not just the lead's name)
+    // HARD RULE (fires FIRST, regardless of context): Subject must NOT use "[Org] + Adorb" format
+    const containsCompanyName = subjectLower.includes("adorb") && subjectLower.includes("+");
+    if (containsCompanyName) {
+      return {
+        category: "context_free_subject" as ViolationCategory,
+        reason: `Email subject "${composed.subject}" uses the banned "[Org] + Adorb" format. Subject lines must create curiosity or imply a benefit — never just label the email with company names.`
+      };
+    }
+
+    // Only enforce context-grounding if we have REAL context tokens (product, business, event — not just the lead's name)
     if (contextTokens.length > 0) {
       const hasContextInSubject = contextTokens.some(token => {
         if (token.length <= 2) return false;
