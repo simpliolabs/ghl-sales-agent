@@ -242,37 +242,78 @@ function selectChannel(
   preferredChannel: string | null,
   hasPhone: boolean,
   hasEmail: boolean,
+  consecutiveUnanswered: number = 0,
+  dndSms: boolean = false,
+  dndEmail: boolean = false,
 ): string {
   // Priority 1: Use preferred channel if set
   const primary = preferredChannel || originalChannel || "SMS";
+  const primaryLower = primary.toLowerCase();
+  const isSms = primaryLower === "sms";
+  const isEmail = primaryLower === "email";
+  const isFb = primaryLower.includes("fb") || primaryLower.includes("facebook");
+  const isIg = primaryLower.includes("ig") || primaryLower.includes("instagram");
 
-  // Decision 3A: Email has 0.5% reply rate vs SMS 17.4% and FB 41.2%.
-  // Channel priority: FB (if window open) > SMS > Email (last resort only).
-  // Email is ONLY used when no phone AND no social channel available.
+  // ============================================================
+  // CHANNEL ESCALATION — switch channels after repeated no-replies
+  // This is the PRIMARY fix for leads like Sarah Weiss who get
+  // 5+ SMS with zero replies and never get an Email.
+  //
+  // Rules:
+  //   SMS  → Email  after 3 consecutive unanswered (if email available + not DND)
+  //   Email → SMS   after 2 consecutive unanswered (if phone available + not DND)
+  //   FB/IG → SMS   after 2 consecutive unanswered (if phone available + not DND)
+  //   At cadencePosition 5+ (deep dormancy): always try alternate channel
+  // ============================================================
+
+  // SMS → Email escalation: 3+ unanswered SMS, email available
+  if (isSms && consecutiveUnanswered >= 3 && hasEmail && !dndEmail) {
+    return "Email";
+  }
+
+  // Email → SMS escalation: 2+ unanswered emails, phone available
+  if (isEmail && consecutiveUnanswered >= 2 && hasPhone && !dndSms) {
+    return "SMS";
+  }
+
+  // FB/IG → SMS escalation: 2+ unanswered, phone available
+  if ((isFb || isIg) && consecutiveUnanswered >= 2 && hasPhone && !dndSms) {
+    return "SMS";
+  }
+
+  // Deep dormancy (cadencePosition 5+): force alternate channel if available
+  // The current channel clearly isn't working at this point
+  if (cadencePosition >= 5 && consecutiveUnanswered >= 2) {
+    if (isSms && hasEmail && !dndEmail) return "Email";
+    if (isEmail && hasPhone && !dndSms) return "SMS";
+    if ((isFb || isIg) && hasPhone && !dndSms) return "SMS";
+  }
+
+  // ============================================================
+  // STANDARD CHANNEL SELECTION (no escalation triggered)
+  // ============================================================
   if (cadencePosition <= 2) {
     // First contact + follow-up 1-2: use primary channel
     // But if primary resolved to Email and we have phone, prefer SMS
-    if (primary.toLowerCase() === "email" && hasPhone) {
+    if (isEmail && hasPhone && !dndSms) {
       return "SMS";
     }
     return primary;
   } else if (cadencePosition === 3) {
     // Follow-up 3: try different channel (FB→SMS, SMS→FB if available)
-    if (primary.toLowerCase().includes("fb") || primary.toLowerCase().includes("facebook")) {
-      return hasPhone ? "SMS" : primary; // FB→SMS, never FB→Email
+    if (isFb || isIg) {
+      return hasPhone && !dndSms ? "SMS" : primary;
     }
-    if (primary.toLowerCase() === "sms") {
-      // SMS→FB would be ideal but we can't check FB window here.
-      // Stay on SMS (proven 17.4% reply) rather than dropping to Email (0.5%)
+    if (isSms) {
       return "SMS";
     }
-    return hasPhone ? "SMS" : primary;
+    return hasPhone && !dndSms ? "SMS" : primary;
   } else if (cadencePosition <= 5) {
-    // Follow-up 4-5: SMS preferred (was Email — but Email has 0.5% reply)
-    return hasPhone ? "SMS" : hasEmail ? "Email" : primary;
+    // Follow-up 4-5: SMS preferred
+    return hasPhone && !dndSms ? "SMS" : hasEmail && !dndEmail ? "Email" : primary;
   } else {
-    // Reactivation (6+): SMS preferred, Email only as absolute last resort
-    return hasPhone ? "SMS" : hasEmail ? "Email" : primary;
+    // Reactivation (6+): SMS preferred, Email only as last resort
+    return hasPhone && !dndSms ? "SMS" : hasEmail && !dndEmail ? "Email" : primary;
   }
 }
 
@@ -603,13 +644,18 @@ export async function calculateNextFollowUp(input: SchedulingInput): Promise<Sch
   const leadAgeHours = (Date.now() - leadCreatedAt) / (1000 * 60 * 60);
   const score = lead.opportunityScore || 50;
 
-  // Determine channel
+  // Determine channel (with escalation awareness)
+  const dndSmsActive = !!(lead.dndSms && (lead.dndSms === "active" || lead.dndSms === "permanent"));
+  const dndEmailActive = !!(lead.dndEmail && (lead.dndEmail === "active" || lead.dndEmail === "permanent"));
   const channel = selectChannel(
     lead.cadencePosition || 0,
     lead.source || null,
     lead.preferredChannel || null,
     !!lead.phone,
     !!lead.email,
+    consecutiveUnanswered,
+    dndSmsActive,
+    dndEmailActive,
   );
 
   // ============================================================
@@ -702,18 +748,22 @@ export async function calculateNextFollowUp(input: SchedulingInput): Promise<Sch
       ? ` [ICP:${icpTier.toUpperCase()} ×${icpMultiplier}]`
       : "";
     const followUpDate = new Date(Date.now() + icpAdjustedHours * 60 * 60 * 1000);
-    const adjustedDate = pushToNextBusinessHour(followUpDate, selectChannel(
+    const p3Channel = selectChannel(
       cadence.cadencePosition,
       lead.source || null,
       lead.preferredChannel || null,
       !!lead.phone,
       !!lead.email,
-    ));
+      consecutiveUnanswered,
+      dndSmsActive,
+      dndEmailActive,
+    );
+    const adjustedDate = pushToNextBusinessHour(followUpDate, p3Channel);
     return {
       nextFollowUpAt: adjustedDate,
       reason: `[P3 Silence Cadence] ${cadence.reason}${icpNote}`,
       priority: 3,
-      channel: selectChannel(cadence.cadencePosition, lead.source || null, lead.preferredChannel || null, !!lead.phone, !!lead.email),
+      channel: p3Channel,
       cadencePosition: cadence.cadencePosition,
       isDnc: false,
     };

@@ -264,3 +264,99 @@ describe("Scheduling Engine — Structural Validation", () => {
     expect(src).toContain("triggerOverdueCatchUp");
   });
 });
+
+// ─── Channel Escalation Tests ──────────────────────────────────────────────
+
+describe("Scheduling Engine — Channel Escalation (selectChannel)", () => {
+  // selectChannel is not exported, so we test via source code structural checks
+  // and via the exported calculateNextFollowUp integration path.
+  // These structural tests verify the escalation rules are present in the code.
+
+  it("selectChannel should contain SMS→Email escalation rule (3+ unanswered)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.join(__dirname, "scheduling-engine.ts"), "utf-8");
+    // Must have the 3-unanswered SMS→Email rule
+    expect(src).toContain("isSms && consecutiveUnanswered >= 3 && hasEmail && !dndEmail");
+    expect(src).toContain('return "Email"');
+  });
+
+  it("selectChannel should contain Email→SMS escalation rule (2+ unanswered)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.join(__dirname, "scheduling-engine.ts"), "utf-8");
+    // Must have the 2-unanswered Email→SMS rule
+    expect(src).toContain("isEmail && consecutiveUnanswered >= 2 && hasPhone && !dndSms");
+  });
+
+  it("selectChannel should contain FB/IG→SMS escalation rule (2+ unanswered)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.join(__dirname, "scheduling-engine.ts"), "utf-8");
+    expect(src).toContain("(isFb || isIg) && consecutiveUnanswered >= 2 && hasPhone && !dndSms");
+  });
+
+  it("selectChannel should contain deep dormancy forced channel switch (cadencePosition >= 5)", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.join(__dirname, "scheduling-engine.ts"), "utf-8");
+    expect(src).toContain("cadencePosition >= 5 && consecutiveUnanswered >= 2");
+  });
+
+  it("selectChannel should accept consecutiveUnanswered, dndSms, dndEmail parameters", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.join(__dirname, "scheduling-engine.ts"), "utf-8");
+    // Function signature must include the new params
+    expect(src).toMatch(/function selectChannel\([^)]*consecutiveUnanswered/);
+    expect(src).toMatch(/function selectChannel\([^)]*dndSms/);
+    expect(src).toMatch(/function selectChannel\([^)]*dndEmail/);
+  });
+
+  it("calculateNextFollowUp should pass DND flags to selectChannel", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.join(__dirname, "scheduling-engine.ts"), "utf-8");
+    // The main channel determination must pass DND flags
+    expect(src).toContain("dndSmsActive");
+    expect(src).toContain("dndEmailActive");
+    // DND flags must be computed from lead data
+    expect(src).toContain('lead.dndSms');
+    expect(src).toContain('lead.dndEmail');
+  });
+
+  it("P3 Silence Cadence path should use escalation-aware selectChannel", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.join(__dirname, "scheduling-engine.ts"), "utf-8");
+    // The P3 path should use the p3Channel variable (not inline selectChannel without escalation params)
+    expect(src).toContain("const p3Channel = selectChannel(");
+    expect(src).toContain("channel: p3Channel");
+  });
+
+  it("selectChannel should NOT escalate SMS→Email when dndEmail is true", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.join(__dirname, "scheduling-engine.ts"), "utf-8");
+    // The SMS→Email rule must check !dndEmail
+    const smsToEmailRule = src.match(/isSms && consecutiveUnanswered >= 3.*!dndEmail/);
+    expect(smsToEmailRule).not.toBeNull();
+  });
+
+  it("selectChannel should NOT escalate Email→SMS when dndSms is true", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.join(__dirname, "scheduling-engine.ts"), "utf-8");
+    // The Email→SMS rule must check !dndSms
+    const emailToSmsRule = src.match(/isEmail && consecutiveUnanswered >= 2.*!dndSms/);
+    expect(emailToSmsRule).not.toBeNull();
+  });
+
+  it("standard channel selection should respect DND flags for SMS preference", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const src = fs.readFileSync(path.join(__dirname, "scheduling-engine.ts"), "utf-8");
+    // cadencePosition <= 2 path: Email→SMS override should check !dndSms
+    expect(src).toContain("isEmail && hasPhone && !dndSms");
+  });
+});
