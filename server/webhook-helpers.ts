@@ -24,11 +24,12 @@ export const MIGRATED_SOURCE = "transferred_contact";
  * - 'r': old import batch (GHL single-letter code)
  * - 'n': GHL bulk import with no source label
  * - 'bulk_import': explicit bulk import tag
- * - 'Facebook': Facebook Lead Ads import
- * - 'ghl': generic GHL import
- * - 'fb': Facebook shorthand import
+ *
+ * REMOVED (Fix 10): 'Facebook', 'ghl', 'fb' — these are used by NEW contacts
+ * from GHL webhooks and Facebook forms. Including them caused 326+ new leads
+ * to be treated as migrated email-only contacts (Pete Marrero bug).
  */
-export const MIGRATED_SOURCES = ["transferred_contact", "r", "n", "bulk_import", "Facebook", "ghl", "fb"];
+export const MIGRATED_SOURCES = ["transferred_contact", "r", "n", "bulk_import"];
 
 /** Type for the lead object accepted by migration guard functions */
 type MigrationGuardLead = {
@@ -37,6 +38,7 @@ type MigrationGuardLead = {
   lastMessageAt?: Date | null;
   reactivatedFromMigration?: number | null;
   researchData?: unknown;
+  createdAt?: Date | string | null;
 };
 
 /**
@@ -74,8 +76,21 @@ export function isMigratedEmailOnly(lead: MigrationGuardLead): boolean {
  * Enforces email-only channel for migrated leads.
  * Returns 'Email' if the lead is migrated and not yet reactivated,
  * otherwise returns the original channel unchanged.
+ *
+ * SAFETY: Leads created within the last 2 hours are NEVER treated as migrated,
+ * regardless of source. A brand new lead from a GHL webhook is by definition
+ * not a migrated contact.
  */
 export function enforceMigratedChannel(lead: MigrationGuardLead, requestedChannel: string): string {
+  // SAFETY NET: Never treat brand-new leads as migrated (Fix 10)
+  if (lead.createdAt) {
+    const created = lead.createdAt instanceof Date ? lead.createdAt : new Date(lead.createdAt);
+    const ageMs = Date.now() - created.getTime();
+    const TWO_HOURS = 2 * 60 * 60 * 1000;
+    if (ageMs < TWO_HOURS) {
+      return requestedChannel; // Brand new lead — not migrated
+    }
+  }
   if (isMigratedEmailOnly(lead)) {
     if (requestedChannel !== "Email") {
       console.log(`[MigratedLead] Channel forced Email (was ${requestedChannel}) for migrated lead (source=${lead.source}) — email-only until re-engagement`);
