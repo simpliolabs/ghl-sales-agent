@@ -1395,3 +1395,7 @@
 - [x] RESEARCH: ruflo repo (ruvnet/ruflo) — 50.5k star multi-agent orchestration framework. Assessment: overkill for our 4-agent fixed pipeline. No changes needed.
 - [x] BUG: No channel escalation after repeated unanswered SMS — Sarah Weiss got 5+ SMS with zero replies, system never switched to Email. Need auto-escalation: SMS→Email after 3 unanswered, Email→SMS after 2 unanswered
 - [x] BUG: SMS cold openers are way too long (4 paragraphs) — Carolyn Culver example shows email-length SMS. Need strict 2-3 sentence / 160-320 char limit for SMS cold openers in Composer prompt and QC gate
+- [x] FOUNDATIONAL: Consolidate ALL channel selection + business hours logic into ONE authoritative ChannelRouter — David Maynard FB at 10:34 PM got Email at 10:35 PM (wrong channel, wrong time). Fixed: Layer 0B/7B form detection, orchestrator inbound channel enforcement, TCPA social bypass.
+- [ ] AUDIT: Map every channel decision point across all 6+ files (webhook, follow-up, scheduling, orchestrator, strategist, nurture)
+- [ ] BUILD: Single ChannelRouter function with clear priority: (1) match inbound channel, (2) business hours gate, (3) DND check, (4) fallback escalation
+- [ ] CLEANUP: Remove all duplicate/conflicting channel logic from old locations
