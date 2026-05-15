@@ -818,7 +818,11 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   //   3. Brain Council's Strategist (which knows when to escalate)
 
   // --- TCPA POST-DECISION GATE: Block SMS if quiet hours in recipient's timezone ---
-  if (isTcpaQuietHoursForRecipient(lead!.phone) && normalizeChannel(aiResponse.channel || channel) === "SMS") {
+  // SKIP for inbound social channels: if the lead messaged on FB/IG/WhatsApp/Live_Chat,
+  // we MUST reply on that channel regardless of TCPA (TCPA only applies to proactive SMS).
+  const SOCIAL_REPLY_CHANNELS = ["FB", "IG", "WhatsApp", "Live_Chat"];
+  const isInboundSocialReply = direction === "inbound" && SOCIAL_REPLY_CHANNELS.includes(channel);
+  if (!isInboundSocialReply && isTcpaQuietHoursForRecipient(lead!.phone) && normalizeChannel(aiResponse.channel || channel) === "SMS") {
     if (lead!.email) {
       // Switch to email
       console.log(`[Webhook] TCPA gate (recipient TZ): switching Brain Council SMS to Email for lead ${lead!.id}`);

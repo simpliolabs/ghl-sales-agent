@@ -568,6 +568,22 @@ export async function runSalesManager(input: BrainCouncilInput): Promise<BrainCo
     console.log(`[SalesManager] Strategy: ${strategy.approach}/${strategy.framework}/${strategy.angle} (tier ${strategy.personalizationTier})`);
 
     // ============================================================
+    // INBOUND CHANNEL ENFORCEMENT (HIGHEST PRIORITY)
+    // Rule: "Always respond to contacts right away in the same manner they reached out."
+    // When a lead submits via FB/IG/WhatsApp/Live_Chat, the first reply MUST go back
+    // on that same channel -- regardless of what the Strategist recommends.
+    // This runs BEFORE all other channel overrides because it's the foundational rule.
+    // Only applies to first-contact and inbound replies, NOT proactive follow-ups.
+    // ============================================================
+    const INBOUND_SOCIAL_CHANNELS = ["FB", "IG", "WhatsApp", "Live_Chat"];
+    const isInboundSocial = INBOUND_SOCIAL_CHANNELS.includes(input.channel);
+    if (isInboundSocial && strategy.channel !== input.channel) {
+      console.log(`[SalesManager] INBOUND CHANNEL ENFORCEMENT: lead ${input.leadId} came in on ${input.channel}, Strategist chose ${strategy.channel} -- overriding to ${input.channel}`);
+      (strategy as any).channel = input.channel;
+      (strategy as any).reasoning = `[INBOUND CHANNEL ENFORCED: lead came in on ${input.channel}, must reply on same channel] ${strategy.reasoning}`;
+    }
+
+    // ============================================================
     // PROGRAMMATIC DORMANT LEAD CHANNEL OVERRIDE (PRE-FRAMEWORK)
     // Leads dormant 61-364 days: re-engage via Email (less invasive).
     // Leads dormant 365+ days: SMS FIRST (emails ineffective for deeply dormant leads).

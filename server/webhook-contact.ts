@@ -471,6 +471,16 @@ async function sendDelayedFirstContact(
       console.log(`[Webhook] Channel detection Layer 0 HIT for lead ${leadId}: form data found in conversation body → FB`);
     }
 
+    // Layer 0B (FALLBACK FOR EMPTY GHL HISTORY): If form data exists from webhook payload
+    // or custom fields but GHL conversation history is empty (GHL hadn't indexed the FB
+    // form message yet at the 45s mark), the lead almost certainly came from a Facebook
+    // lead form. Form data with structured fields (Company name, Products, etc.) is the
+    // hallmark of FB/IG lead forms — no other channel produces this format.
+    if (!detectedChannel && formFields.length > 0 && ghlHistory.length === 0) {
+      detectedChannel = "FB";
+      console.log(`[Webhook] Channel detection Layer 0B HIT for lead ${leadId}: form data present but GHL history empty → FB (lead form before GHL indexed)`);
+    }
+
     // Layer 1: Check GHL conversation history for inbound message type
     if (!detectedChannel && ghlHistory.length > 0) {
       const lastInbound = [...ghlHistory].reverse().find(m => m.direction === "inbound");
@@ -555,6 +565,14 @@ async function sendDelayedFirstContact(
       } else if (attrSession.includes("social") && (attrMedium.includes("facebook") || attrMedium.includes("fb"))) {
         detectedChannel = "FB";
       }
+    }
+
+    // Layer 7B: If form data exists and we STILL haven't detected a channel,
+    // the lead came from a form (FB/IG lead form) but all signal layers missed.
+    // This is the last chance before the generic SMS/Email fallback.
+    if (!detectedChannel && formFields.length > 0) {
+      detectedChannel = "FB";
+      console.log(`[Webhook] Channel detection Layer 7B HIT for lead ${leadId}: form data present, all other layers missed → FB (form = lead form)`);
     }
 
     // Layer 8: Default fallback — phone → SMS, email-only → Email
