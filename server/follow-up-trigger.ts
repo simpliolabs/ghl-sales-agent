@@ -18,7 +18,7 @@ import { getLeadsDueForFollowUp, getConversationHistory, updateLeadFields, addCo
 import { runBrainCouncil } from "./brain-council-orchestrator";
 import { calculateNextFollowUp, checkRateLimits, capDate, checkDnc } from "./scheduling-engine";
 import { sendMessage, addNote, fetchGhlConversationHistory, getContact } from "./ghl";
-import { sendMessageWithRetry, normalizeChannel, extractFormData, isLlmExhausted, LLM_RETRY_DELAY_MS, formatEmailHtml, buildContextSubject, enforceMigratedChannel, sourceToChannel, ensureEmailSignature } from "./webhook-helpers";
+import { sendMessageWithRetry, normalizeChannel, extractFormData, isLlmExhausted, LLM_RETRY_DELAY_MS, formatEmailHtml, buildContextSubject, sourceToChannel, ensureEmailSignature } from "./webhook-helpers";
 import { shouldHandoffToAgent, estimateOrderValue, generateContactNotes } from "./ai-brain";
 import { notifyOwner } from "./_core/notification";
 import { handleChannelDnc, detectDncChannel } from "./channel-fallback";
@@ -401,8 +401,6 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
 
         // Use the Brain Council's channel decision, not our hint
         let channel = normalizeChannel(aiResponse.channel || hintChannel);
-        // MIGRATED LEAD RESTRICTION: Force email-only for transferred contacts until they re-engage
-        channel = enforceMigratedChannel(lead as any, channel);
 
         console.log(`[FollowUp] Brain Council for lead ${leadId}: QC=${aiResponse.qcScore}, blocked=${aiResponse.blocked}, framework=${aiResponse.framework}, channel=${channel} (hint was ${hintChannel})`);
 

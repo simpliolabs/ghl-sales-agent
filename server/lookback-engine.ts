@@ -29,7 +29,7 @@ import {
 import { runResearcher, emptyResearch } from "./researcher";
 import { buildLeadContext } from "./brain-context";
 import { calculateNextFollowUp } from "./scheduling-engine";
-import { enforceMigratedChannel, sourceToChannel } from "./webhook-helpers";
+import { sourceToChannel } from "./webhook-helpers";
 import { leads, aiState } from "../drizzle/schema";
 import { eq, isNull, and, or, lte, sql, isNotNull } from "drizzle-orm";
 
@@ -416,9 +416,7 @@ export async function runLookback(options?: {
             console.log(`[Lookback] SOURCE CHANNEL OVERRIDE for lead ${leadId}: source='${lead.source}' → channel=${srcChannel} (no conversation history)`);
           }
         }
-        // MIGRATED LEAD RESTRICTION: Force email-only for transferred contacts until they re-engage
-        const enforcedChannel = enforceMigratedChannel(lead as any, resolvedChannel);
-        await updateLeadFields(leadId, { preferredChannel: enforcedChannel });
+        await updateLeadFields(leadId, { preferredChannel: resolvedChannel });
       }
 
       // 4. Store key context in AI state for the Brain Council to use

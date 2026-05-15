@@ -15,7 +15,7 @@
 
 import { getPendingDeferredResponses, updateDeferredResponseStatus, getLeadById, updateLeadFields, addConversation, getConversationHistory } from "./db";
 import { sendMessage, fetchGhlConversationHistory } from "./ghl";
-import { sendMessageWithRetry, formatEmailHtml, enforceMigratedChannel, normalizeChannel, buildContextSubject } from "./webhook-helpers";
+import { sendMessageWithRetry, formatEmailHtml, normalizeChannel, buildContextSubject } from "./webhook-helpers";
 import { calculateNextFollowUp } from "./scheduling-engine";
 import { upsertAiState, getAiState } from "./db";
 
@@ -90,7 +90,6 @@ export async function processDeferredResponses(): Promise<{ sent: number; cancel
 
       // --- NO AGENT RESPONSE: Send the AI message ---
       let sendChannel = normalizeChannel(deferred.channel);
-      sendChannel = enforceMigratedChannel(lead, sendChannel);
 
       const sendOpts: Parameters<typeof sendMessage>[1] = sendChannel === "Email"
         ? {

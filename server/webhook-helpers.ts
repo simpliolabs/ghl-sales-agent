@@ -5,100 +5,13 @@
 import { getContact, searchContacts, sendMessage, updateContactCustomField } from "./ghl";
 import { updateLeadFields } from "./db";
 
-// --- MIGRATED LEAD CHANNEL RESTRICTION ---
-// Contacts migrated from the old GHL account should ONLY be reached via Email
-// until they re-engage by sending an inbound message.
-// Once they reply, they become active leads and all channels are unlocked.
-//
-// IMPORTANT: Two batches of migrated contacts exist:
-//   1. source='transferred_contact' (1,554 leads)
-//   2. source='r' (1,001 leads) — these also have transferredContact in researchData
-// The guard MUST check BOTH the source string AND the researchData to catch all migrated contacts.
+// --- MIGRATED LEAD CHANNEL RESTRICTION (REMOVED — Fix 11) ---
+// The one-time migration from the old GHL account is complete.
+// All migrated channel restriction code has been removed because it was
+// actively harming new leads (Pete Marrero, David Maynard, 326+ leads
+// since April 1 were forced to Email instead of their inbound channel).
+// The reactivatedFromMigration column remains in the DB but is no longer checked.
 
-/** Source values used for contacts imported from the previous GHL account */
-export const MIGRATED_SOURCE = "transferred_contact";
-/**
- * All source values that indicate a bulk-imported or migrated contact.
- * These contacts are email-only until they send an inbound message (reactivatedFromMigration=1).
- * - 'transferred_contact': main GHL account migration batch
- * - 'r': old import batch (GHL single-letter code)
- * - 'n': GHL bulk import with no source label
- * - 'bulk_import': explicit bulk import tag
- *
- * REMOVED (Fix 10): 'Facebook', 'ghl', 'fb' — these are used by NEW contacts
- * from GHL webhooks and Facebook forms. Including them caused 326+ new leads
- * to be treated as migrated email-only contacts (Pete Marrero bug).
- */
-export const MIGRATED_SOURCES = ["transferred_contact", "r", "n", "bulk_import"];
-
-/** Type for the lead object accepted by migration guard functions */
-type MigrationGuardLead = {
-  source?: string | null;
-  convState?: string | null;
-  lastMessageAt?: Date | null;
-  reactivatedFromMigration?: number | null;
-  researchData?: unknown;
-  createdAt?: Date | string | null;
-};
-
-/**
- * Returns true if the lead is a migrated contact from either import batch.
- * Checks both the source field AND the presence of transferredContact in researchData.
- */
-function isMigratedContact(lead: MigrationGuardLead): boolean {
-  // Check source string (covers both 'transferred_contact' and 'r')
-  if (lead.source && MIGRATED_SOURCES.includes(lead.source)) return true;
-  // Check researchData for transferredContact (catches any batch regardless of source)
-  if (lead.researchData) {
-    const rd = typeof lead.researchData === "string" ? JSON.parse(lead.researchData) : lead.researchData;
-    if (rd && typeof rd === "object" && "transferredContact" in rd) return true;
-  }
-  return false;
-}
-
-/**
- * Returns true if the lead is a migrated contact that hasn't re-engaged yet.
- * Migrated leads are email-only until they send an inbound message.
- * A lead is considered "reactivated" if:
- *  - reactivatedFromMigration flag is set (explicit re-engagement marker)
- *  - convState is anything other than 'new_lead' (they've progressed)
- */
-export function isMigratedEmailOnly(lead: MigrationGuardLead): boolean {
-  if (!isMigratedContact(lead)) return false;
-  // Already reactivated via explicit inbound re-engagement
-  if (lead.reactivatedFromMigration === 1) return false;
-  // Has progressed beyond new_lead state (engaged in conversation)
-  if (lead.convState && lead.convState !== "new_lead") return false;
-  return true;
-}
-
-/**
- * Enforces email-only channel for migrated leads.
- * Returns 'Email' if the lead is migrated and not yet reactivated,
- * otherwise returns the original channel unchanged.
- *
- * SAFETY: Leads created within the last 2 hours are NEVER treated as migrated,
- * regardless of source. A brand new lead from a GHL webhook is by definition
- * not a migrated contact.
- */
-export function enforceMigratedChannel(lead: MigrationGuardLead, requestedChannel: string): string {
-  // SAFETY NET: Never treat brand-new leads as migrated (Fix 10)
-  if (lead.createdAt) {
-    const created = lead.createdAt instanceof Date ? lead.createdAt : new Date(lead.createdAt);
-    const ageMs = Date.now() - created.getTime();
-    const TWO_HOURS = 2 * 60 * 60 * 1000;
-    if (ageMs < TWO_HOURS) {
-      return requestedChannel; // Brand new lead — not migrated
-    }
-  }
-  if (isMigratedEmailOnly(lead)) {
-    if (requestedChannel !== "Email") {
-      console.log(`[MigratedLead] Channel forced Email (was ${requestedChannel}) for migrated lead (source=${lead.source}) — email-only until re-engagement`);
-    }
-    return "Email";
-  }
-  return requestedChannel;
-}
 
 // --- GHL SEND ERROR CLASSIFICATION ---
 // Classifies GHL API error responses into actionable categories so callers

@@ -1400,3 +1400,4 @@
 - [ ] BUILD: Single ChannelRouter function with clear priority: (1) match inbound channel, (2) business hours gate, (3) DND check, (4) fallback escalation
 - [ ] CLEANUP: Remove all duplicate/conflicting channel logic from old locations
 - [x] BUG: Pete Marrero FB lead at 11:16 PM got Email at 11:17 PM AFTER Fix 9 was deployed — ROOT CAUSE: 'ghl' was in MIGRATED_SOURCES list, causing all new GHL contacts to be treated as migrated email-only. Fixed: removed 'ghl', 'Facebook', 'fb' from MIGRATED_SOURCES + added 2-hour safety net in enforceMigratedChannel.
+- [x] CLEANUP: Remove entire migrated channel restriction system (MIGRATED_SOURCES, isMigratedContact, isMigratedEmailOnly, enforceMigratedChannel) — one-time migration is done, code was actively harmful. Removed from 6 files, deleted 2 test files.
