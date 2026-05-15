@@ -422,11 +422,11 @@ export async function seedKnownErrors(): Promise<number> {
     },
     {
       errorType: "channel_mismatch",
-      errorMessage: "Migrated contact reached via SMS/FB instead of email-only",
+      errorMessage: "[HISTORICAL] Migrated contact reached via SMS/FB instead of email-only",
       context: "infrastructure:migrated_contact_channel",
       rootCause: "Transferred contacts (source='transferred_contact') hadn't opted in to new system but were being contacted via all channels.",
-      knownFix: "Added enforceMigratedChannel() that forces email-only for migrated leads. Re-engagement detection unlocks all channels when lead replies.",
-      prevention: "Always check lead source/origin before selecting outbound channel. Migrated/imported contacts should default to least-intrusive channel until they re-engage.",
+      knownFix: "REMOVED (Fix 11): enforceMigratedChannel() was deleted. The one-time migration is complete and the restriction was actively harming 326+ new leads by forcing them to Email.",
+      prevention: "Do not add blanket channel restrictions based on source fields — new leads from GHL webhooks share source values with migrated contacts.",
     },
   ];
 

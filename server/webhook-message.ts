@@ -37,8 +37,6 @@ import {
   MAX_LLM_RETRIES,
   formatEmailHtml,
   buildContextSubject,
-  enforceMigratedChannel,
-  MIGRATED_SOURCE,
 } from "./webhook-helpers";
 import { processInboundState, type ConversationState } from "./conversation-state";
 import { dispatchStateActions, buildDispatchContext } from "./action-dispatcher";
@@ -258,14 +256,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
 
   await updateLeadFields(lead!.id, { lastMessageAt: new Date() });
 
-  // --- MIGRATED LEAD RE-ENGAGEMENT DETECTION ---
-  // If a migrated contact (source='transferred_contact') sends an inbound message,
-  // mark them as reactivated so all channels are unlocked for future outreach.
-  if (direction === "inbound" && lead && lead.source === MIGRATED_SOURCE && lead.reactivatedFromMigration !== 1) {
-    await updateLeadFields(lead.id, { reactivatedFromMigration: 1 });
-    (lead as any).reactivatedFromMigration = 1;
-    console.log(`[Webhook/Msg] ✅ Migrated lead ${lead.id} (${lead.name || "Unknown"}) RE-ENGAGED via inbound ${channel} message — all channels now unlocked`);
-  }
+  // REMOVED (Fix 11): Migrated lead re-engagement detection — one-time migration is complete.
 
   // --- INBOUND REPLY: Create appointment/task if missing ---
   // If a lead sends an inbound message but has NO appointment or task yet,
@@ -786,7 +777,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
         }
 
         if (quickAck) {
-          const ackChannel = enforceMigratedChannel(lead!, normalizeChannel(aiResponse.channel || channel));
+          const ackChannel = normalizeChannel(aiResponse.channel || channel);
           const ackOpts: Parameters<typeof sendMessage>[1] = ackChannel === "Email"
             ? { type: "Email", subject: `Re: Your inquiry`, html: formatEmailHtml(quickAck), fromName: aiResponse.fromName || lead!.assignedAgent || "Adorb Custom Tees" }
             : { type: ackChannel as "SMS" | "WhatsApp" | "FB" | "IG", message: quickAck };
@@ -846,7 +837,6 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     if (!alreadyDeferred) {
       const sendAt = getDeferredSendAt();
       let deferChannel = normalizeChannel(aiResponse.channel || channel);
-      deferChannel = enforceMigratedChannel(lead!, deferChannel);
       const emailSubject = deferChannel === "Email"
         ? (aiResponse.subject || buildContextSubject({ name: lead!.name, businessName: lead!.businessName }, aiResponse.fromName))
         : undefined;
@@ -892,8 +882,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     // Outbound-initiated or SMS (which may be misdetected) — use Brain Council recommendation
     sendChannel = normalizeChannel(aiResponse.channel || channel);
   }
-  // MIGRATED LEAD RESTRICTION: Force email-only for transferred contacts until they re-engage
-  sendChannel = enforceMigratedChannel(lead!, sendChannel);
+  // REMOVED (Fix 11): Migrated channel restriction was a one-time migration, now removed.
   if (sendChannel !== channel) {
     console.log(`[Webhook/Msg] Channel adjusted for lead ${lead!.id}: inbound=${channel} → send=${sendChannel} (Brain Council recommended: ${aiResponse.channel})`);
   }

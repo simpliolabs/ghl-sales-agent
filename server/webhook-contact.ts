@@ -29,7 +29,6 @@ import {
   extractFormData,
   parseFormDataFromMessageBody,
   extractContactFieldsFromFormData,
-  enforceMigratedChannel,
   formatEmailHtml,
   buildSendOpts,
   buildContextSubject,
@@ -644,8 +643,7 @@ async function sendDelayedFirstContact(
     // Only allow Brain Council to override if the detected channel is generic SMS/Email.
     const isDetectedSocial = ["FB", "IG", "WhatsApp", "Live_Chat"].includes(channel);
     let brainChannel = isDetectedSocial ? channel : (brainResult.channel || channel);
-    // MIGRATED LEAD RESTRICTION: Force email-only for transferred contacts until they re-engage
-    brainChannel = enforceMigratedChannel(lead, brainChannel);
+    // REMOVED (Fix 11): Migrated channel restriction was a one-time migration, now removed.
     if (brainResult.channel && brainResult.channel !== brainChannel) {
       console.log(`[Webhook] First-contact channel: detected=${channel}, brain=${brainResult.channel}, using=${brainChannel} (${isDetectedSocial ? 'detected social channel enforced' : 'brain override allowed'})`);
     }
