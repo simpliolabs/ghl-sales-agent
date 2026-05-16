@@ -111,3 +111,19 @@ temp/
 
 # Manus version file (auto-generated, not part of source)
 client/public/__manus__/version.json
+
+dev-debug.log
+node_modules/
+# Editor directories and files
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+# OS specific
+
+# Task files
+# tasks.json
+# tasks/ 
