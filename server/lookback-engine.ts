@@ -250,8 +250,9 @@ export async function runLookback(options?: {
         eq(leads.humanTakeover, 0),
         sql`COALESCE(${leads.pipelineStage}, 'new_lead') NOT IN ('not_qualified', 'lost')`,
         // HARD GATE 1 — Source-based: Skip imported/transferred contacts until they send an inbound message
+        // Fix 12: Removed 'Facebook', 'ghl', 'fb' — those are normal active sources, not migrated.
         sql`NOT (
-          COALESCE(${leads.source}, '') IN ('transferred_contact', 'r', 'n', 'bulk_import', 'Facebook', 'ghl', 'fb')
+          COALESCE(${leads.source}, '') IN ('transferred_contact', 'r', 'n', 'bulk_import')
           AND COALESCE(${leads.reactivatedFromMigration}, 0) = 0
         )`,
         // HARD GATE 2 — Age-based: Skip ANY lead older than 90 days with no inbound reply
@@ -276,8 +277,9 @@ export async function runLookback(options?: {
         eq(leads.humanTakeover, 0),
         sql`COALESCE(${leads.pipelineStage}, 'new_lead') NOT IN ('not_qualified', 'lost')`,
         // HARD GATE 1 — Source-based: Skip imported/transferred contacts until they send an inbound message
+        // Fix 12: Removed 'Facebook', 'ghl', 'fb' — those are normal active sources, not migrated.
         sql`NOT (
-          COALESCE(${leads.source}, '') IN ('transferred_contact', 'r', 'n', 'bulk_import', 'Facebook', 'ghl', 'fb')
+          COALESCE(${leads.source}, '') IN ('transferred_contact', 'r', 'n', 'bulk_import')
           AND COALESCE(${leads.reactivatedFromMigration}, 0) = 0
         )`,
         // HARD GATE 2 — Age-based: Skip ANY lead older than 90 days with no inbound reply

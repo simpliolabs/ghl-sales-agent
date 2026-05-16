@@ -98,6 +98,44 @@ export async function getLeadByGhlContactId(ghlContactId: string) {
   return result[0] || null;
 }
 
+/**
+ * Fix 12: Find an existing lead by email or phone (for dedup when GHL sends different contact IDs
+ * for the same person). Returns the OLDEST matching lead (lowest ID) to ensure we always merge
+ * into the canonical record.
+ *
+ * Excludes the given ghlContactId so we only find leads with a DIFFERENT GHL contact ID
+ * (i.e., the duplicate scenario).
+ */
+export async function findExistingLeadByIdentity(
+  email: string | null | undefined,
+  phone: string | null | undefined,
+  excludeGhlContactId: string,
+): Promise<{ id: number; ghlContactId: string | null } | null> {
+  const db = await getDb();
+  if (!db) return null;
+  if (!email && !phone) return null;
+
+  const conditions = [];
+  if (email) {
+    conditions.push(sql`${leads.email} = ${email}`);
+  }
+  if (phone) {
+    conditions.push(sql`${leads.phone} = ${phone}`);
+  }
+
+  const result = await db.select({
+    id: leads.id,
+    ghlContactId: leads.ghlContactId,
+  }).from(leads).where(
+    and(
+      or(...conditions),
+      sql`${leads.ghlContactId} != ${excludeGhlContactId}`,
+    )
+  ).orderBy(asc(leads.id)).limit(1);
+
+  return result[0] || null;
+}
+
 export async function getHotLeads(minScore = 80) {
   const db = await getDb();
   if (!db) return [];
@@ -121,9 +159,11 @@ export async function getLeadsDueForFollowUp() {
     sql`COALESCE(${leads.pipelineStage}, 'new_lead') NOT IN ('not_qualified', 'lost')`,
     // HARD GATE 1 — Source-based: Never send AI outreach to imported/transferred contacts
     // until they send an inbound message first (reactivatedFromMigration = 1).
-    // Sources: 'transferred_contact', 'r', 'n', 'bulk_import', 'Facebook', 'ghl', 'fb'.
+    // Only true one-time migration sources are gated here.
+    // 'ghl', 'Facebook', 'fb' are NORMAL active sources (GHL webhooks, FB forms) — NOT migrated.
+    // Fix 12: Removed 'Facebook', 'ghl', 'fb' which were blocking all new GHL/FB leads.
     sql`NOT (
-      COALESCE(${leads.source}, '') IN ('transferred_contact', 'r', 'n', 'bulk_import', 'Facebook', 'ghl', 'fb')
+      COALESCE(${leads.source}, '') IN ('transferred_contact', 'r', 'n', 'bulk_import')
       AND COALESCE(${leads.reactivatedFromMigration}, 0) = 0
     )`,
     // HARD GATE 2 — Age-based: Never send AI outreach to ANY lead older than 90 days

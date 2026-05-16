@@ -16,6 +16,7 @@ import { Response } from "express";
 import {
   upsertLead, getLeadByGhlContactId, updateLeadFields, addConversation, upsertAiState, getAiState, getLastEmailThreadId, getLastEmailThreadInfo,
   getConversationHistory, getRecentAiOutboundCount, addBrainCouncilAudit, getBrainCouncilAuditForLead,
+  findExistingLeadByIdentity,
 } from "./db";
 import { shouldHandoffToAgent, generateContactNotes, estimateOrderValue, classifySegment } from "./ai-brain";
 import { researchLead } from "./lead-researcher";
@@ -125,6 +126,43 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
         lead = { ...lead!, ...updates } as typeof lead;
       }
     }
+  }
+
+  // --- FIX 12: DUPLICATE LEAD DEDUP ---
+  // GHL sometimes sends different contact IDs for the same person (e.g., ContactCreate
+  // fires with ID "A" and InboundMessage fires with ID "B" within 1 second).
+  // After enrichment, check if there's already a lead with the same email or phone
+  // but a different ghlContactId. If so, merge into the canonical (older) lead.
+  try {
+    const effectiveEmail = lead!.email;
+    const effectivePhone = lead!.phone;
+    const existingLead = await findExistingLeadByIdentity(
+      effectiveEmail,
+      effectivePhone,
+      resolvedContactId,
+    );
+    if (existingLead) {
+      console.log(`[Webhook/Msg] \u26A0\uFE0F DUPLICATE DETECTED: lead ${lead!.id} (ghl=${resolvedContactId}) matches existing lead ${existingLead.id} (ghl=${existingLead.ghlContactId}) by email/phone. Merging into canonical lead ${existingLead.id}.`);
+      // Update the canonical lead with any new data from this webhook
+      const mergeUpdates: Record<string, unknown> = {};
+      const canonicalLead = await getLeadByGhlContactId(existingLead.ghlContactId!);
+      if (canonicalLead) {
+        if (!canonicalLead.name && lead!.name) mergeUpdates.name = lead!.name;
+        if (!canonicalLead.email && lead!.email) mergeUpdates.email = lead!.email;
+        if (!canonicalLead.phone && lead!.phone) mergeUpdates.phone = lead!.phone;
+        if (!canonicalLead.businessName && lead!.businessName) mergeUpdates.businessName = lead!.businessName;
+        if (Object.keys(mergeUpdates).length > 0) {
+          await updateLeadFields(existingLead.id, mergeUpdates);
+          console.log(`[Webhook/Msg] Merged fields into canonical lead ${existingLead.id}: ${Object.keys(mergeUpdates).join(", ")}`);
+        }
+        // Switch to the canonical lead for the rest of this webhook
+        lead = { ...canonicalLead, ...mergeUpdates } as typeof lead;
+        resolvedContactId = existingLead.ghlContactId!;
+      }
+    }
+  } catch (dedupErr) {
+    // Non-fatal — if dedup fails, continue with the current lead
+    console.error(`[Webhook/Msg] Dedup check failed (non-fatal):`, dedupErr);
   }
 
   // --- POST-ENRICHMENT SEGMENT CLASSIFICATION ---
