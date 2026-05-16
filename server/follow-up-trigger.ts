@@ -16,6 +16,7 @@
 
 import { getLeadsDueForFollowUp, getConversationHistory, updateLeadFields, addConversation, upsertAiState, getAiState, getRecentAiOutboundCount, addBrainCouncilAudit, getBrainCouncilAuditForLead, isAiOffline, getLastEmailThreadId, getLastEmailThreadInfo } from "./db";
 import { runBrainCouncil } from "./brain-council-orchestrator";
+import { enqueueOutbox, makeIdemKey } from "./outbox-worker";
 import { calculateNextFollowUp, checkRateLimits, capDate, checkDnc } from "./scheduling-engine";
 import { sendMessage, addNote, fetchGhlConversationHistory, getContact } from "./ghl";
 import { sendMessageWithRetry, normalizeChannel, extractFormData, isLlmExhausted, LLM_RETRY_DELAY_MS, formatEmailHtml, buildContextSubject, sourceToChannel, ensureEmailSignature } from "./webhook-helpers";
@@ -331,291 +332,48 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
           continue;
         }
 
-        // --- RUN BRAIN COUNCIL (with LLM exhaustion detection) ---
-        let aiResponse;
-        // DB-level lock + offline check
-        try {
-          aiResponse = await runBrainCouncil({
-            leadId,
-            incomingMessage: triggerContext,
-            channel: hintChannel, // hint only — Strategist overrides this
+        // --- PHASE 1: ENQUEUE INTO OUTBOX (replaces direct Brain Council + send) ---
+        // All pre-send gates above (DNC, cadence backoff, TCPA, rate limits) still run
+        // in the follow-up trigger since they're lightweight TypeScript checks.
+        // The Brain Council call and actual GHL send now happen in the outbox worker.
+        const idemKey = makeIdemKey(leadId, `followup:${hintChannel}`);
+        const { enqueued } = await enqueueOutbox({
+          leadId,
+          idemKey,
+          source: "follow_up",
+          scheduledAt: new Date(),
+          payload: {
+            trigger: "follow_up",
+            channelHint: hintChannel,
             externalHistory: historyStr,
-          });
-        } catch (brainErr) {
-          if (isLlmExhausted(brainErr)) {
-            // LLM credits exhausted — reschedule this lead and STOP the entire cycle
-            // (no point trying more leads if the LLM is down)
-            const retryAt = new Date(Date.now() + LLM_RETRY_DELAY_MS);
-            console.error(`[FollowUp] ⚠️ LLM EXHAUSTED for lead ${leadId} (${leadName}). Rescheduling to ${retryAt.toISOString()} and stopping cycle.`);
+            incomingMessage: triggerContext,
+            isInboundReply: false,
+            isDormant,
+            dormancyTier,
+            consecutiveUnanswered,
+            leadAgeDays,
+          },
+        });
 
-            await updateLeadFields(leadId, { nextFollowUpAt: retryAt });
-
-            // Log in audit trail
-            await addBrainCouncilAudit({
-              leadId,
-              leadName,
-              channel: hintChannel,
-              incomingMessage: triggerContext.substring(0, 2000),
-              blocked: 1,
-              blockReason: `LLM credits exhausted — auto-retry scheduled for ${retryAt.toISOString()}`,
-              violationCategory: "llm_exhausted",
-              messageSent: 0,
-              ownerNotified: consecutiveLlmExhaustionCycles === 0 ? 1 : 0,
-            });
-
-            // Reschedule ALL remaining leads in this batch so they don't pile up
-            for (const remainingLead of batch.slice(batch.indexOf(lead) + 1)) {
-              const rLeadId = (remainingLead as any).id;
-              // Stagger retries: each lead gets an extra 1-minute offset to avoid thundering herd
-              const staggeredRetry = new Date(retryAt.getTime() + (batch.indexOf(remainingLead) * 60 * 1000));
-              try {
-                await updateLeadFields(rLeadId, { nextFollowUpAt: staggeredRetry });
-              } catch { /* best effort */ }
-            }
-
-            // Notify owner (only on first exhaustion cycle, then every 6th = ~1 hour)
-            consecutiveLlmExhaustionCycles++;
-            if (consecutiveLlmExhaustionCycles === 1 || consecutiveLlmExhaustionCycles % 6 === 0) {
-              try {
-                await notifyOwner({
-                  title: `⚠️ LLM Credits Exhausted — Follow-ups Paused`,
-                  content: `Brain Council failed for ${leadName} (Lead #${leadId}). Error: ${String((brainErr as any)?.message || brainErr).substring(0, 200)}. All ${batch.length} overdue leads rescheduled for retry at ${retryAt.toLocaleString()}. This is exhaustion cycle #${consecutiveLlmExhaustionCycles}. Credits will auto-replenish on your Manus billing cycle.`,
-                  priority: "critical",
-                });
-              } catch { /* best effort */ }
-            }
-
-            stats.errors++;
-            stats.llmExhausted = true;
-            break; // Stop the entire cycle
-          }
-
-          // Non-LLM error — handle normally
-          throw brainErr;
-        } finally {
-          // Always release the DB lock (success path or non-LLM error)
-        }
-
-        // Reset exhaustion counter on successful Brain Council call
-        consecutiveLlmExhaustionCycles = 0;
-
-        // Use the Brain Council's channel decision, not our hint
-        let channel = normalizeChannel(aiResponse.channel || hintChannel);
-
-        console.log(`[FollowUp] Brain Council for lead ${leadId}: QC=${aiResponse.qcScore}, blocked=${aiResponse.blocked}, framework=${aiResponse.framework}, channel=${channel} (hint was ${hintChannel})`);
-
-        // Handle blocked messages — NEVER send fallback
-        // ARCHITECTURE FIX: When Brain Council blocks a message, do NOT send anything.
-        // The fallback concept is fundamentally broken — if the AI couldn't compose a
-        // quality message, sending a generic one is WORSE than sending nothing.
-        // The lead will get a proper message on the next scheduled follow-up cycle.
-        if (aiResponse.blocked) {
-          console.log(`[FollowUp] ⚠️ BLOCKED follow-up for lead ${leadId}: ${aiResponse.blockReason}`);
-          if (aiResponse.fallbackUsed && aiResponse.fallbackMessage) {
-            console.log(`[FollowUp] 🚫 Fallback SUPPRESSED for lead ${leadId} — blocked messages never send fallbacks. Lead will be retried on next cycle.`);
-          }
+        if (!enqueued) {
+          console.log(`[FollowUp] Deduped outbox enqueue for lead ${leadId} — already pending`);
           stats.skipped++;
-
-          // --- CONSECUTIVE BLOCK BACKOFF ---
-          // If QC keeps blocking messages for this lead, push the next follow-up
-          // out exponentially instead of retrying every 2 minutes.
-          const currentAiStateForBlock = await getAiState(leadId);
-          const consecutiveRejects = (currentAiStateForBlock as any)?.consecutiveRejects || 0;
-          if (consecutiveRejects >= 3) {
-            // 3+ consecutive blocks: push out 24 hours
-            const backoffMs = 24 * 60 * 60 * 1000;
-            const backoffDate = new Date(Date.now() + backoffMs);
-            console.log(`[FollowUp] ⏸️ BLOCK BACKOFF for lead ${leadId}: ${consecutiveRejects} consecutive rejects — deferring 24h to ${backoffDate.toISOString()}`);
-            await updateLeadFields(leadId, { nextFollowUpAt: backoffDate });
-          } else if (consecutiveRejects >= 2) {
-            // 2 consecutive blocks: push out 4 hours
-            const backoffMs = 4 * 60 * 60 * 1000;
-            const backoffDate = new Date(Date.now() + backoffMs);
-            console.log(`[FollowUp] ⏸️ BLOCK BACKOFF for lead ${leadId}: ${consecutiveRejects} consecutive rejects — deferring 4h to ${backoffDate.toISOString()}`);
-            await updateLeadFields(leadId, { nextFollowUpAt: backoffDate });
-          } else {
-            // First block: use normal scheduling
-            const reschedule = await calculateNextFollowUp({ leadId, triggerEvent: "ai_response" });
-            await updateLeadFields(leadId, { nextFollowUpAt: reschedule.nextFollowUpAt });
-          }
-          continue;
-        }
-
-        // --- EMAIL POST-DECISION OPTIMAL WINDOW GATE ---
-        // Brain Council may have chosen Email despite the hint being SMS — enforce optimal window
-        if (channel === "Email" && isEmailOutsideOptimalWindow()) {
-          const nextEmailWindow = nextEmailWindowStart();
-          console.log(`[FollowUp] ⏰ Email post-decision gate: Brain Council chose Email outside optimal window for lead ${leadId} — deferring to ${nextEmailWindow.toISOString()}`);
-          await updateLeadFields(leadId, { nextFollowUpAt: nextEmailWindow });
-          stats.skipped++;
-          continue;
-        }
-
-        // --- TCPA POST-DECISION GATE: Block SMS if quiet hours (Brain Council may have chosen SMS despite hint) ---
-        // ARCHITECTURE FIX: ALWAYS defer — never switch SMS→Email at night.
-        // The message was composed for SMS and is not formatted for email.
-        if (isTcpaQuietHoursForRecipient((lead as any).phone) && channel === "SMS") {
-          const nextWindow = nextTcpaWindowForRecipient((lead as any).phone);
-          console.log(`[FollowUp] TCPA post-decision gate (recipient TZ): deferring SMS for lead ${leadId} to ${nextWindow.toISOString()} (NO channel switch)`);
-          await updateLeadFields(leadId, { nextFollowUpAt: nextWindow });
-          stats.skipped++;
-          continue;
-        }
-
-        // --- SEND MESSAGE ---
-        // Email threading: look up prior email thread ID and subject for reply threading
-        let emailThreadId: string | null = null;
-        let priorEmailSubject: string | null = null;
-        if (channel === "Email") {
-          const threadInfo = await getLastEmailThreadInfo(leadId);
-          emailThreadId = threadInfo?.threadId || null;
-          priorEmailSubject = threadInfo?.subject || null;
-          if (emailThreadId) console.log(`[FollowUp] Threading email reply for lead ${leadId} (threadId: ${emailThreadId}, priorSubject: ${priorEmailSubject})`);
-        }
-        // For threaded replies, use "Re: <prior subject>" to keep the thread visible in email clients
-        let normalSubject = aiResponse.subject || buildContextSubject({ name: (lead as any).name, businessName: (lead as any).businessName }, aiResponse.fromName);
-        if (emailThreadId && priorEmailSubject) {
-          // Use the prior subject with Re: prefix (unless it already has one)
-          normalSubject = priorEmailSubject.startsWith("Re:") ? priorEmailSubject : `Re: ${priorEmailSubject}`;
-        }
-        // BUG FIX: always run ensureEmailSignature before HTML conversion so the
-        // signature block is guaranteed present even if the Composer forgot it.
-        const agentFirst = (aiResponse.fromName || assignedAgent || "").split(" ")[0];
-        const signedMsg = ensureEmailSignature(aiResponse.message).replace(/\{AGENT\}/g, agentFirst);
-        // ── TYPO TRICK HANDLER ────────────────────────────────────────────────────────
-        // If Composer used the name typo trick, strip the tag and queue a correction text
-        let messageToSend = aiResponse.message;
-        let typoCorrection: string | null = null;
-        const typoMatch = messageToSend.match(/\[TYPO_TRICK:([^\]]+)\]/);
-        if (typoMatch && (channel === "SMS" || channel === "WhatsApp")) {
-          const correctName = typoMatch[1].trim();
-          messageToSend = messageToSend.replace(/\s*\[TYPO_TRICK:[^\]]+\]/, "").trim();
-          typoCorrection = `*${correctName} — sorry about that!`;
-        }
-
-        const msgOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
-          ? { type: "Email", subject: normalSubject, html: formatEmailHtml(signedMsg), fromName: aiResponse.fromName, ...(emailThreadId ? { threadId: emailThreadId, replyMessageId: emailThreadId } : {}) }
-          : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: messageToSend };
-        const sendResult = await sendMessageWithRetry(ghlContactId, msgOpts, { email: (lead as any).email, phone: (lead as any).phone, id: leadId });
-
-        // Send typo correction after main message (3-5s delay)
-        if (sendResult.success && typoCorrection) {
-          await new Promise(r => setTimeout(r, 3000 + Math.random() * 2000));
-          await sendMessageWithRetry(ghlContactId, { type: channel as "SMS" | "WhatsApp", message: typoCorrection }, { email: (lead as any).email, phone: (lead as any).phone, id: leadId });
-          console.log(`[FollowUp] Sent typo correction for lead ${leadId}: "${typoCorrection}"`);
-        }
-
-        if (sendResult.success) {
-          // Determine the actual channel used (may differ if fallback was triggered)
-          const actualChannel = sendResult.correctionTaken?.includes("email") ? "Email"
-            : sendResult.correctionTaken?.includes("sms") ? "SMS"
-            : channel;
-          await addConversation({ leadId, channel: actualChannel, direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName, emailMessageId: sendResult.emailMessageId || undefined });
-          // Increment messageCount so cadence backoff works correctly
-          const currentAiState = await getAiState(leadId);
-          const newMsgCount = ((currentAiState as any)?.messageCount || 0) + 1;
-          await upsertAiState(leadId, { lastAngleUsed: aiResponse.angle, lastFrameworkUsed: aiResponse.framework, extractedDates: aiResponse.extractedDates as unknown as undefined, messageCount: newMsgCount });
-          await updateLeadFields(leadId, { opportunityScore: aiResponse.score, omnisendSegment: aiResponse.segment, lastMessageAt: new Date(), lastOutboundChannel: actualChannel, lastEventTrigger: null });
-          if (sendResult.correctionTaken) {
-            console.log(`[FollowUp] ✅ Sent follow-up to lead ${leadId} (${leadName}) via ${actualChannel} [correction: ${sendResult.correctionTaken}]`);
-          } else {
-            console.log(`[FollowUp] ✅ Sent follow-up to lead ${leadId} (${leadName}) via ${actualChannel}`);
-          }
-
-          // Track channel performance (sent side)
-          try {
-            const { upsertChannelPerformance } = await import("./db");
-            await upsertChannelPerformance(leadId, actualChannel, { sent: true });
-          } catch { /* best effort */ }
-
-          // Estimate order value
-          try {
-            const fullConv = historyStr + `\n[ai/${actualChannel}] ${aiResponse.message}`;
-            const leadInfo = `${leadName} - ${(lead as any).businessName || "Unknown"} - Stage: ${(lead as any).pipelineStage}`;
-            const valueEstimate = await estimateOrderValue(fullConv, leadInfo);
-            if (valueEstimate.estimatedValue > 0) {
-              await updateLeadFields(leadId, { pipelineValue: valueEstimate.estimatedValue });
-            }
-          } catch { /* best effort */ }
-
-          stats.sent++;
         } else {
-          const errType = sendResult.errorType || "unknown";
-          const correction = sendResult.correctionTaken || "none";
-          console.error(`[FollowUp] ❌ Failed to send to lead ${leadId} (${leadName}): type=${errType} correction=${correction} error=${sendResult.error}`);
-
-          // Corrective actions based on error type
-          if (errType === "missing_phone" && correction === "marked_unreachable") {
-            // No phone AND no email — reschedule 30 days out, don't waste cycles
-            await updateLeadFields(leadId, { nextFollowUpAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) });
-            console.warn(`[FollowUp] Lead ${leadId} marked unreachable (no phone/email) — rescheduled 30 days`);
-            stats.skipped++;
-            continue;
-          }
-
-          if ((errType === "missing_email" || errType === "invalid_email") && correction === "marked_unreachable") {
-            // No email AND no phone — same treatment
-            await updateLeadFields(leadId, { nextFollowUpAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) });
-            console.warn(`[FollowUp] Lead ${leadId} marked unreachable (no email/phone) — rescheduled 30 days`);
-            stats.skipped++;
-            continue;
-          }
-
-          if (errType === "carrier_block" && correction === "carrier_block_dnd_flagged") {
-            // SMS blocked, no email — reschedule 7 days and let disposition engine handle
-            await updateLeadFields(leadId, { nextFollowUpAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) });
-            console.warn(`[FollowUp] Lead ${leadId} carrier-blocked (SMS DND flagged, no email) — rescheduled 7 days`);
-            stats.skipped++;
-            continue;
-          }
-
-          if (errType === "dnd") {
-            // DND already handled by channel-fallback — just reschedule normally
-            console.warn(`[FollowUp] Lead ${leadId} DND rejection — channel-fallback will handle`);
-            stats.skipped++;
-            continue;
-          }
-
-          // Transient or unknown — reschedule 1 hour and count as error
-          stats.errors++;
-          // Self-healing: record error AND attempt auto-heal
-          try {
-            const { recordError, tryApplyKnownFix } = await import("./error-memory");
-            await recordError({
-              errorType: "send_failure",
-              errorMessage: `Follow-up send failed for lead ${leadId}: ${sendResult.error}`,
-              context: `leadId=${leadId} channel=${channel} errType=${errType} correction=${correction}`,
-            });
-            // Auto-heal: check if there is a known fix for this error
-            const heal = await tryApplyKnownFix("send_failure", `${sendResult.error}`, `channel=${channel}`);
-            if (heal.action === "wait_and_retry") {
-              console.log(`[FollowUp/Heal] Waiting ${heal.waitMs}ms before retry for lead ${leadId}: ${heal.fixDescription}`);
-              // Reschedule with the wait time instead of default 1hr
-              await updateLeadFields(leadId, { nextFollowUpAt: new Date(Date.now() + (heal.waitMs || 60_000)) });
-            } else if (heal.action === "switch_channel" && heal.channel) {
-              console.log(`[FollowUp/Heal] Switching channel to ${heal.channel} for lead ${leadId}: ${heal.fixDescription}`);
-              await updateLeadFields(leadId, { preferredChannel: heal.channel, nextFollowUpAt: new Date(Date.now() + 5 * 60 * 1000) });
-            } else if (heal.action === "skip") {
-              console.log(`[FollowUp/Heal] Skipping lead ${leadId}: ${heal.fixDescription}`);
-            }
-          } catch { /* best effort */ }
+          console.log(`[FollowUp] ✅ Enqueued follow-up for lead ${leadId} (${leadName}) via outbox`);
+          stats.sent++;
         }
+
+        // Schedule next follow-up (use a default 24h since Brain Council hasn't run yet)
+        const scheduleResult = await calculateNextFollowUp({ leadId, aiSuggestedHours: 24, triggerEvent: "ai_response" });
+        const isLongLead = scheduleResult.priority === 1;
+        await updateLeadFields(leadId, { nextFollowUpAt: capDate(scheduleResult.nextFollowUpAt, isLongLead), cadencePosition: scheduleResult.cadencePosition, preferredChannel: scheduleResult.channel, lastOutboundChannel: hintChannel });
+        console.log(`[FollowUp] Next for lead ${leadId}: ${scheduleResult.reason}`);
 
         // Clear admin override fields after the override has been consumed (follow-up fired)
         if ((lead as any).overrideBy) {
           await updateLeadFields(leadId, { overrideBy: null, overrideAt: null, overrideReason: null } as any);
           console.log(`[FollowUp] Cleared consumed admin override for lead ${leadId}`);
         }
-
-        // Schedule next follow-up
-        const scheduleResult = await calculateNextFollowUp({ leadId, aiSuggestedHours: aiResponse.nextEngagementHours, triggerEvent: "ai_response" });
-        // P1 (customer-stated timeline) is exempt from the 30-day cap
-        const isLongLead = scheduleResult.priority === 1;
-        await updateLeadFields(leadId, { nextFollowUpAt: capDate(scheduleResult.nextFollowUpAt, isLongLead), cadencePosition: scheduleResult.cadencePosition, preferredChannel: scheduleResult.channel, lastOutboundChannel: channel });
-        console.log(`[FollowUp] Next for lead ${leadId}: ${scheduleResult.reason}`);
-
-        // Small delay between sends to avoid GHL rate limits
-        await new Promise(r => setTimeout(r, 2000));
 
       } catch (err) {
         console.error(`[FollowUp] Error processing lead ${leadId}:`, err);

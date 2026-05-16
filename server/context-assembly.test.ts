@@ -27,17 +27,20 @@ describe("Layer 1: Context Assembly", () => {
       expect(src).toMatch(/runBrainCouncil\(\{[^}]*externalHistory/s);
     });
 
-    it("follow-up-trigger.ts passes externalHistory to runBrainCouncil", () => {
+    it("follow-up-trigger.ts enqueues into outbox with externalHistory in payload", () => {
       const src = readFile("follow-up-trigger.ts");
-      expect(src).toMatch(/runBrainCouncil\(\{[^}]*externalHistory/s);
+      // Phase 1: follow-up trigger now enqueues into outbox instead of calling runBrainCouncil directly
+      // The outbox worker calls runBrainCouncil with externalHistory from the payload
+      expect(src).toContain("enqueueOutbox");
+      expect(src).toContain("externalHistory");
     });
 
-    it("brain-council-review.ts fast scanner passes externalHistory to runBrainCouncil", () => {
+    it("brain-council-review.ts fast scanner enqueues into outbox with externalHistory", () => {
       const src = readFile("brain-council-review.ts");
-      // There should be at least 2 runBrainCouncil calls with externalHistory (fast scanner + self-review)
-      const matches = src.match(/runBrainCouncil\(\{[^}]*externalHistory/gs);
-      expect(matches).not.toBeNull();
-      expect(matches!.length).toBeGreaterThanOrEqual(2);
+      // Phase 1: fast scanner and self-review now enqueue into outbox instead of calling runBrainCouncil directly
+      // The outbox worker calls runBrainCouncil with externalHistory from the payload
+      expect(src).toContain("enqueueOutbox");
+      expect(src).toContain("externalHistory");
     });
 
     it("brain-council-review.ts imports fetchGhlConversationHistory", () => {
