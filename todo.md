@@ -1418,3 +1418,16 @@
 - [x] FIX 13G: Remove SMS char/sentence limits for cold outreach (first_contact) entirely
 - [x] FIX 13H: Add message splitting — long SMS gets split into 2 texts with short delay (feels human)
 - [x] FIX 13I: Add name typo trick to cold outreach — misspell name in msg 1, correct in msg 2 (draws attention)
+
+## Phase 0: Emergency Relief (Overhaul)
+- [x] P0.1: Add DISABLE_LEGACY_TIMERS env var / feature flag
+- [x] P0.2: Wrap 12 legacy timers in feature flag guard (fast scanner, self-review, lookback, auto-correction, disposition sweep, outcome backfill, overdue catchup, event triggers, post-delivery, seasonal, lost-lead nurture, import nurture, weekly review, error memory seed, learning promotion)
+- [x] P0.3: Tune parameters — cooldown 60→30s, lock TTL 300→120s, proactive cap 10→5/hr, takeover expiry 24h→4h
+- [x] P0.4: Update lead-disposition.ts stale takeover threshold from 24h to 4h
+- [x] P0.5: Update ghl.ts AGENT_TAKEOVER_WINDOW_MS from 24h to 4h
+- [x] P0.6: Update supervisor.ts stale takeover invariant from 24h to 4h
+- [x] P0.6b: Update db.ts BRAIN_COUNCIL_LOCK_TTL_SECONDS from 300→120s
+- [x] P0.6c: Update _core/index.ts STUCK_LOCK_TTL_MS from 5min→2min
+- [x] P0.7: Run stale takeover cleanup SQL (clear humanTakeover where lastAgentActivityAt > 4h ago)
+- [x] P0.8: Update tests for new parameter values (12 new tests + 82 updated tests passing)
+- [x] P0.9: Verify all tests pass — 1,099 tests passing, 49 test files, 0 failures
