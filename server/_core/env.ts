@@ -11,4 +11,6 @@ export const ENV = {
   ghlLocationId: process.env.GHL_LOCATION_ID ?? "",
   omnisendApiKey: process.env.OMNISEND_API_KEY ?? "",
   openaiApiKey: process.env.OPENAI_API_KEY ?? "",
+  /** Phase 0 Overhaul: When true, disables 12 legacy background timers (fast scanner, self-review, lookback, auto-correction, disposition, outcome backfill, overdue catchup, event triggers, post-delivery, seasonal, lost-lead nurture, import nurture). Reactive webhooks (follow-up trigger, supervisor, deferred response, SLA, stuck lock cleaner) remain active. */
+  disableLegacyTimers: process.env.DISABLE_LEGACY_TIMERS === "true",
 };
