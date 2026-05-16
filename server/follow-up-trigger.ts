@@ -482,10 +482,28 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
         // signature block is guaranteed present even if the Composer forgot it.
         const agentFirst = (aiResponse.fromName || assignedAgent || "").split(" ")[0];
         const signedMsg = ensureEmailSignature(aiResponse.message).replace(/\{AGENT\}/g, agentFirst);
+        // ── TYPO TRICK HANDLER ────────────────────────────────────────────────────────
+        // If Composer used the name typo trick, strip the tag and queue a correction text
+        let messageToSend = aiResponse.message;
+        let typoCorrection: string | null = null;
+        const typoMatch = messageToSend.match(/\[TYPO_TRICK:([^\]]+)\]/);
+        if (typoMatch && (channel === "SMS" || channel === "WhatsApp")) {
+          const correctName = typoMatch[1].trim();
+          messageToSend = messageToSend.replace(/\s*\[TYPO_TRICK:[^\]]+\]/, "").trim();
+          typoCorrection = `*${correctName} — sorry about that!`;
+        }
+
         const msgOpts: Parameters<typeof sendMessage>[1] = channel === "Email"
           ? { type: "Email", subject: normalSubject, html: formatEmailHtml(signedMsg), fromName: aiResponse.fromName, ...(emailThreadId ? { threadId: emailThreadId, replyMessageId: emailThreadId } : {}) }
-          : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
+          : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: messageToSend };
         const sendResult = await sendMessageWithRetry(ghlContactId, msgOpts, { email: (lead as any).email, phone: (lead as any).phone, id: leadId });
+
+        // Send typo correction after main message (3-5s delay)
+        if (sendResult.success && typoCorrection) {
+          await new Promise(r => setTimeout(r, 3000 + Math.random() * 2000));
+          await sendMessageWithRetry(ghlContactId, { type: channel as "SMS" | "WhatsApp", message: typoCorrection }, { email: (lead as any).email, phone: (lead as any).phone, id: leadId });
+          console.log(`[FollowUp] Sent typo correction for lead ${leadId}: "${typoCorrection}"`);
+        }
 
         if (sendResult.success) {
           // Determine the actual channel used (may differ if fallback was triggered)

@@ -1405,3 +1405,16 @@
 - [x] FIX 12A: Removed 'Facebook', 'ghl', 'fb' from HARD GATE 1 source filter in db.ts getLeadsDueForFollowUp() — only true one-time migration sources ('transferred_contact', 'r', 'n', 'bulk_import') are now gated. Also fixed the same stale filter in lookback-engine.ts (2 instances).
 - [x] FIX 12B: Added findExistingLeadByIdentity() to db.ts — finds existing leads by email/phone across different ghlContactIds. Wired into both webhook-contact.ts and webhook-message.ts as post-enrichment dedup: when GHL sends different contact IDs for the same person, the system now detects the duplicate and merges into the canonical (older) lead instead of creating a second record.
 - [x] TESTS: fix12-hard-gate-dedup.test.ts — 8 tests covering: ghl source leads included in follow-ups, transferred_contact still blocked, reactivated leads included, email dedup, phone dedup, same-lead not flagged as duplicate, null email/phone handling, oldest-lead-wins ordering.
+- [x] BUG: Leartis Davis Sr (IG lead) — no AI response on Instagram channel despite Brain Council audit showing messageSent=1 (sent to wrong channel?)
+- [x] BUG: Yvette Reed (FB lead) — replied "4 right now" but AI didn't respond to her reply
+- [ ] FIX 13A: BLOCK BACKOFF escalates to 90 days — cap at 4h max, never exponentially defer
+- [x] FIX 13B: SMS sentence counter too aggressive — char limit should be primary gate, sentence count secondary
+- [ ] FIX 13C: Auto-recovery for lock failures (retry in 60s, not defer days)
+- [ ] FIX 13D: Auto-resolve dead GHL contact IDs on send failure without throwing
+- [x] BUG: Channel inconsistency — Rashid came via IG but AI responded via SMS (should reply on same channel)
+- [x] BUG: Adebola Esther Adesina (IG→WhatsApp) — humanTakeover=1 set immediately, zero AI engagement
+- [x] FIX 13E: Channel routing — first response must go on the channel the lead came in on (IG→IG, FB→FB, WhatsApp→WhatsApp)
+- [x] FIX 13F: humanTakeover false positives — GHL history scan detecting appointment/system messages as agent activity
+- [x] FIX 13G: Remove SMS char/sentence limits for cold outreach (first_contact) entirely
+- [x] FIX 13H: Add message splitting — long SMS gets split into 2 texts with short delay (feels human)
+- [x] FIX 13I: Add name typo trick to cold outreach — misspell name in msg 1, correct in msg 2 (draws attention)

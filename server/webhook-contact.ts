@@ -499,11 +499,22 @@ async function sendDelayedFirstContact(
     }
 
     // Layer 0 (STRONGEST): If form data was parsed from conversation message body,
-    // the lead came from a Facebook/IG lead form. This is more reliable than GHL's
-    // type field which may use unexpected values.
+    // the lead came from a Facebook/IG lead form. Check the GHL message type to
+    // distinguish Instagram forms (type 18) from Facebook forms (type 4/15).
     if (formExtractedFromConversation) {
-      detectedChannel = "FB";
-      console.log(`[Webhook] Channel detection Layer 0 HIT for lead ${leadId}: form data found in conversation body → FB`);
+      // Check the actual GHL message type to distinguish IG vs FB forms
+      const formMsg = ghlHistory.filter(m => m.direction === "inbound").find(m => {
+        const body = String(m.body || "");
+        return body.includes(":") && parseFormDataFromMessageBody(body).length > 0;
+      });
+      const formMsgType = String(formMsg?.type || formMsg?.messageType || "").toLowerCase();
+      if (formMsgType === "18" || formMsgType.includes("instagram") || formMsgType.includes("type_instagram")) {
+        detectedChannel = "IG";
+        console.log(`[Webhook] Channel detection Layer 0 HIT for lead ${leadId}: form data in IG message (type=${formMsgType}) → IG`);
+      } else {
+        detectedChannel = "FB";
+        console.log(`[Webhook] Channel detection Layer 0 HIT for lead ${leadId}: form data found in conversation body (type=${formMsgType}) → FB`);
+      }
     }
 
     // Layer 0B (FALLBACK FOR EMPTY GHL HISTORY): If form data exists from webhook payload
@@ -525,12 +536,16 @@ async function sendDelayedFirstContact(
       }
       if (lastInbound) {
         const rawType = String(lastInbound.type || "").toLowerCase();
-        // GHL uses numeric types: 2=SMS, 3=Email, 4=FB, 5=IG, 6=WhatsApp, etc.
-        if (rawType === "4" || rawType.includes("fb") || rawType.includes("facebook") || rawType.includes("live_chat")) detectedChannel = "FB";
-        else if (rawType === "5" || rawType.includes("ig") || rawType.includes("instagram")) detectedChannel = "IG";
-        else if (rawType === "6" || rawType.includes("whatsapp")) detectedChannel = "WhatsApp";
-        else if (rawType === "3" || rawType.includes("email")) detectedChannel = "Email";
-        else if (rawType === "2" || rawType.includes("sms")) detectedChannel = "SMS";
+        // GHL uses BOTH old numeric types (2-6) AND new types (15-19):
+        // Old: 2=SMS, 3=Email, 4=FB, 5=IG, 6=WhatsApp
+        // New: 15=FB, 16=Email(?), 17=SMS(?), 18=Instagram, 19=WhatsApp
+        // Also match messageType strings like TYPE_INSTAGRAM, TYPE_WHATSAPP
+        const msgTypeStr = String(lastInbound.messageType || "").toLowerCase();
+        if (rawType === "18" || rawType === "5" || rawType.includes("ig") || rawType.includes("instagram") || msgTypeStr.includes("instagram")) detectedChannel = "IG";
+        else if (rawType === "19" || rawType === "6" || rawType.includes("whatsapp") || msgTypeStr.includes("whatsapp")) detectedChannel = "WhatsApp";
+        else if (rawType === "4" || rawType === "15" || rawType.includes("fb") || rawType.includes("facebook") || rawType.includes("live_chat") || msgTypeStr.includes("facebook")) detectedChannel = "FB";
+        else if (rawType === "3" || rawType.includes("email") || msgTypeStr.includes("email")) detectedChannel = "Email";
+        else if (rawType === "2" || rawType.includes("sms") || msgTypeStr.includes("sms")) detectedChannel = "SMS";
         // Catch-all: if type contains "message" but nothing else matched, don't default to SMS
         // This prevents "InboundMessage" or other generic types from overriding later layers
       }

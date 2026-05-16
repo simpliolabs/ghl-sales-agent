@@ -200,6 +200,19 @@ export async function sendMessage(contactId: string, opts: {
             /payment\s*(received|failed)/i,
             /\bDND\b.*\b(enabled|disabled)\b/i,
             /^\s*$/, // empty messages
+            // Our own AI/system-generated notes (must not trigger false agent detection)
+            /🤖\s*ai:/i,
+            /📋\s*(new inquiry|ai:)/i,
+            /📞\s*(handoff|ai:)/i,
+            /🔥\s*(ai:|close deal)/i,
+            /ai state machine/i,
+            /heads-up for agent/i,
+            /the ai is handling/i,
+            /live quote needed/i,
+            /ready to close/i,
+            /needs live agent/i,
+            /committed\s*[—\-]/i,
+            /handoff\s*[—\-]/i,
           ];
           const isSystemMessage = (body: string): boolean => {
             const trimmed = body.trim();
@@ -355,10 +368,10 @@ export async function getContactConversations(contactId: string) {
 }
 
 // --- Fetch full conversation history from GHL ---
-export async function fetchGhlConversationHistory(contactId: string): Promise<Array<{ direction: string; type: string; body: string; dateAdded: string; userId?: string }>> {
+export async function fetchGhlConversationHistory(contactId: string): Promise<Array<{ direction: string; type: string; messageType?: string; body: string; dateAdded: string; userId?: string }>> {
   try {
     const conversations = await getContactConversations(contactId);
-    const allMessages: Array<{ direction: string; type: string; body: string; dateAdded: string; userId?: string }> = [];
+    const allMessages: Array<{ direction: string; type: string; messageType?: string; body: string; dateAdded: string; userId?: string }> = [];
     for (const conv of conversations) {
       try {
         const msgs = await getConversationMessages(conv.id);
@@ -367,6 +380,7 @@ export async function fetchGhlConversationHistory(contactId: string): Promise<Ar
           allMessages.push({
             direction: m.direction || "unknown",
             type: m.type || "unknown",
+            messageType: m.messageType || undefined,
             body: m.body || m.message || "",
             dateAdded: m.dateAdded || "",
             userId: m.userId || m.user?.id || undefined,
