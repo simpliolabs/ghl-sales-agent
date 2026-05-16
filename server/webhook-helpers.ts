@@ -161,11 +161,61 @@ export function extractContactData(ghlContact: Record<string, unknown>): Record<
 }
 
 // --- SEND MESSAGE WITH RETRY ---
+// ── SMS MESSAGE SPLITTER ──────────────────────────────────────────────────────
+// Splits a long SMS into 2 natural parts at a sentence boundary.
+// Feels more human — real people send 2 quick texts, not one essay.
+function splitSmsMessage(msg: string): [string, string] | null {
+  if (msg.length <= 160) return null; // Short enough, no split needed
+  // Find sentence boundaries (. ! ?) in the first 60% of the message
+  const midpoint = Math.floor(msg.length * 0.6);
+  const sentenceEnds: { index: number }[] = [];
+  const re = /[.!?]\s/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(msg)) !== null) sentenceEnds.push({ index: m.index });
+  // Find the best split point — closest to 50% of message length
+  let bestIdx = -1;
+  let bestDist = Infinity;
+  for (const match of sentenceEnds) {
+    const idx = (match.index || 0) + 1; // After the punctuation
+    if (idx < 30 || idx > midpoint) continue; // Don't split too early or too late
+    const dist = Math.abs(idx - msg.length * 0.5);
+    if (dist < bestDist) { bestDist = dist; bestIdx = idx; }
+  }
+  if (bestIdx === -1) return null; // No good split point found
+  return [msg.substring(0, bestIdx).trim(), msg.substring(bestIdx).trim()];
+}
+
 export async function sendMessageWithRetry(
   contactId: string,
   opts: Parameters<typeof sendMessage>[1],
   lead: { email?: string | null; phone?: string | null; id: number }
 ): Promise<{ success: boolean; resolvedContactId: string; error?: string; errorType?: GhlSendErrorType; correctionTaken?: string; emailMessageId?: string }> {
+  // ── SMS SPLITTING: Send long SMS as 2 natural texts with delay ──────────────
+  if ((opts.type === "SMS" || opts.type === "WhatsApp") && opts.message) {
+    const parts = splitSmsMessage(opts.message);
+    if (parts) {
+      console.log(`[SendRetry] Splitting ${opts.type} into 2 parts (${parts[0].length} + ${parts[1].length} chars) for lead ${lead.id}`);
+      try {
+        // Send part 1
+        const result1 = await sendMessage(contactId, { ...opts, message: parts[0] });
+        if ((result1 as any)?.blocked) {
+          const reason = (result1 as any).reason || "UNKNOWN_GATE";
+          return { success: false, resolvedContactId: contactId, error: `Send blocked: ${reason}`, errorType: "unknown" as GhlSendErrorType, correctionTaken: `blocked_by_${reason.toLowerCase()}` };
+        }
+        // Wait 3-5 seconds (feels human)
+        await new Promise(r => setTimeout(r, 3000 + Math.random() * 2000));
+        // Send part 2
+        await sendMessage(contactId, { ...opts, message: parts[1] });
+        return { success: true, resolvedContactId: contactId, correctionTaken: "split_sms" };
+      } catch (err: unknown) {
+        // Fall through to normal error handling below
+        const classified = classifyGhlSendError(err);
+        console.warn(`[SendRetry] Split send failed — type=${classified.type} lead=${lead.id}: ${classified.message}`);
+        // Don't retry the split — fall through to normal single-send retry logic
+      }
+    }
+  }
+
   try {
     const result = await sendMessage(contactId, opts);
     // ── CHECK FOR BLOCKED SENDS ──────────────────────────────────────────

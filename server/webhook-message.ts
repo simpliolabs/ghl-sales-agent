@@ -548,6 +548,12 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
               "what do you need bulk printing", "how soon do you need",
               // GHL internal
               "view opportunity", "bulk printing pipeline",
+              // Our own AI/system-generated notes (must not trigger false agent detection)
+              "🤖 ai:", "📋 new inquiry", "📋 ai:", "📞 handoff", "📞 ai:",
+              "🔥 ai:", "🔥 close deal", "ai state machine", "ai: new inquiry",
+              "ai: human agent active", "heads-up for agent", "the ai is handling",
+              "live quote needed", "ready to close", "needs live agent",
+              "committed —", "handoff —",
             ];
             const isSystemMsg = SYSTEM_PATTERNS.some(p => body.includes(p)) ||
               body.length < 10 || // Too short to be a real agent message (raised from 5)

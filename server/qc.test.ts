@@ -1333,7 +1333,8 @@ describe("detectViolations — sms_too_long", () => {
     });
 
   describe("first_contact SMS", () => {
-    it("BLOCKS a 4-paragraph cold opener SMS (Carolyn Culver bug)", () => {
+    it("ALLOWS a 4-paragraph cold opener SMS (no length limit for cold outreach)", () => {
+      // Under new rules: cold outreach has NO length limit. The message-splitter handles long messages.
       const longMsg =
         "Hi there Carolyn,\n\nChris here from Adorb Custom Printing. I just wanted to follow up regarding your T-shirt inquiry and the pricing information we sent through.\n\nWe'd love to help bring your order together, and I wanted to check in to see if you had any questions or if you'd like to move forward with the next steps.\n\nFeel free to let us know what you're thinking when you have a moment, we're happy to assist!\n\nLooking forward to hearing from you.";
       const composed = makeComposed({ message: longMsg });
@@ -1341,12 +1342,12 @@ describe("detectViolations — sms_too_long", () => {
       const result = detectViolations(
         composed, makeQC(), strategy, smsContext(true), makeInput(), makeResearch()
       );
-      expect(result.category).toBe("sms_too_long");
-      expect(result.reason).toContain("First-contact SMS is too long");
+      // Cold outreach: NO length check. Composer is trusted.
+      expect(result.category).toBeNull();
     });
 
-    it("BLOCKS a first_contact SMS over 200 chars even if only 2 sentences", () => {
-      // 2 sentences but way too many characters
+    it("ALLOWS a first_contact SMS under 320 chars even if over 200 chars with 2 sentences", () => {
+      // 2 sentences, 237 chars — under hard ceiling (320) and under 4 sentences, so ALLOWED
       const longMsg =
         "Hey Carolyn, Chris here from Adorb Custom Printing and we specialize in custom t-shirts, hoodies, hats, mugs, and all kinds of promotional products for churches, businesses, and events! What kind of project are you working on today?";
       const composed = makeComposed({ message: longMsg });
@@ -1354,7 +1355,21 @@ describe("detectViolations — sms_too_long", () => {
       const result = detectViolations(
         composed, makeQC(), strategy, smsContext(true), makeInput(), makeResearch()
       );
-      expect(result.category).toBe("sms_too_long");
+      // Under 320 hard ceiling AND only 2 sentences (< 4) — ALLOWED under new AND logic
+      expect(result.category).toBeNull();
+    });
+
+    it("ALLOWS a first_contact SMS with 5+ sentences (no limit for cold outreach)", () => {
+      // Under new rules: cold outreach has NO length limit.
+      const longMsg =
+        "Hey Carolyn! Chris from Adorb Custom Printing here. We do custom tees for churches and events all across South Florida. Saw your inquiry about t-shirts for your ministry. Would love to help you out! What quantity and timeline are you thinking?";
+      const composed = makeComposed({ message: longMsg });
+      const strategy = makeStrategy({ approach: "first_contact", channel: "SMS" });
+      const result = detectViolations(
+        composed, makeQC(), strategy, smsContext(true), makeInput(), makeResearch()
+      );
+      // Cold outreach: NO length check. Composer is trusted.
+      expect(result.category).toBeNull();
     });
 
     it("ALLOWS a short 2-sentence cold opener SMS under 160 chars", () => {
@@ -1369,20 +1384,35 @@ describe("detectViolations — sms_too_long", () => {
       expect(result.category).toBeNull();
     });
 
-    it("also triggers for isFirstResponse=true even if approach is not first_contact", () => {
+    it("ALLOWS isFirstResponse=true follow-up under 600 chars (sanity ceiling)", () => {
+      // 330 chars — well under the 600 char sanity ceiling for follow-ups
       const longMsg =
-        "Hi there Carolyn, Chris here from Adorb Custom Printing. I just wanted to follow up regarding your T-shirt inquiry and the pricing information we sent through. We'd love to help bring your order together. Feel free to let us know what you're thinking!";
+        "Hi there Carolyn, Chris here from Adorb Custom Printing. I just wanted to follow up regarding your T-shirt inquiry and the pricing information we sent through. We'd love to help bring your order together and put together some options for you. Feel free to let us know what you're thinking when you have a moment, we are happy to assist!";
       const composed = makeComposed({ message: longMsg });
       const strategy = makeStrategy({ approach: "follow_up", channel: "SMS" });
       const result = detectViolations(
         composed, makeQC(), strategy, smsContext(true), makeInput(), makeResearch()
       );
-      expect(result.category).toBe("sms_too_long");
+      // Under 600 char sanity ceiling — ALLOWED
+      expect(result.category).toBeNull();
     });
   });
 
   describe("follow-up SMS", () => {
-    it("BLOCKS a follow-up SMS over 400 chars", () => {
+    it("BLOCKS a follow-up SMS over 600 chars (sanity ceiling)", () => {
+      // 620+ chars — exceeds the 600 char sanity ceiling
+      const longMsg =
+        "Hey Carolyn, just circling back on your custom t-shirt inquiry from last week. We've been working with a lot of churches and ministries lately on bulk orders and the feedback has been amazing. Our turnaround is typically 2-3 weeks and we can do quantities as low as 12 pieces with no minimum order requirements. Would love to chat about your specific needs and put together some options for you. What works best for a quick call this week? We have openings Monday through Friday anytime between 9am and 5pm. Also wanted to mention we just launched our new embroidery service that pairs perfectly with screen printing for a premium look.";
+      const composed = makeComposed({ message: longMsg });
+      const strategy = makeStrategy({ approach: "follow_up", channel: "SMS" });
+      const result = detectViolations(
+        composed, makeQC(), strategy, smsContext(false), makeInput(), makeResearch()
+      );
+      expect(result.category).toBe("sms_too_long");
+    });
+
+    it("ALLOWS a follow-up SMS under 480 chars even if over 400 chars with few sentences", () => {
+      // 440 chars but only 5 sentence fragments — under hard ceiling AND under 6 sentences
       const longMsg =
         "Hey Carolyn, just circling back on your custom t-shirt inquiry from last week. We've been working with a lot of churches and ministries lately on bulk orders and the feedback has been amazing. Our turnaround is typically 2-3 weeks and we can do quantities as low as 12 pieces with no minimum order requirements. Would love to chat about your specific needs and put together some options for you. What works best for a quick call this week?";
       const composed = makeComposed({ message: longMsg });
@@ -1390,7 +1420,8 @@ describe("detectViolations — sms_too_long", () => {
       const result = detectViolations(
         composed, makeQC(), strategy, smsContext(false), makeInput(), makeResearch()
       );
-      expect(result.category).toBe("sms_too_long");
+      // Under 480 hard ceiling AND only 5 sentences (< 6) — ALLOWED under new AND logic
+      expect(result.category).toBeNull();
     });
 
     it("ALLOWS a 3-sentence follow-up SMS under 320 chars", () => {

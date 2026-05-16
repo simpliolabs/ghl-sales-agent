@@ -87,10 +87,11 @@ If ANY of these are true, set approved=false immediately. Do not score the rest.
    - If stage is "reactivation" but the message treats the lead as brand new (no time-gap acknowledgment) → REJECT.
      Set violationCategory="fresh_outreach_on_aged_lead".
 
-8. SMS TOO LONG: If channel is SMS and the message exceeds 3 sentences OR 320 characters, REJECT.
-   For first_contact SMS: reject if more than 2 sentences OR more than 160 characters.
+8. SMS TOO LONG: If channel is SMS and the message exceeds 480 characters, REJECT.
+   For first_contact SMS: reject if more than 320 characters.
    SMS must be punchy and conversational — like a text from a friend, not an email.
    Multi-paragraph SMS = automatic rejection.
+   Short sentence fragments ("Hey Rashid!", "Chris from Adorb.") are fine — focus on TOTAL LENGTH, not sentence count.
    Set violationCategory="sms_too_long".
 
 If none of the auto-reject rules trigger, proceed to the quality checklist below.
@@ -1003,31 +1004,24 @@ export function detectViolations(
     }
   }
 
-  // 16. SMS TOO LONG — deterministic hard-reject for SMS messages exceeding length limits
-  // This is the LAST LINE OF DEFENSE — catches any SMS that the LLM QC prompt didn't reject.
+  // 16. SMS TOO LONG — ONLY blocks absurdly long follow-up SMS (sanity ceiling).
+  // Cold outreach (first_contact) has NO length limit — the Composer decides message length.
+  // If the message is good, send it. Real humans don't count characters.
   if (normalizeChannelForQC(strategy.channel) === "sms" && composed.message) {
     const smsMsg = composed.message.trim();
-    const smsSentences = smsMsg.split(/[.!?]+/).filter(s => s.trim().length > 0);
     const isFirstContact = strategy.approach === "first_contact" || context.isFirstResponse;
 
-    if (isFirstContact) {
-      // Cold opener: max 3 sentence fragments (accounts for dashes/ellipses splitting),
-      // but primary gate is character count — must be under 200 chars.
-      if (smsSentences.length > 3 || smsMsg.length > 200) {
+    if (!isFirstContact) {
+      // Follow-up only: sanity ceiling at 600 chars (3 SMS segments). Beyond this is clearly broken.
+      if (smsMsg.length > 600) {
         return {
           category: "sms_too_long" as ViolationCategory,
-          reason: `First-contact SMS is too long: ${smsSentences.length} sentences, ${smsMsg.length} chars. Cold opener SMS must be max 2 sentences / ~160 chars. Current message: "${smsMsg.substring(0, 80)}..."`
-        };
-      }
-    } else {
-      // Follow-up: max 3 sentences, max 320 chars
-      if (smsSentences.length > 4 || smsMsg.length > 400) {
-        return {
-          category: "sms_too_long" as ViolationCategory,
-          reason: `Follow-up SMS is too long: ${smsSentences.length} sentences, ${smsMsg.length} chars. Follow-up SMS must be max 3 sentences / 320 chars. Current message: "${smsMsg.substring(0, 80)}..."`
+          reason: `Follow-up SMS exceeds sanity ceiling: ${smsMsg.length} chars (max 600). This is likely a broken composition. Current message: "${smsMsg.substring(0, 80)}..."`
         };
       }
     }
+    // Cold outreach: NO length check. The Composer is trusted to write appropriate messages.
+    // If it writes something too long, the message-splitter will break it into 2 natural texts.
   }
 
   return { category: null, reason: "" };
