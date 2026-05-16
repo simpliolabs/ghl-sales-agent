@@ -45,5 +45,366 @@
       "created_at": "2026-04-23T21:00:00Z",
       "updated_at": "2026-04-23T21:25:33.543363Z"
     }
-  ]
+  ],
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Phase 0: Disable Legacy Timers via Feature Flag",
+        "description": "Wrap 12 of 20 background timers in a DISABLE_LEGACY_TIMERS feature flag in webhooks.ts. No new code — config change only.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "details": "In webhooks.ts (the timer hub), wrap these timers in `if (process.env.DISABLE_LEGACY_TIMERS !== 'true')`: Brain Council Self-Review (30 min), Retroactive Correction Scan (15 min), Lookback Drip (30 min), Event-Driven Triggers (30 min), Stale Schedule Recalculation (1 hr), Overdue Catch-Up (1 hr), Learning Promotion Scan (2 hr), Weekly Monday Review (6 hr), Seasonal Campaign Executor (2 hr), Supervisor (5 min), SLA Timer (30 min), Post-Delivery Executor (30 min). Set DISABLE_LEGACY_TIMERS=true in server env.",
+        "testStrategy": "Verify all 12 timers are wrapped. Set env var to true, restart, confirm timers don't fire. Set to false, confirm they resume. Check remaining 8 timers still run.",
+        "subtasks": []
+      },
+      {
+        "id": 2,
+        "title": "Phase 0: Adjust Core System Parameters",
+        "description": "Change 4 critical parameters: DB_SEND_COOLDOWN_MS 90s→30s, PROCESSING_LOCK_TTL_MS 5min→1min, DAILY_PROACTIVE_CAP 1→3 (score>=80), HUMAN_TAKEOVER_AUTO_EXPIRE_HOURS 24→4.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "details": "In brain-council-orchestrator.ts, update the constants. The cooldown reduction allows faster responses. The lock TTL reduction prevents stuck locks from blocking leads for 5 minutes. The proactive cap increase allows more outreach to hot leads. The takeover expiry reduction clears stale flags faster.",
+        "testStrategy": "Unit test each parameter change. Verify cooldown blocks at 30s not 90s. Verify lock expires at 60s. Verify cap allows 3 sends for score>=80 leads. Verify takeover auto-expires after 4 hours.",
+        "subtasks": []
+      },
+      {
+        "id": 3,
+        "title": "Phase 0: Stale Takeover Cleanup (One-Shot SQL)",
+        "description": "Run one-shot SQL to clear stale humanTakeover flags where lastAgentActivityAt > 4 hours ago and no recent human outbound messages.",
+        "status": "pending",
+        "dependencies": [1, 2],
+        "priority": "high",
+        "details": "Execute: UPDATE leads SET humanTakeover = 0 WHERE humanTakeover = 1 AND lastAgentActivityAt < NOW() - INTERVAL 4 HOUR AND id NOT IN (SELECT DISTINCT leadId FROM conversations WHERE direction = 'outbound' AND senderType = 'human' AND createdAt > NOW() - INTERVAL 4 HOUR). Monitor for 24h after.",
+        "testStrategy": "Count humanTakeover=1 leads before and after. Verify only stale ones (no recent human activity) are cleared. Confirm AI starts engaging these leads within 1 hour.",
+        "subtasks": []
+      },
+      {
+        "id": 4,
+        "title": "Phase 1: TiDB SKIP LOCKED Pre-Check",
+        "description": "Test whether TiDB supports SELECT FOR UPDATE SKIP LOCKED. If not, implement optimistic-lock fallback pattern for the outbox worker.",
+        "status": "pending",
+        "dependencies": [3],
+        "priority": "high",
+        "details": "Run test: CREATE TABLE _skip_locked_test (id INT PRIMARY KEY, status VARCHAR(20)); INSERT INTO _skip_locked_test VALUES (1, 'pending'); SELECT * FROM _skip_locked_test WHERE status = 'pending' FOR UPDATE SKIP LOCKED; DROP TABLE _skip_locked_test. If it errors, use the optimistic-lock pattern.",
+        "testStrategy": "Run the test SQL against production TiDB. Document result. If SKIP LOCKED fails, implement and test the optimistic-lock fallback with concurrent claim simulation.",
+        "subtasks": []
+      },
+      {
+        "id": 5,
+        "title": "Phase 1: Create Outbox Table",
+        "description": "Create the outbox table with idempotency key, status tracking, scheduling, and retry support.",
+        "status": "pending",
+        "dependencies": [4],
+        "priority": "high",
+        "details": "CREATE TABLE outbox (id BIGINT PRIMARY KEY AUTO_INCREMENT, lead_id INT NOT NULL, idem_key VARCHAR(64) NOT NULL, source ENUM('webhook','responder','follow_up','manual') NOT NULL, payload JSON NOT NULL, status ENUM('pending','claimed','sent','failed','skipped') DEFAULT 'pending', claimed_by VARCHAR(64), claimed_at TIMESTAMP NULL, scheduled_at TIMESTAMP NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, sent_at TIMESTAMP NULL, error TEXT, retry_count INT DEFAULT 0, UNIQUE KEY uk_idem (lead_id, idem_key), INDEX idx_pending (status, scheduled_at)).",
+        "testStrategy": "Verify table creation. Test UNIQUE constraint on (lead_id, idem_key) rejects duplicates. Test index usage with EXPLAIN on pending status queries.",
+        "subtasks": []
+      },
+      {
+        "id": 6,
+        "title": "Phase 1: Build Outbox Enqueue + Idempotency Key",
+        "description": "Create enqueueOutbox() function with SHA256 idempotency key formula: sha256(leadId:triggerSource:timeBucket).slice(0,64). Time bucket = 5-minute window.",
+        "status": "pending",
+        "dependencies": [5],
+        "priority": "high",
+        "details": "For inbound replies, include first 50 chars of body in key. For follow-ups, use 'follow_up' as trigger. For first contact, use 'first_contact'. INSERT IGNORE into outbox — if idem_key already exists for that lead, silently skip (idempotent). Export makeIdemKey() for all producers.",
+        "testStrategy": "Test that same trigger within 5-min window produces same key. Test different triggers produce different keys. Test INSERT IGNORE behavior on duplicate. Test inbound reply key includes message body hash.",
+        "subtasks": []
+      },
+      {
+        "id": 7,
+        "title": "Phase 1: Convert All 4 Senders to Outbox Producers",
+        "description": "Replace direct runBrainCouncil() calls in webhook-message.ts, follow-up-trigger.ts, webhook-contact.ts, and manual send with enqueueOutbox() calls.",
+        "status": "pending",
+        "dependencies": [6],
+        "priority": "high",
+        "details": "webhook-message.ts: enqueue with trigger 'inbound_reply', scheduledAt=now (or +15min if shouldDefer). follow-up-trigger.ts: enqueue with trigger 'proactive_follow_up', scheduledAt=lead.nextFollowUpAt. webhook-contact.ts: enqueue with trigger 'first_contact', scheduledAt=now+45s. Manual: enqueue with source 'manual', scheduledAt=now.",
+        "testStrategy": "Verify each sender creates outbox rows instead of calling brain directly. Test idempotency: rapid-fire webhook doesn't create duplicates. Test scheduling: deferred messages have future scheduled_at.",
+        "subtasks": []
+      },
+      {
+        "id": 8,
+        "title": "Phase 1: Build Outbox Worker (Drain Loop)",
+        "description": "Create outbox-worker.ts — the ONLY path through which messages are sent. Runs every 2 minutes, claims up to 10 rows, processes them through guards → brain → send.",
+        "status": "pending",
+        "dependencies": [7],
+        "priority": "high",
+        "details": "Atomic claim (SKIP LOCKED or optimistic lock). For each row: run input guards → if blocked/deferred, mark accordingly. If payload has draftMessage (pre-composed nurture), skip brain call. Otherwise call brain (legacy or single depending on feature flag). Run output guards. Send via GHL. Log decision. Update lead. Post-send check. On failure: retry up to 3 times with 60s backoff.",
+        "testStrategy": "Test concurrent claims don't double-process. Test stale claims (>2min) get reclaimed. Test retry logic. Test pre-composed messages bypass brain. Test failure after 3 retries marks as failed permanently.",
+        "subtasks": []
+      },
+      {
+        "id": 9,
+        "title": "Phase 1: Build Input Guards",
+        "description": "Create input-guards.ts with 5 hard guards: AI offline, DNC keyword scan, GHL DND, humanTakeover active, TCPA quiet hours. Plus FB 24hr window channel override.",
+        "status": "pending",
+        "dependencies": [5],
+        "priority": "high",
+        "details": "Guard 1: Check system settings aiOnline flag. Guard 2: Scan last 5 inbound messages for DNC keywords → set humanTakeover. Guard 3: Check GHL DND per-channel. Guard 4: humanTakeover=1 and not expired (< 4h). Guard 5: TCPA quiet hours based on area code timezone → defer to next business hour. Guard 5b: FB channel with expired 24hr window → silently override to SMS.",
+        "testStrategy": "Test each guard independently. Test DNC keywords trigger block. Test TCPA defers to correct time. Test FB window override changes channel without blocking. Test expired humanTakeover passes.",
+        "subtasks": []
+      },
+      {
+        "id": 10,
+        "title": "Phase 1: Remove Legacy Cooldown/Lock Stack",
+        "description": "Delete the 90-second DB cooldown check, the 5-min processing lock logic, the already-responded check, and daily send cap producer logic from brain-council-orchestrator.ts.",
+        "status": "pending",
+        "dependencies": [8],
+        "priority": "high",
+        "details": "These are all replaced by the outbox idempotency key and the single-drain-point architecture. Keep the daily cap enforcement in outbox-worker only (not in the orchestrator). The orchestrator becomes a thin stub that imports outbox-worker.",
+        "testStrategy": "Verify brain-council-orchestrator.ts no longer has cooldown/lock/dedup logic. Verify outbox-worker enforces daily cap. Run full integration test: rapid webhook fire → only 1 outbox row created → only 1 message sent.",
+        "subtasks": []
+      },
+      {
+        "id": 11,
+        "title": "Phase 2: Create Prompt Versioning Table",
+        "description": "Create prompt_versions table with version, template (TEXT), is_active flag, created_at, notes. Database-driven prompt iterations with zero code deploys.",
+        "status": "pending",
+        "dependencies": [10],
+        "priority": "high",
+        "details": "CREATE TABLE prompt_versions (id INT PRIMARY KEY AUTO_INCREMENT, version VARCHAR(20) NOT NULL, template TEXT NOT NULL, is_active BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, notes TEXT). Insert initial v1.0 prompt as first row with is_active=true.",
+        "testStrategy": "Verify table creation. Test only one row can be is_active=true at a time (application-level enforcement). Test prompt retrieval returns active version.",
+        "subtasks": []
+      },
+      {
+        "id": 12,
+        "title": "Phase 2: Extract Pricing Data from sales-training.ts",
+        "description": "Extract ALL product pricing verbatim from shared/sales-training.ts into server/pricing-data.json. Include t-shirts, hoodies, polos, hats, tote bags — every product with exact tier pricing.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "details": "Must be extracted VERBATIM — do not invent numbers. Include: minimumOrder (1, no minimums), per-product tier tables with minQty/maxQty/sides pricing, size upcharges (2XL: $2.50, 3XL-5XL: $3.50), rush fee percent (20%), setup fees. For tiers where price is null, mark as 'call for quote'.",
+        "testStrategy": "Cross-reference every number in pricing-data.json against sales-training.ts. Verify no prices are invented. Verify all products are included. Verify tier boundaries are correct.",
+        "subtasks": []
+      },
+      {
+        "id": 13,
+        "title": "Phase 2: Build Pricing Engine",
+        "description": "Create pricing-engine.ts (~100 lines) with getQuote(qty, sides, product, rush) function. This is the ONLY code allowed to produce prices.",
+        "status": "pending",
+        "dependencies": [12],
+        "priority": "high",
+        "details": "Reads from pricing-data.json. Returns QuoteResult with perUnit, subtotal, rushFee, setupFee, total, breakdown string. Returns callForQuote:true for quantities outside table range. Returns error for unknown products. The LLM calls this as a tool — it never composes prices freehand.",
+        "testStrategy": "Test every tier boundary. Test rush fee calculation. Test size upcharges. Test callForQuote for edge quantities. Test unknown product error. Test breakdown string format.",
+        "subtasks": []
+      },
+      {
+        "id": 14,
+        "title": "Phase 2: Build Single Brain (single-brain.ts)",
+        "description": "Create the single brain with two-step LLM loop: tools then json_schema finalization. ~400 lines. Replaces 7 brains with 1 smart call.",
+        "status": "pending",
+        "dependencies": [11, 13],
+        "priority": "high",
+        "details": "Step 1: Tool execution loop (max 3 rounds) with tools=[getQuote, bookAppointment, createPaymentLink, markDNC, routeToHuman]. Step 2: Final structured output via json_schema returning BrainDecision {message, channel, nextFollowUpHours, pipelineAction, routeToHuman, routeReason, confidence}. System prompt loaded from prompt_versions table. Injects segment_weights (top/avoid approaches), lead memory, conversation history (20 messages), stage behavior from stage-behavior.json.",
+        "testStrategy": "Test first contact with zero history uses cold outreach rules. Test inbound reply responds on same channel. Test pricing question calls getQuote. Test getQuote result appears verbatim. Test 'stop messaging' calls markDNC. Test complaint calls routeToHuman. Test json_schema output always matches BrainDecision type.",
+        "subtasks": []
+      },
+      {
+        "id": 15,
+        "title": "Phase 2: Build Output Guards",
+        "description": "Create output-guards.ts (~80 lines) with 5 guards: system leak detection, channel mismatch correction, price validation (getQuote required), DNC phrase check, null message with advance action.",
+        "status": "pending",
+        "dependencies": [14],
+        "priority": "high",
+        "details": "Guard 1: Regex for 'brain council|strategist|composer|qc brain|expert panel|json{' → block as system_leak. Guard 2: First response must use inbound channel → force correct (don't block). Guard 3: If message contains $ and no getQuote in toolLog → block as unverified_price. Guard 4: DNC keywords in outgoing → block. Guard 5: null message + advance action → strip pipelineAction.",
+        "testStrategy": "Test each guard. Test system leak regex catches all patterns. Test price validation requires getQuote call. Test price mismatch detection. Test channel force on first message. Test null message strips action.",
+        "subtasks": []
+      },
+      {
+        "id": 16,
+        "title": "Phase 2: Build Stage Behavior JSON + Lead Utils",
+        "description": "Create stage-behavior.json (9 stages with objective/signals/avoid) and lead-utils.ts (deterministic scoring, rule-based segment classification, context builder).",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "details": "stage-behavior.json: new_lead, exploring, quote_requested, quote_sent, appointment_scheduled, negotiating, won, lost, stale — each with objective, signals_to_ask_for, avoid. lead-utils.ts: scoreLeadQuick() (deterministic, no LLM), classifySegment() (keyword-based with rare LLM fallback), buildLeadContext() (pure data assembler).",
+        "testStrategy": "Test all 9 stages have required fields. Test scoreLeadQuick produces 0-100. Test classifySegment matches keywords correctly. Test LLM fallback only triggers when no keywords match and data exists.",
+        "subtasks": []
+      },
+      {
+        "id": 17,
+        "title": "Phase 2: A/B Feature Flag Routing (Legacy vs Single Brain)",
+        "description": "Add SINGLE_BRAIN_PCT env var routing in outbox-worker. lead.id % 100 < PCT routes to single brain, rest to legacy. Ramp: 10% → 50% → 100%.",
+        "status": "pending",
+        "dependencies": [14, 15, 8],
+        "priority": "high",
+        "details": "In outbox-worker.ts: const useSingleBrain = (lead.id % 100) < Number(process.env.SINGLE_BRAIN_PCT ?? '0'). Start at 10% for 48h, then 50% for 7 days if reply rate within 5% of legacy, then 100%. Gate to Phase 3: single brain at 50% for 7 days with reply rate >= legacy, zero pricing hallucinations.",
+        "testStrategy": "Test routing: lead.id=5 with PCT=10 → single brain. lead.id=15 with PCT=10 → legacy. Test PCT=0 → all legacy. Test PCT=100 → all single brain. Verify both paths produce valid BrainDecision.",
+        "subtasks": []
+      },
+      {
+        "id": 18,
+        "title": "Phase 3: Pre-Delete Extractions (signal-patterns.ts)",
+        "description": "Before any deletes: create signal-patterns.ts (confusion/wrong-business/negative-sentiment regex arrays extracted from auto-correction.ts). Update imports.",
+        "status": "pending",
+        "dependencies": [17],
+        "priority": "high",
+        "details": "Extract CONFUSION_PATTERNS, WRONG_BUSINESS_PATTERNS, NEGATIVE_SENTIMENT_PATTERNS from auto-correction.ts into signal-patterns.ts. Update all files that import from strategist.ts, error-memory.ts, skill-registry.ts to import from lead-utils.ts instead. Run tsc --noEmit to confirm 0 errors BEFORE proceeding to deletes.",
+        "testStrategy": "Verify signal-patterns.ts has all regex patterns from auto-correction.ts. Verify tsc --noEmit passes with 0 errors. Verify no imports reference files about to be deleted.",
+        "subtasks": []
+      },
+      {
+        "id": 19,
+        "title": "Phase 3: Delete 20 Brain/Strategy/Meta Files (~8,270 lines)",
+        "description": "Delete: expert-panel.ts, deliberation-judge.ts, closer.ts, objection-handler.ts, brain-council-review.ts, brain-council.ts, auto-correction.ts, strategist.ts, composer.ts, researcher.ts, lead-researcher.ts, auto-skill-hunter.ts, strategy-autopilot.ts, skill-registry.ts, ab-testing.ts, few-shot-retrieval.ts, error-memory.ts, lookback-engine.ts, deferred-response-processor.ts, stage-playbook.ts.",
+        "status": "pending",
+        "dependencies": [18],
+        "priority": "high",
+        "details": "Delete in order: brain files first, then strategy/learning/meta files. After each batch, run tsc --noEmit. Fix any import errors before proceeding. Delete associated test files (~6,000 test lines).",
+        "testStrategy": "After deletion: tsc --noEmit = 0 errors. All remaining tests pass. Server starts without crashes. Outbox worker processes messages correctly through single brain path.",
+        "subtasks": []
+      },
+      {
+        "id": 20,
+        "title": "Phase 3: Rewrite/Simplify 12 Files (~7,635 lines removed)",
+        "description": "Rewrite brain-council-orchestrator.ts (→50 line stub), qc.ts (→0, replaced by output-guards), conversation-state.ts (→55 lines passive observer). Simplify scheduling-engine.ts, learning-loop.ts, webhook-message.ts, webhook-contact.ts, lead-disposition.ts, db.ts, persona-learning.ts, brain-types.ts, brain-context.ts.",
+        "status": "pending",
+        "dependencies": [19],
+        "priority": "high",
+        "details": "conversation-state.ts becomes a pure function: deriveNextConvState(current, decision, lead) that derives state from tool calls (getQuote→'quoted', bookAppointment→'booked', etc). brain-council-orchestrator.ts becomes a thin import of outbox-worker. db.ts removes all helpers for deleted systems.",
+        "testStrategy": "tsc --noEmit = 0 errors. All remaining tests pass. Verify conversation state transitions correctly for each tool call type. Verify outbox worker still functions end-to-end.",
+        "subtasks": []
+      },
+      {
+        "id": 21,
+        "title": "Phase 3: Database Cleanup — Drop Tables + Rename to decision_log",
+        "description": "Drop 8 unused tables. Rename brain_council_audit to decision_log. Add new columns: brain_version, tools_called, input/output_guard_result, latency_ms, llm_calls, outbox_id FK, prompt_version, flagged_for_review, flag_reason, reviewed_at.",
+        "status": "pending",
+        "dependencies": [20],
+        "priority": "high",
+        "details": "DROP: ab_experiments, ab_assignments, hall_of_fame, supervisor_audit, error_memory, skill_proposals, strategy_adjustments, deferred_responses. ALTER TABLE brain_council_audit RENAME TO decision_log. Drop old columns: strategist_output, researcher_output, expert_panel_scores, qc_violations, deliberation_output. Add new columns per spec.",
+        "testStrategy": "Verify all 8 tables dropped. Verify rename successful. Verify new columns exist with correct types. Verify FK constraint on outbox_id. Verify existing data preserved in renamed table.",
+        "subtasks": []
+      },
+      {
+        "id": 22,
+        "title": "Phase 3: Re-enable 3 Timers as Outbox Producers + Nurture Conversion",
+        "description": "Re-enable Fast Missed-Reply Scanner, Post-Delivery Executor, Seasonal Campaign Executor — all as outbox producers. Convert nurture systems to outbox producers.",
+        "status": "pending",
+        "dependencies": [21],
+        "priority": "medium",
+        "details": "Each timer now calls enqueueOutbox() instead of sending directly. Fast Missed-Reply: trigger='missed_reply'. Post-Delivery: trigger='post_delivery_step'. Seasonal: trigger='seasonal_campaign'. Lost Lead Nurture: trigger='lost_lead_nurture'. Import Nurture: trigger='import_nurture'. All use appropriate idem_keys to prevent duplicates.",
+        "testStrategy": "Verify each timer creates outbox rows, not direct sends. Verify idempotency keys prevent duplicate enqueues. Verify outbox worker processes these triggers correctly.",
+        "subtasks": []
+      },
+      {
+        "id": 23,
+        "title": "Phase 3: Write New Test Suite (outbox-worker, single-brain, guards)",
+        "description": "Write 34 new tests: outbox-worker.test.ts (10), single-brain.test.ts (14), guards.test.ts (10). Target: 650+ tests passing after Phase 3.",
+        "status": "pending",
+        "dependencies": [20, 21],
+        "priority": "medium",
+        "details": "outbox-worker: atomic claim, duplicate idem_key, stale reclaim, retry logic, DNC guard, TCPA defer, humanTakeover block, draftMessage bypass, send failure retry, max retry abort. single-brain: first contact cold rules, same-channel reply, getQuote call, price verbatim, markDNC, routeToHuman, different angle follow-up, breakup timing, tool round limit, json_schema type, confidence range, SMS split separator, FB fallback, segment-specific approaches. guards: DNC block, GHL DND, TCPA defer, takeover timing, system leak, price validation, channel force, null+advance strip.",
+        "testStrategy": "All 34 tests pass. No flaky tests. Tests cover both happy path and error paths. Mock LLM calls for deterministic results.",
+        "subtasks": []
+      },
+      {
+        "id": 24,
+        "title": "Phase 4: Stripe Integration + Payment Links",
+        "description": "Run webdev_add_feature stripe. Create payment_links table. Implement createPaymentLink tool for the single brain. Wire Stripe webhook for checkout.session.completed.",
+        "status": "pending",
+        "dependencies": [21],
+        "priority": "high",
+        "details": "createPaymentLink(lead, amount, description) creates a Stripe Checkout Session with metadata.leadId. On payment success webhook: update payment_links status to 'paid', update lead stage to 'won', notify owner. Payment link expires after 24h. Table: payment_links (id, lead_id, stripe_session_id, amount, url, status, created_at, expires_at, paid_at).",
+        "testStrategy": "Test payment link creation with mock Stripe. Test webhook handler updates status correctly. Test expired links are handled. Test owner notification fires on payment.",
+        "subtasks": []
+      },
+      {
+        "id": 25,
+        "title": "Phase 4: Quote Persistence + Appointment Booking",
+        "description": "Create quotes table for persisting getQuote results. Implement bookAppointment tool using GHL Calendar API.",
+        "status": "pending",
+        "dependencies": [24],
+        "priority": "high",
+        "details": "quotes table: id, lead_id, product, qty, sides, per_unit, total, rush, status (sent/approved/declined/expired), sent_at, expires_at. bookAppointment: POST to GHL /calendars/events with contactId, startTime, title, notes. Updates lead stage to 'appointment_scheduled'. Returns confirmation ID and human-readable slot.",
+        "testStrategy": "Test quote persistence after getQuote call. Test bookAppointment creates GHL calendar event. Test lead stage updates correctly. Test appointment confirmation returned to brain.",
+        "subtasks": []
+      },
+      {
+        "id": 26,
+        "title": "Phase 5: Create segment_weights Table + Outcome Recording",
+        "description": "Create segment_weights table (segment × channel × stage × approach → wins/losses/win_rate). Wire outcome recording: reply within 72h = win, no reply after 72h = loss.",
+        "status": "pending",
+        "dependencies": [21],
+        "priority": "high",
+        "details": "Table: segment_weights (id, segment, channel, stage, approach, wins, losses, win_rate, updated_at) with UNIQUE KEY on (segment, channel, stage, approach). Use INSERT...ON DUPLICATE KEY UPDATE for atomic increment. Recalculate win_rate after each update. Minimum 3 samples before surfacing in prompt.",
+        "testStrategy": "Test win/loss recording. Test win_rate calculation. Test ON DUPLICATE KEY UPDATE works correctly. Test minimum sample threshold (3) filters correctly.",
+        "subtasks": []
+      },
+      {
+        "id": 27,
+        "title": "Phase 5: Dynamic Prompt Injection (Top/Avoid Approaches)",
+        "description": "Build getTopApproaches() and getAvoidApproaches() functions. Inject into single brain system prompt at decision time.",
+        "status": "pending",
+        "dependencies": [26, 14],
+        "priority": "high",
+        "details": "getTopApproaches(segment, channel, stage, n=3): returns top N approaches by win_rate where (wins+losses)>=3. getAvoidApproaches(segment, channel, n=3): returns bottom N approaches where win_rate<0.1 and samples>=3. Injected into prompt as '• APPROACH: X% reply rate (N samples)' and '• AVOID APPROACH: X% reply rate'.",
+        "testStrategy": "Test returns correct top/bottom approaches. Test minimum sample filter. Test empty results when no data. Test prompt injection format matches spec.",
+        "subtasks": []
+      },
+      {
+        "id": 28,
+        "title": "Phase 5: LoRA Pipeline Rewiring (training-export.ts)",
+        "description": "Rewrite training-export.ts to generate pairs from decision_log using single-brain prompt format. Include tool call turns in JSONL. Filter by current prompt version.",
+        "status": "pending",
+        "dependencies": [21, 14],
+        "priority": "high",
+        "details": "Quality filters: (gotReply=1 AND replyType NOT IN ('dnc','complaint','confusion')) OR converted=1. AND prompt_version=currentActiveVersion. AND output_guard_result='pass'. AND message length>=20. AND confidence>=60. Include tool calls as multi-turn (assistant tool_calls → tool results → final assistant message). Minimum 50 pairs to train. Keep full auto-promote/rollback pipeline.",
+        "testStrategy": "Test training pair generation with mock decision_log data. Test quality filters exclude bad data. Test tool call reconstruction in JSONL format. Test minimum pair guard skips training when insufficient data.",
+        "subtasks": []
+      },
+      {
+        "id": 29,
+        "title": "Phase 5: A/B Test Prompt Version Anchoring + Model Selection",
+        "description": "Add abTestPromptVersion column to fine_tuning_jobs. Freeze prompt version when A/B starts. Update single-brain.ts getActiveModel() to check for promoted LoRA model.",
+        "status": "pending",
+        "dependencies": [28],
+        "priority": "medium",
+        "details": "When starting A/B: record current prompt version. When evaluating: only count decision_log rows where prompt_version matches anchored version. Auto-promote if fine-tuned win rate > base by 5% with n>=100 per arm. getActiveModel(): check fineTuningJobs for promoted=1, abTestActive=0, return fineTunedModel or fall back to gpt-4.1-mini.",
+        "testStrategy": "Test prompt version is frozen at A/B start. Test evaluation filters by anchored version. Test promotion threshold (5% improvement, n>=100). Test getActiveModel returns promoted model when available.",
+        "subtasks": []
+      },
+      {
+        "id": 30,
+        "title": "Phase 5: Confusion Detection + Post-Send Self-Review",
+        "description": "Add confusion detection in webhook-message.ts using patterns from signal-patterns.ts. Add post-send check in outbox-worker for wrong-business references. Surface flagged messages in dashboard.",
+        "status": "pending",
+        "dependencies": [18, 14],
+        "priority": "medium",
+        "details": "Confusion detection: if CONFUSION_PATTERNS match inbound reply → flag prior AI message as negative outcome → enqueue recovery with trigger='confusion_recovery'. Post-send check: after proactive sends, check if message references a business name that doesn't match lead.businessName → set flaggedForReview=true in decision_log.",
+        "testStrategy": "Test confusion patterns detect 'who is this', 'wrong number', etc. Test flagging creates outbox entry with correct trigger. Test post-send check catches wrong-business reference. Test flaggedForReview is set correctly.",
+        "subtasks": []
+      },
+      {
+        "id": 31,
+        "title": "Phase 6: Dashboard Overhaul — Revenue Metrics + Review Queue",
+        "description": "Replace dashboard with: messages sent / replies / quotes sent / deals closed / revenue. Add 'Flagged Messages' tab to Review Queue.",
+        "status": "pending",
+        "dependencies": [21, 30],
+        "priority": "medium",
+        "details": "Revenue dashboard: today/week/allTime metrics. Conversion funnel: contacted → replied → quoted → closed. Review Queue dual-tab: Tab 1 'Agent Handoffs' (routeToHuman=true), Tab 2 'Flagged Messages' (flagged_for_review=1, unacknowledged). Flagged cards show: lead name, sent message, flag reason, Dismiss button, Intervene button.",
+        "testStrategy": "Test revenue metrics calculate correctly. Test funnel counts are accurate. Test flagged messages appear in Review Queue. Test Dismiss marks reviewedAt. Test Intervene sets humanTakeover.",
+        "subtasks": []
+      },
+      {
+        "id": 32,
+        "title": "Phase 6: Remove Dead Frontend Pages + Simplify Navigation",
+        "description": "Remove from routing: AI Performance, Brain Council Log, Self-Learning analytics overlay, Webhook Logs UI. Keep: Dashboard, Hot Leads, All Leads, Lead Detail, Review Queue.",
+        "status": "pending",
+        "dependencies": [31],
+        "priority": "low",
+        "details": "Delete page components for removed pages. Update App.tsx routing. Update DashboardLayout navigation. Lead Detail page: show conversation + single brain audit trail from decision_log. Clean up any references to deleted backend endpoints.",
+        "testStrategy": "Verify removed pages return 404. Verify navigation doesn't show dead links. Verify Lead Detail shows decision_log data correctly. Verify no console errors on remaining pages.",
+        "subtasks": []
+      }
+    ],
+    "metadata": {
+      "created": "2026-05-16T17:10:00.000Z",
+      "updated": "2026-05-16T17:10:00.000Z",
+      "description": "Adorb Outreach Portal Overhaul — 6 Phases, 32 Tasks"
+    }
+  }
 }
