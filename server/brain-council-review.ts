@@ -24,6 +24,7 @@ import { runBrainCouncil } from "./brain-council-orchestrator";
 import { sendMessage, fetchGhlConversationHistory } from "./ghl";
 import { addConversation, updateLeadFields, getConversationHistory } from "./db";
 import { notifyOwner } from "./_core/notification";
+import { enqueueOutbox, makeIdemKey } from "./outbox-worker";
 
 const REVIEW_WINDOW_HOURS = 24; // Look back 24 hours for issues
 const MAX_REVIEWS_PER_CYCLE = 5; // Max leads to review per cycle (LLM credit guard)
@@ -244,55 +245,32 @@ export async function runBrainCouncilSelfReview(): Promise<{
           console.error(`[CouncilReview] Failed to fetch history for lead ${issue.leadId}:`, histErr);
         }
 
-        const result = await runBrainCouncil({
+        // PHASE 1: Enqueue recovery into outbox instead of direct Brain Council + send
+        const idemKey = makeIdemKey(issue.leadId, `recovery:${issue.issueType}`);
+        const { enqueued } = await enqueueOutbox({
           leadId: issue.leadId,
-          incomingMessage,
-          channel: issue.channel,
-          externalHistory,
-          overrideReason: recoveryContext,
-          isInboundReply: true, // Recovery is responding to a missed inbound
+          idemKey,
+          source: "self_review",
+          scheduledAt: new Date(),
+          payload: {
+            trigger: "self_review",
+            channelHint: issue.channel,
+            externalHistory,
+            incomingMessage,
+            isInboundReply: true,
+            overrideReason: recoveryContext,
+            issueType: issue.issueType,
+            issueDetail: issue.issueDetail,
+          },
         });
 
-        if (result.blocked) {
-          console.log(`[CouncilReview] Council blocked recovery for lead ${issue.leadId}: ${result.blockReason}`);
-          stats.skipped++;
-          continue;
-        }
-
-        // Send the recovery message
-        const sendOpts = buildSendOpts(result.channel || issue.channel, result.message, result.fromName, { leadName: issue.leadName });
-        const sendResult = await sendMessage(issue.contactId, sendOpts);
-
-        if (sendResult.success) {
-          // Log to conversations
-          await addConversation({
-            leadId: issue.leadId,
-            channel: result.channel || issue.channel,
-            direction: "outbound",
-            messageBody: result.message,
-            senderType: "ai",
-            senderName: result.fromName,
-          });
-
-          // Update lead's lastMessageAt
-          await updateLeadFields(issue.leadId, { lastMessageAt: new Date() });
-
-          console.log(`[CouncilReview] ✅ Recovery sent to ${issue.leadName} (lead ${issue.leadId}): "${result.message.substring(0, 80)}..."`);
+        if (enqueued) {
+          console.log(`[CouncilReview] ✅ Enqueued recovery for ${issue.leadName} (lead ${issue.leadId}) via outbox`);
           stats.recovered++;
-
-          // Notify owner of the recovery
-          await notifyOwner({
-            title: `🔄 Council Self-Review: Recovery Sent to ${issue.leadName}`,
-            content: `Issue: ${issue.issueType}\nDetail: ${issue.issueDetail}\n\nRecovery message sent:\n"${result.message}"\n\nFramework: ${result.framework} | QC Score: ${result.qcScore}`,
-            priority: "standard",
-          });
         } else {
-          console.error(`[CouncilReview] Failed to send recovery to lead ${issue.leadId}: ${sendResult.error}`);
-          stats.errors++;
+          console.log(`[CouncilReview] Deduped recovery for lead ${issue.leadId} — already pending`);
+          stats.skipped++;
         }
-
-        // Small delay between sends
-        await new Promise(r => setTimeout(r, 3000));
 
       } catch (err) {
         console.error(`[CouncilReview] Error processing issue for lead ${issue.leadId}:`, err);
@@ -414,34 +392,27 @@ export async function runFastMissedReplyScanner(): Promise<number> {
         console.error(`[FastScan] Failed to fetch history for lead ${row.leadId}:`, histErr);
       }
 
-      const result = await runBrainCouncil({
+      // PHASE 1: Enqueue fast-scan reply into outbox instead of direct Brain Council + send
+      const idemKey = makeIdemKey(row.leadId, `fastscan:${row.lastInbound?.substring(0, 30)}`);
+      const { enqueued } = await enqueueOutbox({
         leadId: row.leadId,
-        incomingMessage: row.lastInbound,
-        channel: row.channel || "SMS",
-        externalHistory,
-        overrideReason: "FAST_SCAN: Lead sent a message and received no reply within 3 minutes. Respond immediately.",
-        isInboundReply: true,
+        idemKey,
+        source: "fast_scan",
+        scheduledAt: new Date(), // immediate
+        payload: {
+          trigger: "fast_scan",
+          channelHint: row.channel || "SMS",
+          externalHistory,
+          incomingMessage: row.lastInbound,
+          isInboundReply: true,
+          overrideReason: "FAST_SCAN: Lead sent a message and received no reply within 3 minutes. Respond immediately.",
+        },
       });
 
-      if (!result.blocked && result.message) {
-        const sendOpts = buildSendOpts(result.channel || row.channel || "SMS", result.message, result.fromName, { leadName: row.leadName || undefined });
-        const sendResult = await sendMessage(row.ghlContactId, sendOpts);
-        if (sendResult) {
-          await addConversation({
-            leadId: row.leadId,
-            channel: result.channel || row.channel || "SMS",
-            direction: "outbound",
-            messageBody: result.message,
-            senderType: "ai",
-            senderName: result.fromName,
-          });
-          await updateLeadFields(row.leadId, { lastMessageAt: new Date() });
-          console.log(`[FastScan] ✅ Responded to ${row.leadName} (lead ${row.leadId}) within 3-min window`);
-          recovered++;
-        }
+      if (enqueued) {
+        console.log(`[FastScan] ✅ Enqueued response for ${row.leadName} (lead ${row.leadId}) via outbox`);
+        recovered++;
       }
-      // Small delay between sends
-      await new Promise(r => setTimeout(r, 2000));
     } catch (err) {
       console.error(`[FastScan] Error responding to lead ${row.leadId}:`, err);
     } finally {

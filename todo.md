@@ -1431,3 +1431,27 @@
 - [x] P0.7: Run stale takeover cleanup SQL (clear humanTakeover where lastAgentActivityAt > 4h ago)
 - [x] P0.8: Update tests for new parameter values (12 new tests + 82 updated tests passing)
 - [x] P0.9: Verify all tests pass — 1,099 tests passing, 49 test files, 0 failures
+
+## Phase 1: The Outbox (Single Message Queue)
+- [x] P1.1: Create outbox table schema (leadId, idemKey, source, payload, status, claimedBy, claimedAt, scheduledAt, sentAt, error, retryCount)
+- [x] P1.2: Create decision_log table schema (outboxId, leadId, trigger, brainReasoning, promptVersion, channel, inputGuardResult, outputGuardResult, durationMs)
+- [x] P1.3: Run migration SQL for both tables + UNIQUE INDEX uk_idem + INDEX idx_pending + INDEX idx_decision_lead
+- [x] P1.3b: TiDB SKIP LOCKED test passed — using optimal claim pattern
+- [x] P1.4: Build enqueueOutbox() helper — idempotent INSERT IGNORE on UNIQUE(leadId, idemKey)
+- [x] P1.5: Build drain worker — polls every 5s, claims with FOR UPDATE SKIP LOCKED, processes sequentially
+- [x] P1.6: Add makeIdemKey() — SHA-256 of leadId + trigger + 5-min time bucket
+- [x] P1.7: Add retry logic — max 3 retries with exponential backoff (60s, 120s, 240s)
+- [x] P1.7b: Input guards: AI offline, DNC keyword scan, humanTakeover, terminal stage, TCPA quiet hours
+- [x] P1.7c: Decision log — every outbox decision logged with timing, guard results, brain reasoning
+- [x] P1.7d: Outbox stats tRPC endpoint for admin dashboard
+- [x] P1.7e: Outbox worker registered in server startup
+- [x] P1.8: Webhook inbound — KEPT direct for now (latency-sensitive), will move to outbox in Phase 2
+- [x] P1.9: Rewire follow-up trigger to enqueue (771→528 lines, removed direct send/error handling)
+- [x] P1.10: Rewire fast scanner to enqueue via outbox
+- [x] P1.11: Rewire self-review to enqueue via outbox
+- [x] P1.12: Rewire deferred-response-processor to enqueue via outbox (pre-composed messages)
+- [x] P1.12b: Auto-correction already gated by DISABLE_LEGACY_TIMERS (Phase 0)
+- [x] P1.13: Outbox stats tRPC endpoint added (pending/sent/failed/retry counts) — dashboard view deferred to Phase 2
+- [x] P1.14: Write tests for outbox (19 tests: idemKey generation, TCPA guards, DNC keywords, retry logic, schema validation)
+- [x] P1.14b: Updated context-assembly tests to reflect outbox rewiring
+- [x] P1.15: All 1,118 tests passing across 50 files, 0 TypeScript errors
