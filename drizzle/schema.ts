@@ -725,3 +725,16 @@ export const decisionLog = mysqlTable("decision_log", {
 });
 export type DecisionLogRow = typeof decisionLog.$inferSelect;
 export type InsertDecisionLogRow = typeof decisionLog.$inferInsert;
+
+// ─── Phase 2: Prompt Versions (track every system prompt iteration) ───────────
+export const promptVersions = mysqlTable("prompt_versions", {
+  id: int("id").autoincrement().primaryKey(),
+  version: varchar("version", { length: 20 }).notNull().unique(), // e.g. "v2.0", "v2.1"
+  systemPromptHash: varchar("systemPromptHash", { length: 64 }).notNull(), // SHA-256 of the full system prompt
+  description: text("description"), // human-readable changelog
+  abTrafficPercent: int("abTrafficPercent").default(0), // 0-100, % of traffic routed to this version
+  isActive: tinyint("isActive").default(1), // 1 = active, 0 = retired
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type PromptVersionRow = typeof promptVersions.$inferSelect;
+export type InsertPromptVersionRow = typeof promptVersions.$inferInsert;
