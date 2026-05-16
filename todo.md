@@ -1455,3 +1455,17 @@
 - [x] P1.14: Write tests for outbox (19 tests: idemKey generation, TCPA guards, DNC keywords, retry logic, schema validation)
 - [x] P1.14b: Updated context-assembly tests to reflect outbox rewiring
 - [x] P1.15: All 1,118 tests passing across 50 files, 0 TypeScript errors
+
+## Phase 2: The Single Brain
+- [x] P2.1: Read Phase 2 spec and audit all 7 current brain files
+- [x] P2.2: Extract pricing data from sales-training.ts into shared/pricing-data.json (all products, tiers, upcharges)
+- [x] P2.3: Create shared/stage-behavior.json with 9 stages (objective, signals_to_ask_for, avoid)
+- [x] P2.4: Build server/pricing-engine.ts — getQuote tool (exact Gildan 3000 + range for other products + rush surcharge)
+- [x] P2.5: Build server/single-brain.ts — system prompt + 3 tools (getQuote, escalateToHuman, markDNC) + two-step LLM loop + cold outreach typo trick
+- [x] P2.6: Build server/output-guards.ts (6 guards: system leak, channel mismatch, price validation, DNC, null-advance, length)
+- [x] P2.7: Create prompt_versions table + seed v2.0 row (abTrafficPercent=0, starts with legacy)
+- [x] P2.8: Build A/B ramp — shouldUseSingleBrain() reads abTrafficPercent from DB, random roll per request
+- [x] P2.9: Rewire outbox worker Path B — single brain owns send + state updates + follow-up scheduling, legacy fallback preserved
+- [x] P2.10: Conversation state derivation built into single-brain.ts (pipelineAction from tool calls)
+- [x] P2.11: Write tests — 30 tests: pricing engine (8), output guards (14), stage behavior (3), pricing data (5)
+- [x] P2.12: All 1,148 tests passing across 51 files, 0 TypeScript errors

@@ -20,9 +20,10 @@ import crypto from "crypto";
 import { getDb, isAiOffline, getLeadById, updateLeadFields, getConversationHistory } from "./db";
 import { outbox, decisionLog } from "../drizzle/schema";
 import type { OutboxRow, InsertOutboxRow } from "../drizzle/schema";
-import { sql } from "drizzle-orm";
+import { sql, eq } from "drizzle-orm";
 import { sendMessage } from "./ghl";
 import type { BrainCouncilInput } from "./brain-types";
+import { promptVersions } from "../drizzle/schema";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const INSTANCE_ID = `worker-${process.pid}-${Date.now().toString(36)}`;
@@ -30,6 +31,34 @@ const MAX_RETRIES = 3;
 const CLAIM_BATCH_SIZE = 5;
 const CLAIM_EXPIRY_MS = 120_000; // 2 min — reclaim if worker dies
 const DRAIN_INTERVAL_MS = 5_000; // 5 seconds between drain cycles
+
+// ── A/B Routing: Single Brain vs Legacy Brain Council ─────────────────────────
+/**
+ * Decides whether to use the single brain (Phase 2) or legacy Brain Council.
+ * Reads the active prompt version's abTrafficPercent from the DB.
+ * If abTrafficPercent = 0 → always legacy. If 100 → always single brain.
+ * Otherwise, random roll per request.
+ */
+async function shouldUseSingleBrain(): Promise<boolean> {
+  try {
+    const db = await getDb();
+    if (!db) return false;
+    const rows = await db
+      .select({ abTrafficPercent: promptVersions.abTrafficPercent })
+      .from(promptVersions)
+      .where(eq(promptVersions.isActive, 1))
+      .orderBy(sql`createdAt DESC`)
+      .limit(1);
+    if (rows.length === 0) return false;
+    const pct = rows[0].abTrafficPercent ?? 0;
+    if (pct <= 0) return false;
+    if (pct >= 100) return true;
+    return Math.random() * 100 < pct;
+  } catch (err) {
+    console.error("[Outbox] A/B routing check failed, defaulting to legacy:", err);
+    return false;
+  }
+}
 
 // ─── Idempotency Key ────────────────────────────────────────────────────────
 /**
@@ -281,48 +310,178 @@ async function processOutboxRow(row: OutboxRow): Promise<void> {
       return;
     }
 
-    // Path B: LLM-generated via existing Brain Council
-    // For Phase 1, we call runBrainCouncil through the existing pipeline.
-    // The outbox worker simply wraps the existing logic to centralize sends.
-    // Phase 2 replaces this with the single brain.
-    const { runBrainCouncil } = await import("./brain-council-orchestrator");
+        // Path B: LLM-generated — Single Brain (Phase 2) with A/B fallback to Brain Council
+    const useSingleBrain = await shouldUseSingleBrain();
 
-    const brainInput: BrainCouncilInput = {
-      leadId: lead.id,
-      incomingMessage: String(payload.incomingMessage || ""),
-      channel: String(payload.channelHint || lead.preferredChannel || "SMS"),
-      externalHistory: payload.externalHistory ? String(payload.externalHistory) : undefined,
-      isInboundReply: Boolean(payload.isInboundReply),
-      overrideReason: payload.overrideReason ? String(payload.overrideReason) : undefined,
-    };
+    if (useSingleBrain) {
+      // ── Phase 2: Single Brain path ──────────────────────────────────────
+      const { runSingleBrain } = await import("./single-brain");
+      const brainOutput = await runSingleBrain({
+        leadId: lead.id,
+        trigger: String(payload.trigger || row.source),
+        inboundMessage: payload.incomingMessage ? String(payload.incomingMessage) : undefined,
+        channel: String(payload.channelHint || lead.preferredChannel || "SMS"),
+      });
 
-    const brainResult = await runBrainCouncil(brainInput);
+      const { decision, guardResult, toolLog: brainToolLog, model, promptVersion, durationMs, llmCalls } = brainOutput;
 
-    if (!brainResult || brainResult.blocked) {
-      await markOutbox(row.id, "skipped", `brain_blocked:${brainResult?.blockReason || "unknown"}`);
+      // Output guard blocked?
+      if (!guardResult.passed) {
+        await markOutbox(row.id, "skipped", `output_guard:${guardResult.reason}`);
+        await logDecision({
+          outboxId: row.id, leadId,
+          trigger: String(payload.trigger || row.source),
+          brainReasoning: decision.message || undefined,
+          promptVersion,
+          channel: decision.channel,
+          inputGuardResult: "pass",
+          outputGuardResult: `block:${guardResult.reason}`,
+          durationMs,
+        });
+        return;
+      }
+
+      // Apply corrected decision if guard modified it
+      const finalDecision = guardResult.correctedDecision || decision;
+
+      // Route to human?
+      if (finalDecision.routeToHuman) {
+        await updateLeadFields(lead.id, { humanTakeover: 1 });
+        await markOutbox(row.id, "skipped", `route_to_human:${finalDecision.routeReason || "brain_requested"}`);
+        await logDecision({
+          outboxId: row.id, leadId,
+          trigger: String(payload.trigger || row.source),
+          brainReasoning: `ROUTE_TO_HUMAN: ${finalDecision.routeReason || "brain requested"}`,
+          promptVersion,
+          channel: finalDecision.channel,
+          inputGuardResult: "pass",
+          outputGuardResult: "pass",
+          durationMs,
+        });
+        return;
+      }
+
+      // DNC action?
+      if (finalDecision.pipelineAction === "dnc") {
+        await updateLeadFields(lead.id, { humanTakeover: 1, pipelineStage: "not_qualified" });
+        await markOutbox(row.id, "skipped", "dnc_action");
+        await logDecision({
+          outboxId: row.id, leadId,
+          trigger: String(payload.trigger || row.source),
+          brainReasoning: "DNC action from brain",
+          promptVersion,
+          channel: finalDecision.channel,
+          inputGuardResult: "pass",
+          outputGuardResult: "pass",
+          durationMs,
+        });
+        return;
+      }
+
+      // No message to send?
+      if (!finalDecision.message) {
+        await markOutbox(row.id, "skipped", "no_message");
+        await logDecision({
+          outboxId: row.id, leadId,
+          trigger: String(payload.trigger || row.source),
+          brainReasoning: "Brain returned no message",
+          promptVersion,
+          channel: finalDecision.channel,
+          inputGuardResult: "pass",
+          outputGuardResult: "pass",
+          durationMs,
+        });
+        return;
+      }
+
+      // ── Send the message via GHL ──────────────────────────────────────
+      const sendOpts = buildSendOpts(finalDecision.channel, finalDecision.message, payload);
+      const result = await sendMessage(contactId, sendOpts);
+
+      if (result?.blocked) {
+        await markOutbox(row.id, "skipped", `send_blocked:${result.reason}`);
+        await logDecision({
+          outboxId: row.id, leadId,
+          trigger: String(payload.trigger || row.source),
+          brainReasoning: finalDecision.message,
+          promptVersion,
+          channel: finalDecision.channel,
+          inputGuardResult: "pass",
+          outputGuardResult: `block:send_${result.reason}`,
+          durationMs,
+        });
+        return;
+      }
+
+      // ── Success! Update state ─────────────────────────────────────────
+      await markOutbox(row.id, "sent");
+
+      // Schedule next follow-up if brain suggested one
+      if (finalDecision.nextFollowUpHours > 0) {
+        const nextAt = new Date(Date.now() + finalDecision.nextFollowUpHours * 60 * 60 * 1000);
+        await updateLeadFields(lead.id, { nextFollowUpAt: nextAt });
+      }
+
+      // Update pipeline stage if brain requested
+      if (finalDecision.pipelineAction === "advance" || finalDecision.pipelineAction === "mark_won" || finalDecision.pipelineAction === "mark_lost") {
+        const stageMap: Record<string, string> = {
+          advance: "quoted", // Brain advances to next logical stage
+          mark_won: "won",
+          mark_lost: "lost",
+        };
+        const newStage = stageMap[finalDecision.pipelineAction];
+        if (newStage) {
+          await updateLeadFields(lead.id, { pipelineStage: newStage });
+        }
+      }
+
       await logDecision({
         outboxId: row.id, leadId,
         trigger: String(payload.trigger || row.source),
-        brainReasoning: brainResult?.strategyReasoning || undefined,
+        brainReasoning: finalDecision.message,
+        promptVersion,
+        channel: finalDecision.channel,
         inputGuardResult: "pass",
-        outputGuardResult: `block:${brainResult?.blockReason || "unknown"}`,
+        outputGuardResult: guardResult.action === "corrected" ? `corrected:${guardResult.reason}` : "pass",
+        durationMs,
+      });
+
+    } else {
+      // ── Legacy fallback: Brain Council path ────────────────────────────
+      const { runBrainCouncil } = await import("./brain-council-orchestrator");
+      const brainInput: BrainCouncilInput = {
+        leadId: lead.id,
+        incomingMessage: String(payload.incomingMessage || ""),
+        channel: String(payload.channelHint || lead.preferredChannel || "SMS"),
+        externalHistory: payload.externalHistory ? String(payload.externalHistory) : undefined,
+        isInboundReply: Boolean(payload.isInboundReply),
+        overrideReason: payload.overrideReason ? String(payload.overrideReason) : undefined,
+      };
+      const brainResult = await runBrainCouncil(brainInput);
+      if (!brainResult || brainResult.blocked) {
+        await markOutbox(row.id, "skipped", `brain_blocked:${brainResult?.blockReason || "unknown"}`);
+        await logDecision({
+          outboxId: row.id, leadId,
+          trigger: String(payload.trigger || row.source),
+          brainReasoning: brainResult?.strategyReasoning || undefined,
+          inputGuardResult: "pass",
+          outputGuardResult: `block:${brainResult?.blockReason || "unknown"}`,
+          durationMs: Date.now() - startTime,
+        });
+        return;
+      }
+      // Brain Council sends internally (legacy architecture)
+      await markOutbox(row.id, "sent");
+      await logDecision({
+        outboxId: row.id, leadId,
+        trigger: String(payload.trigger || row.source),
+        brainReasoning: brainResult.strategyReasoning || undefined,
+        channel: brainResult.channel || lead.preferredChannel || undefined,
+        inputGuardResult: "pass",
+        outputGuardResult: "pass",
         durationMs: Date.now() - startTime,
       });
-      return;
     }
-
-    // Brain Council already sent the message internally (current architecture).
-    // In Phase 2, the outbox worker will own the send step.
-    await markOutbox(row.id, "sent");
-    await logDecision({
-      outboxId: row.id, leadId,
-      trigger: String(payload.trigger || row.source),
-      brainReasoning: brainResult.strategyReasoning || undefined,
-      channel: brainResult.channel || lead.preferredChannel || undefined,
-      inputGuardResult: "pass",
-      outputGuardResult: "pass",
-      durationMs: Date.now() - startTime,
-    });
 
   } catch (err: any) {
     console.error(`[Outbox] Error processing row ${row.id}:`, err);

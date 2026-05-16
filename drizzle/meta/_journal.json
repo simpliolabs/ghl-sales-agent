@@ -204,6 +204,13 @@
       "when": 1778955754459,
       "tag": "0028_unique_ben_parker",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "5",
+      "when": 1778957464424,
+      "tag": "0029_glossy_blur",
+      "breakpoints": true
     }
   ]
 }
