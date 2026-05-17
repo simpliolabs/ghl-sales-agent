@@ -23,7 +23,7 @@
 import { invokeLLM, type Message, type Tool, type ToolCall } from "./_core/llm";
 import { getLeadById, getConversationHistory, getAiState } from "./db";
 import { getLeadMemory } from "./lead-memory";
-import { getQuote, type QuoteResult } from "./pricing-engine";
+import { getQuote, getMultiDesignQuote, type QuoteResult, type MultiDesignQuoteResult } from "./pricing-engine";
 import { selectModel } from "./fine-tuning-pipeline";
 import { runOutputGuards, type BrainDecision, type ToolCallRecord, type GuardResult } from "./output-guards";
 import stageBehaviors from "../shared/stage-behavior.json";
@@ -65,6 +65,34 @@ const TOOLS: Tool[] = [
           rush: { type: "boolean", description: "Rush order (20% surcharge)", default: false },
         },
         required: ["qty", "sides"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "getMultiDesignQuote",
+      description: "Compute a multi-design order estimate. Use when the lead mentions multiple distinct designs (e.g., '3 designs', 'logo on front and a different design on back as a separate design'). Each design is priced independently at its own quantity tier. If total qty >= 100 and design count <= 4, a 10% volume discount applies automatically. Returns an estimate; the exact total is finalized after size breakdown (2XL/3XL+ upcharges) is confirmed.",
+      parameters: {
+        type: "object",
+        properties: {
+          designs: {
+            type: "array",
+            description: "Array of design specs. Each entry is { qty, sides } for one distinct design.",
+            items: {
+              type: "object",
+              properties: {
+                qty: { type: "number", description: "Number of shirts for this design" },
+                sides: { type: "number", description: "1 = front only, 2 = front + back" },
+              },
+              required: ["qty", "sides"],
+            },
+          },
+          rush: { type: "boolean", description: "Rush order (20% surcharge)", default: false },
+          product: { type: "string", default: "tshirt_gildan_3000" },
+        },
+        required: ["designs"],
         additionalProperties: false,
       },
     },
@@ -220,17 +248,17 @@ Lead: John Smith, owns "Smith's Auto Repair", new_lead, SMS, no prior conversati
 "Hi John! Thanks for your interest in Adorb Custom Tees. We offer a wide range of custom printing services including t-shirts, hoodies, hats, and more. Our prices start at just $5.50 per shirt for orders of 200+. Would you like a quote?"
 WHY BAD: Generic, no personality, pitches pricing on first contact, wall of text, no hook.
 
-EXAMPLE 2: Lead asks about pricing (exploring stage)
+EXAMPLE 2: Lead asks about pricing — single design (exploring stage)
 Lead asked: "How much for 25 shirts with a logo on the front?"
 ✅ GOOD: Call getQuote(qty=25, sides=1) FIRST, then:
 {
   "reasoning": {
-    "intent_analysis": "Lead gave exact quantity (25) and sides (1 = front only). They want a price.",
+    "intent_analysis": "Lead gave qty (25) and sides (1 = front only). I have enough to quote.",
     "stage_check": "exploring stage but they gave exact specs — I can quote now using getQuote.",
-    "approach_selection": "Direct pricing from tool result. Confident delivery, no hedging.",
-    "self_check": "I called getQuote first. I'm using the exact number from the tool. Not saying 'approximately'."
+    "approach_selection": "Direct pricing from tool result. Frame as estimate because size upcharges may apply.",
+    "self_check": "I called getQuote first. Using exact number from tool. Framing as estimate. NOT asking about colors."
   },
-  "message": "25 shirts, front only — here's your exact quote:\\n\\n• Gildan 3000 (S–XL): $297.50 total ($11.90/shirt)\\n• 2XL sizes: add $2.50 each | 3XL+: add $3.50 each\\n\\nExcludes tax and shipping. Want me to lock this in?",
+  "message": "25 shirts, front only — here's your estimate:\n\n• Gildan 3000 (S–XL): $297.50 total ($11.90/shirt)\n• 2XL sizes: add $2.50 each | 3XL+: add $3.50 each\n\nExcludes tax and shipping. What sizes do you need? And do you have a design ready or would you like our team to help?",
   "channel": "SMS",
   "nextFollowUpHours": 48,
   "pipelineAction": "advance",
@@ -239,7 +267,30 @@ Lead asked: "How much for 25 shirts with a logo on the front?"
   "confidence": 95
 }
 ❌ BAD: "Pricing depends on a few factors. Can you tell me more about what you're looking for?"
-WHY BAD: Lead already gave exact specs. Asking more questions when you can answer is frustrating.
+WHY BAD: Lead already gave qty + sides. Asking more questions when you can answer is frustrating.
+❌ BAD: "How many colors in the design? And how many shirt colors?"
+WHY BAD: Colors do NOT affect price. Asking about non-pricing inputs delays the quote unnecessarily.
+
+EXAMPLE 2b: Lead asks about pricing — multiple designs
+Lead said: "I need 20 shirts, 3 different designs, front and back"
+✅ GOOD: Call getMultiDesignQuote(designs=[{qty:7,sides:2},{qty:7,sides:2},{qty:6,sides:2}]) with even split, then:
+{
+  "reasoning": {
+    "intent_analysis": "Lead wants 20 shirts, 3 designs, front+back. I know qty (20), sides (2), and design count (3). Per-design split unknown — I'll assume even split (7/7/6) and flag it.",
+    "stage_check": "exploring stage. I have enough to quote — call getMultiDesignQuote now.",
+    "approach_selection": "Multi-design estimate with even-split flag. Ask for actual breakdown after.",
+    "self_check": "Called getMultiDesignQuote. Framed as estimate. Flagged even split. NOT asking about colors before quoting."
+  },
+  "message": "20 shirts, 3 designs, front + back — here's your estimate:\n\n• Design 1: 7 × $14.90 = $104.30\n• Design 2: 7 × $14.90 = $104.30\n• Design 3: 6 × $14.90 = $89.40\n• Estimate total: $297.00\n\nI split the qty evenly across designs for this estimate — let me know the actual breakdown and I'll adjust!\n\nWhat sizes do you need? And do you have the designs ready?",
+  "channel": "Facebook",
+  "nextFollowUpHours": 48,
+  "pipelineAction": "advance",
+  "routeToHuman": false,
+  "routeReason": null,
+  "confidence": 90
+}
+❌ BAD: "Could you confirm if the full-color logo and the 1-color design on the other side will be on all 20 shirts? Or will some shirts have one design, and others another?"
+WHY BAD: Over-qualifying. Lead already said 3 designs + 20 shirts + front and back. That's enough to call getMultiDesignQuote with an even split. Quote first, refine later.
 
 EXAMPLE 3: Lead says "stop" or "remove me" (any stage)
 Lead sent: "Please stop texting me"
@@ -317,12 +368,18 @@ TREE 1: BREAKUP MESSAGE ELIGIBILITY
 │       ├── NO → Do NOT send breakup. Send normal follow-up with new angle.
 │       └── YES → Send breakup message. Set nextFollowUpHours: 0. Set pipelineAction: "mark_lost".
 
-TREE 2: PRICING RESPONSE
-├── Did the lead ask about pricing?
-│   ├── NO → Do not mention pricing.
-│   └── YES → Did they give an exact quantity?
-│       ├── YES → Call getQuote with their exact specs. Quote the EXACT total.
-│       └── NO → Ask for quantity FIRST. Do NOT give any price or range.
+TREE 2: PRICING / QUOTE FLOW
+├── Does the lead want pricing or has pricing context emerged?
+│   ├── NO → Do not mention pricing. Continue qualifying.
+│   └── YES → Do you know the total quantity?
+│       ├── NO → Ask: "How many total shirts are you looking at?" (ONLY question needed before quoting)
+│       └── YES → How many distinct designs?
+│           ├── 1 design → Call getQuote(qty, sides). Present the EXACT total.
+│           ├── 2+ designs with per-design quantities known → Call getMultiDesignQuote(designs). Present the estimate.
+│           ├── 2+ designs but per-design split unknown → Assume even split. Call getMultiDesignQuote with even split. Flag: "I’ve split the qty evenly across designs for this estimate — let me know the actual breakdown and I’ll adjust."
+│           └── Unsure if 1 or multiple designs → Ask: "Is that one design on all shirts, or different designs for some?" Then quote.
+├── FRAMING RULE: Always present the tool result as an "estimate" (not "exact quote") because size upcharges (2XL/3XL+) may adjust the final total.
+└── AFTER QUOTING: Ask about sizes, timeline, and design readiness — these are fulfillment details that come AFTER the estimate.
 
 TREE 3: CHANNEL SELECTION
 ├── Is this a reply to an inbound message?
@@ -375,6 +432,12 @@ You text/email leads to help them order custom printed products.
 11. NEVER say "just following up" or "checking in" — always lead with NEW value.
 12. NEVER send a message that doesn't give the lead a reason to respond.
 13. APPOINTMENT HANDLING: When you call bookAppointment, the system reserves an internal slot for the sales agent to attempt an outbound call. The lead has NOT agreed to a call. Never tell the lead you scheduled a call, booked a meeting, sent a calendar invite, or that someone will call them at a specific time. After bookAppointment succeeds, your next message should continue the sales conversation naturally — ask a qualifying question, provide a quote, or move toward close. The appointment is invisible to the lead.
+14. PRICING INPUTS — what affects the price vs. what does NOT:
+  AFFECTS PRICE: quantity, number of print sides (1 or 2), rush (yes/no), size category (2XL or 3XL-5XL upcharges).
+  DOES NOT AFFECT PRICE: shirt color, number of ink colors, number of colors in the design, number of shirt colors.
+  If you already know qty + sides, call getQuote (1 design) or getMultiDesignQuote (2+ designs) IMMEDIATELY.
+  Do NOT ask about shirt color, ink colors, or design color count before quoting — those are fulfillment details, not pricing inputs.
+  If the lead mentions multiple designs, call getMultiDesignQuote. If only 1 design, call getQuote.
 
 ═══ COLD OUTREACH FORMAT (first contact via SMS) ═══
 When this is FIRST CONTACT via SMS (no prior conversation):
@@ -444,7 +507,7 @@ ${FEW_SHOT_EXAMPLES}
 - If preferred channel is FB/IG and 24h window expired (last inbound > 24h), fall back to SMS or Email.
 
 ═══ YOUR TASK ═══
-Follow the reasoning process above. Use tools if needed (getQuote for pricing, escalateToHuman for complaints, markDNC for opt-outs). Return your decision as structured JSON.`;
+Follow the reasoning process above. Use tools if needed (getQuote for single-design pricing, getMultiDesignQuote for multi-design pricing, escalateToHuman for complaints, markDNC for opt-outs, bookAppointment for internal call scheduling). Return your decision as structured JSON.`;
 }
 
 // ── Context assembly ────────────────────────────────────────────────────
@@ -560,6 +623,45 @@ async function executeTool(name: string, argsStr: string, leadId: number): Promi
         });
       } catch (err) {
         console.error(`[SingleBrain] Failed to persist quote for lead ${leadId}:`, err);
+      }
+      return result;
+    }
+    case "getMultiDesignQuote": {
+      const designSpecs = (args.designs || []).map((d: any) => ({
+        qty: Number(d.qty),
+        sides: Number(d.sides) as 1 | 2,
+      }));
+      // Determine if the brain assumed an even split (heuristic: all qtys within 1 of each other)
+      const qtys = designSpecs.map((d: any) => d.qty);
+      const maxQ = Math.max(...qtys);
+      const minQ = Math.min(...qtys);
+      const evenSplitAssumed = designSpecs.length > 1 && (maxQ - minQ) <= 1;
+      const result = getMultiDesignQuote(designSpecs, args.rush, args.product, evenSplitAssumed);
+      // Persist the aggregate quote to DB
+      try {
+        const totalQty = designSpecs.reduce((s: number, d: any) => s + d.qty, 0);
+        const toCents = (v: number | null) => v != null ? Math.round(v * 100) : null;
+        await insertQuote({
+          leadId,
+          product: args.product || "tshirt_gildan_3000",
+          productName: result.designs.length > 0 ? "Multi-Design Order" : "Unknown",
+          qty: totalQty,
+          sides: designSpecs[0]?.sides || 2,
+          perUnit: toCents(result.estimateTotal / totalQty),
+          perUnitRangeLow: null,
+          perUnitRangeHigh: null,
+          subtotal: toCents(result.subtotalBeforeRush),
+          rushFee: toCents(result.rushSurcharge),
+          setupFee: 0,
+          total: toCents(result.estimateTotal),
+          rush: args.rush ? 1 : 0,
+          status: "sent",
+          breakdown: result.breakdown,
+          callForQuote: 0,
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        });
+      } catch (err) {
+        console.error(`[SingleBrain] Failed to persist multi-design quote for lead ${leadId}:`, err);
       }
       return result;
     }
