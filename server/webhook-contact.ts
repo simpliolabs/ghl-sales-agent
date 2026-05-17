@@ -34,7 +34,7 @@ import {
   buildContextSubject,
 } from "./webhook-helpers";
 import { handleStageAutomation } from "./webhook-pipeline";
-import { runBrainCouncil } from "./brain-council-orchestrator";
+import { runBrainCouncil } from "./brain-adapter";
 import { shouldDeferResponse, getDeferredSendAt } from "./deferred-response-processor";
 import { notifyOwner } from "./_core/notification";
 

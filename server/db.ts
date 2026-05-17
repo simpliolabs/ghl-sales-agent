@@ -722,7 +722,7 @@ export async function getUncorrectedViolations(limit = 10) {
 // Uses atomic UPDATE WHERE processingLockedAt IS NULL OR expired.
 // Lock expires after 90 seconds to prevent permanent deadlocks.
 // ============================================================
-const BRAIN_COUNCIL_LOCK_TTL_SECONDS = 300; // 5 minutes — covers worst-case 4-LLM-call pipeline
+const BRAIN_COUNCIL_LOCK_TTL_SECONDS = 120; // Phase 0: Reduced from 300→120s to match orchestrator
 
 export async function acquireDbBrainCouncilLock(leadId: number): Promise<boolean> {
   try {

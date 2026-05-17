@@ -689,3 +689,52 @@ export const fineTuningJobs = mysqlTable("fine_tuning_jobs", {
 });
 export type FineTuningJob = typeof fineTuningJobs.$inferSelect;
 export type InsertFineTuningJob = typeof fineTuningJobs.$inferInsert;
+
+// ─── Phase 1: Outbox (single message queue) ──────────────────────────────────
+export const outbox = mysqlTable("outbox", {
+  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  leadId: int("leadId").notNull(),
+  idemKey: varchar("idemKey", { length: 64 }).notNull(),
+  source: mysqlEnum("source", ["webhook", "responder", "follow_up", "manual", "nurture", "correction", "first_contact", "self_review", "fast_scan", "deferred"]).notNull(),
+  payload: json("payload").notNull(), // { trigger, channelHint, draftMessage?, systemLeakRetry?, ... }
+  status: mysqlEnum("outbox_status", ["pending", "claimed", "sent", "failed", "skipped"]).default("pending").notNull(),
+  claimedBy: varchar("claimedBy", { length: 64 }),
+  claimedAt: timestamp("claimedAt"),
+  scheduledAt: timestamp("scheduledAt").notNull(),
+  sentAt: timestamp("sentAt"),
+  error: text("error"),
+  retryCount: int("retryCount").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type OutboxRow = typeof outbox.$inferSelect;
+export type InsertOutboxRow = typeof outbox.$inferInsert;
+
+// ─── Phase 1: Decision Log (audit trail for every outbox decision) ───────────
+export const decisionLog = mysqlTable("decision_log", {
+  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  outboxId: bigint("outboxId", { mode: "number" }),
+  leadId: int("leadId").notNull(),
+  trigger: varchar("trigger", { length: 64 }).notNull(), // inbound_reply, proactive_follow_up, first_contact, nurture, correction
+  brainReasoning: text("brainReasoning"), // LLM reasoning / draft message
+  promptVersion: varchar("promptVersion", { length: 20 }),
+  channel: varchar("channel", { length: 32 }),
+  inputGuardResult: varchar("inputGuardResult", { length: 32 }), // pass, block:reason, defer:reason
+  outputGuardResult: varchar("outputGuardResult", { length: 32 }), // pass, block:reason
+  durationMs: int("durationMs"), // total processing time
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type DecisionLogRow = typeof decisionLog.$inferSelect;
+export type InsertDecisionLogRow = typeof decisionLog.$inferInsert;
+
+// ─── Phase 2: Prompt Versions (track every system prompt iteration) ───────────
+export const promptVersions = mysqlTable("prompt_versions", {
+  id: int("id").autoincrement().primaryKey(),
+  version: varchar("version", { length: 20 }).notNull().unique(), // e.g. "v2.0", "v2.1"
+  systemPromptHash: varchar("systemPromptHash", { length: 64 }).notNull(), // SHA-256 of the full system prompt
+  description: text("description"), // human-readable changelog
+  abTrafficPercent: int("abTrafficPercent").default(0), // 0-100, % of traffic routed to this version
+  isActive: tinyint("isActive").default(1), // 1 = active, 0 = retired
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type PromptVersionRow = typeof promptVersions.$inferSelect;
+export type InsertPromptVersionRow = typeof promptVersions.$inferInsert;
