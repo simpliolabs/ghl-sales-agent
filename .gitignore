@@ -127,3 +127,4 @@ node_modules/
 # Task files
 # tasks.json
 # tasks/ 
+.project-config.json
