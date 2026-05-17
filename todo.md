@@ -1644,7 +1644,7 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [x] Test 3: isDraining guard — drainOutbox returns stats shape and is callable
 - [x] Test 4: enqueueOutbox is exported and idempotent
 - [x] Run full test suite — 1227/1227 passing (56 files, 0 failures)
-- [ ] Git commit + checkpoint + push to GitHub
+- [x] Git commit + checkpoint + push to GitHub (merged: 18c3d0924e48, PR #5)
 - [ ] Post-deploy: confirm zero duplicate decision_log rows per outboxId
 
 ## PR#3.9 Pre-work (Conversations Query for Tiare)

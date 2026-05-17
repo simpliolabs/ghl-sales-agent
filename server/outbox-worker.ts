@@ -17,7 +17,7 @@
  */
 
 import crypto from "crypto";
-import { getDb, isAiOffline, getLeadById, updateLeadFields, getConversationHistory } from "./db";
+import { getDb, isAiOffline, getLeadById, updateLeadFields, getConversationHistory, addConversation } from "./db";
 import { outbox, decisionLog } from "../drizzle/schema";
 import type { OutboxRow, InsertOutboxRow } from "../drizzle/schema";
 import { sql, eq } from "drizzle-orm";
@@ -25,6 +25,11 @@ import { sendMessage } from "./ghl";
 import { sendMessageWithRetry, ensureEmailSignature, formatEmailHtml } from "./webhook-helpers";
 import type { BrainCouncilInput } from "./brain-types";
 import { promptVersions } from "../drizzle/schema";
+
+// ─── PR#3.9: Minimum hours between AI outbound sends per lead ─────────────────
+// Prevents the brain from scheduling a follow-up so soon that the dedup guard
+// would immediately block it on the next drain cycle.
+const MIN_NEXT_FOLLOW_UP_HOURS = 4;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const INSTANCE_ID = `worker-${process.pid}-${Date.now().toString(36)}`;
@@ -259,7 +264,7 @@ export async function logDecision(opts: {
  * NOTE: For Phase 1, we still call the existing runBrainCouncil pipeline.
  * Phase 2 will replace this with the single brain.
  */
-async function processOutboxRow(row: OutboxRow): Promise<void> {
+export async function processOutboxRow(row: OutboxRow): Promise<void> {
   const startTime = Date.now();
   const payload = (typeof row.payload === "string" ? JSON.parse(row.payload) : row.payload) as Record<string, unknown>;
   const leadId = row.leadId;
@@ -333,6 +338,17 @@ async function processOutboxRow(row: OutboxRow): Promise<void> {
         console.log(`[Outbox] Path A send succeeded with correction: ${result.correctionTaken} for lead ${leadId}`);
       }
       await markOutbox(row.id, "sent");
+      // PR#3.9: Write conversations row so dedup guard can see this send
+      await addConversation({
+        leadId,
+        channel,
+        direction: "outbound",
+        messageBody: String(payload.draftMessage),
+        senderType: "ai",
+        senderName: "AI",
+      });
+      // PR#3.9: Update lastMessageAt on lead
+      await updateLeadFields(leadId, { lastMessageAt: new Date() });
       await logDecision({
         outboxId: row.id, leadId,
         trigger: String(payload.trigger || row.source),
@@ -475,10 +491,22 @@ async function processOutboxRow(row: OutboxRow): Promise<void> {
         console.log(`[Outbox] Path B send succeeded with correction: ${result.correctionTaken} for lead ${leadId}`);
       }
       await markOutbox(row.id, "sent");
+      // PR#3.9: Write conversations row so dedup guard can see this send
+      await addConversation({
+        leadId,
+        channel: finalDecision.channel || String(payload.channelHint || lead.preferredChannel || "SMS"),
+        direction: "outbound",
+        messageBody: finalDecision.message,
+        senderType: "ai",
+        senderName: "AI",
+      });
+      // PR#3.9: Update lastMessageAt on lead
+      await updateLeadFields(lead.id, { lastMessageAt: new Date() });
 
-      // Schedule next follow-up if brain suggested one
+      // Schedule next follow-up if brain suggested one (PR#3.9: floor at MIN_NEXT_FOLLOW_UP_HOURS)
       if (finalDecision.nextFollowUpHours > 0) {
-        const nextAt = new Date(Date.now() + finalDecision.nextFollowUpHours * 60 * 60 * 1000);
+        const clampedHours = Math.max(finalDecision.nextFollowUpHours, MIN_NEXT_FOLLOW_UP_HOURS);
+        const nextAt = new Date(Date.now() + clampedHours * 60 * 60 * 1000);
         await updateLeadFields(lead.id, { nextFollowUpAt: nextAt });
       }
 

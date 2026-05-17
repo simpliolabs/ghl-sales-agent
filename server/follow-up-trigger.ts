@@ -108,10 +108,12 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
           continue;
         }
 
-        // Dedup: skip if AI sent a message in the last 10 minutes (covers concurrent trigger runs)
-        const recentAiCount = await getRecentAiOutboundCount(leadId, 10);
+        // PR#3.9 Dedup: skip if AI sent a message in the last 4 hours.
+        // Now that the outbox worker writes conversations rows on every send,
+        // this guard is reliable. 4h matches MIN_NEXT_FOLLOW_UP_HOURS floor in outbox-worker.
+        const recentAiCount = await getRecentAiOutboundCount(leadId, 240);
         if (recentAiCount > 0) {
-          console.log(`[FollowUp] Skipping lead ${leadId} — AI sent ${recentAiCount} msg(s) in last 10 min`);
+          console.log(`[FollowUp] Skipping lead ${leadId} — AI sent ${recentAiCount} msg(s) in last 4h (dedup guard)`);
           stats.skipped++;
           continue;
         }
