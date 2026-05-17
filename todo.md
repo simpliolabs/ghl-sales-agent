@@ -1578,3 +1578,20 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [x] Change 3: Switch outbox sendMessage() → sendMessageWithRetry() at both call sites (lines 296, 429)
 - [x] Change 4: Adapt error handling for sendMessageWithRetry return shape (success/error pattern instead of try/catch)
 - [x] Fix pre-existing test failures: add missing `input` parameter to runOutputGuards calls in phase2-single-brain.test.ts
+
+- [ ] BUG: Ron Castellon (Facebook) — AI went silent after Ron's last 2 replies ("20, 4 different sizes too" + "Sorry 3 different sizes") — should have quoted (May 17)
+
+## PR#3.5 (Ron Castellon — HUMAN_AGENT_ACTIVE_GHL False Positive Fix)
+- [x] Fix Layer B general path (ghl.ts line 273): add userId check to match Path 1 (new-contact path at line 254)
+- [x] Reduce log noise: skip or throttle the "Skipping Layer B" info log per Claude's hygiene note
+- [x] Write tests for the userId check in both paths
+- [x] Run full test suite (1189 tests — all passing)
+- [ ] Git commit + checkpoint + push to GitHub
+- [ ] Write PR#3.5 verification report for Claude
+
+## PR#5 (Learning System Wiring — Claude-Revised Spec)
+- [ ] Wire getPromotedLearnings() into Single Brain assembleContext() (~400 tokens)
+- [ ] Wire getViolationAvoidanceRules() into Single Brain assembleContext()
+- [ ] Change promotion scan ordering: sort candidates by (category_priority DESC, recurrenceCount DESC) where best_practice=3, correction=2, avoid=1
+- [ ] Leave PROMOTION_THRESHOLD=3 untouched (do NOT lower)
+- [ ] Do NOT hard-reserve slots (let priority ordering handle allocation naturally)

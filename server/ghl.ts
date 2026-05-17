@@ -271,18 +271,27 @@ export async function sendMessage(contactId: string, opts: {
           } else
 
           if (recentAgentMessages.length > 0) {
-            const latestAgent = recentAgentMessages.sort((a, b) =>
-              new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime()
-            )[0];
-            const agentMsgTime = new Date(latestAgent.dateAdded);
-            const minutesAgo = Math.round((now - agentMsgTime.getTime()) / 60000);
-            console.log(`[SEND-GATE] \u274C BLOCKED send to ${contactId} — GHL shows human agent message ${minutesAgo}min ago: "${latestAgent.body.substring(0, 80)}..."`);
-            // Update DB so future checks are faster (skip GHL API call)
-            await updateLeadFields(lead.id, { humanTakeover: 1, lastAgentActivityAt: agentMsgTime });
-            // Undo burst counter since we're not sending
-            globalSendTimestamps.pop();
-            lastSendTimestamps.delete(contactId);
-            return { blocked: true, reason: "HUMAN_AGENT_ACTIVE_GHL", messageId: null };
+            // PR#3.5: Filter to human-typed messages only (same check as Path 1 above)
+            // Without this, owner reviewing a conversation in GHL triggers a false block
+            const humanTypedMessages = recentAgentMessages.filter(
+              (m: any) => m.userId || m.user?.id
+            );
+            if (humanTypedMessages.length > 0) {
+              const latestAgent = humanTypedMessages.sort((a: any, b: any) =>
+                new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime()
+              )[0];
+              const agentMsgTime = new Date(latestAgent.dateAdded);
+              const minutesAgo = Math.round((now - agentMsgTime.getTime()) / 60000);
+              console.log(`[SEND-GATE] \u274C BLOCKED send to ${contactId} — GHL shows human agent message (userId=${latestAgent.userId || latestAgent.user?.id}) ${minutesAgo}min ago: "${String(latestAgent.body || '').substring(0, 80)}"`);
+              // Update DB so future checks are faster (skip GHL API call)
+              await updateLeadFields(lead.id, { humanTakeover: 1, lastAgentActivityAt: agentMsgTime });
+              // Undo burst counter since we're not sending
+              globalSendTimestamps.pop();
+              lastSendTimestamps.delete(contactId);
+              return { blocked: true, reason: "HUMAN_AGENT_ACTIVE_GHL", messageId: null };
+            }
+            // No userId on unrecognized messages → likely GHL review/automation, not human agent
+            // Debug-level only to avoid log noise from routine conversation reviews
           }
         }
       } catch (ghlErr) {
