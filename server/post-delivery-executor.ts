@@ -15,7 +15,7 @@ import { getDuePostDeliverySteps, markPostDeliveryStepSent, getLeadById, getConv
 import { getDb } from "./db";
 import { postDeliverySequences } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
-import { runBrainCouncil } from "./brain-adapter";
+import { runBrainCouncil } from "./brain-council-orchestrator";
 import { sendMessage, addNote } from "./ghl";
 import { sendMessageWithRetry, normalizeChannel, formatEmailHtml, buildContextSubject } from "./webhook-helpers";
 import { notifyOwner } from "./_core/notification";

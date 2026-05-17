@@ -243,7 +243,7 @@ export async function runDispositionSweep(): Promise<DispositionStats> {
         // younger than 3 days from stale takeover processing (e.g. lead #690005).
         or(
           isNull(leads.lastAgentActivityAt),
-          lte(leads.lastAgentActivityAt, new Date(Date.now() - 4 * 60 * 60 * 1000)) // Phase 0: Reduced from 24h→4h timeout
+          lte(leads.lastAgentActivityAt, new Date(Date.now() - 24 * 60 * 60 * 1000)) // 24hr timeout
         ),
       ))
       .limit(MAX_PER_CYCLE);

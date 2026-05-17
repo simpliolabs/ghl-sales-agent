@@ -67,7 +67,7 @@ const SEND_COOLDOWN_SECONDS = 90;
 
 // DB lock TTL: how long a Brain Council run can hold the lock before it's considered stale
 // Set to 5 minutes to cover worst-case 4-LLM-call pipeline duration
-const BRAIN_COUNCIL_LOCK_TTL_SECONDS = 120; // Phase 0: Reduced from 300→120s to prevent stuck locks
+const BRAIN_COUNCIL_LOCK_TTL_SECONDS = 300;
 
 /**
  * Pre-flight abort result — returned when the Brain decides NOT to compose.

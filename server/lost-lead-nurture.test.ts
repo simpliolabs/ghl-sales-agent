@@ -40,7 +40,7 @@ vi.mock("./area-code-timezone", () => ({
   isTcpaQuietHoursForRecipient: vi.fn().mockReturnValue(false),
 }));
 
-vi.mock("./brain-adapter", () => ({
+vi.mock("./brain-council-orchestrator", () => ({
   runBrainCouncil: vi.fn().mockResolvedValue({
     message: "Hey there, just checking in — it's been a while!",
     fromName: "Abby Bouwer",
@@ -77,7 +77,7 @@ vi.mock("../shared/brand-assets", () => ({
 import { processLostLeadNurture, processImportedContactNurture } from "./lost-lead-nurture";
 import * as db from "./db";
 import * as ghl from "./ghl";
-import * as brain from "./brain-adapter";
+import * as brain from "./brain-council-orchestrator";
 import * as helpers from "./webhook-helpers";
 import * as tcpa from "./area-code-timezone";
 

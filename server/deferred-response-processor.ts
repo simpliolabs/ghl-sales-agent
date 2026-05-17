@@ -18,7 +18,6 @@ import { sendMessage, fetchGhlConversationHistory } from "./ghl";
 import { sendMessageWithRetry, formatEmailHtml, normalizeChannel, buildContextSubject } from "./webhook-helpers";
 import { calculateNextFollowUp } from "./scheduling-engine";
 import { upsertAiState, getAiState } from "./db";
-import { enqueueOutbox, makeIdemKey } from "./outbox-worker";
 
 export async function processDeferredResponses(): Promise<{ sent: number; cancelled: number; errors: number }> {
   const pending = await getPendingDeferredResponses();
@@ -89,40 +88,78 @@ export async function processDeferredResponses(): Promise<{ sent: number; cancel
         continue;
       }
 
-      // --- PHASE 1: ENQUEUE INTO OUTBOX (replaces direct send) ---
-      // The deferred response already has a pre-composed message from Brain Council.
-      // We enqueue it as a "deferred" source with the pre-composed payload so the
-      // outbox worker can send it directly without re-running Brain Council.
-      const sendChannel = normalizeChannel(deferred.channel);
-      const idemKey = makeIdemKey(lead.id, `deferred:${deferred.id}`);
-      const { enqueued } = await enqueueOutbox({
-        leadId: lead.id,
-        idemKey,
-        source: "deferred",
-        scheduledAt: new Date(),
-        payload: {
-          trigger: "deferred",
-          channelHint: sendChannel,
-          // Pre-composed message — outbox worker sends directly, no Brain Council needed
-          draftMessage: deferred.messageBody,
-          fromName: deferred.fromName || lead.assignedAgent || "Adorb Custom Tees",
-          emailSubject: deferred.emailSubject || null,
-          emailHtml: deferred.emailHtml || null,
-          brainCouncilOutput: deferred.brainCouncilOutput || null,
-          isInboundReply: true,
-          ghlContactId: deferred.ghlContactId,
-        },
+      // --- NO AGENT RESPONSE: Send the AI message ---
+      let sendChannel = normalizeChannel(deferred.channel);
+
+      const sendOpts: Parameters<typeof sendMessage>[1] = sendChannel === "Email"
+        ? {
+            type: "Email",
+            subject: deferred.emailSubject || buildContextSubject({ name: lead.name, businessName: lead.businessName }, deferred.fromName || undefined),
+            html: deferred.emailHtml || formatEmailHtml(deferred.messageBody),
+            fromName: deferred.fromName || lead.assignedAgent || "Adorb Custom Tees",
+          }
+        : { type: sendChannel as "SMS" | "WhatsApp" | "FB" | "IG", message: deferred.messageBody };
+
+      const sendResult = await sendMessageWithRetry(deferred.ghlContactId, sendOpts, {
+        email: lead.email,
+        phone: lead.phone,
+        id: lead.id,
       });
 
-      if (enqueued) {
+      if (sendResult.success) {
+        await addConversation({
+          leadId: lead.id,
+          channel: sendChannel,
+          direction: "outbound",
+          messageBody: deferred.messageBody,
+          senderType: "ai",
+          senderName: deferred.fromName || undefined,
+          emailMessageId: sendResult.emailMessageId || undefined,
+        });
         await updateDeferredResponseStatus(deferred.id, "sent");
-        console.log(`[DeferredResponse] ✅ Enqueued deferred response for lead ${lead.id} (${lead.name || "Unknown"}) via outbox`);
+
+        // Post-send: update AI state and schedule next follow-up
+        const bcOutput = deferred.brainCouncilOutput as any;
+        if (bcOutput) {
+          const currentAiState = await getAiState(lead.id);
+          const newMsgCount = ((currentAiState as any)?.messageCount || 0) + 1;
+          await upsertAiState(lead.id, {
+            lastAngleUsed: bcOutput.angle,
+            lastFrameworkUsed: bcOutput.framework,
+            messageCount: newMsgCount,
+          });
+          await updateLeadFields(lead.id, {
+            opportunityScore: bcOutput.score,
+            omnisendSegment: bcOutput.segment,
+          });
+        }
+
+        // Schedule next follow-up
+        const scheduleResult = await calculateNextFollowUp({
+          leadId: lead.id,
+          aiSuggestedHours: bcOutput?.nextEngagementHours,
+          triggerEvent: "ai_response",
+        });
+        await updateLeadFields(lead.id, {
+          nextFollowUpAt: scheduleResult.nextFollowUpAt,
+          cadencePosition: scheduleResult.cadencePosition,
+          preferredChannel: scheduleResult.channel,
+          lastOutboundChannel: sendChannel,
+        });
+
+        console.log(`[DeferredResponse] ✅ Sent deferred response for lead ${lead.id} (${lead.name || "Unknown"}) — 15min agent window expired, no agent response`);
         sent++;
       } else {
-        // Already pending in outbox — mark deferred as sent to avoid re-processing
-        await updateDeferredResponseStatus(deferred.id, "sent");
-        console.log(`[DeferredResponse] Deduped deferred response for lead ${lead.id} — already in outbox`);
-        sent++;
+        console.error(`[DeferredResponse] ❌ Send failed for lead ${lead.id}: ${sendResult.error}`);
+        // Don't mark as cancelled — leave as pending for next cycle retry
+        // But if it's been pending for more than 1 hour, cancel it
+        const pendingMinutes = (Date.now() - new Date(deferred.createdAt).getTime()) / (1000 * 60);
+        if (pendingMinutes > 60) {
+          await updateDeferredResponseStatus(deferred.id, "cancelled", `send_failed_timeout: ${sendResult.error}`);
+          cancelled++;
+        } else {
+          errors++;
+        }
       }
     } catch (err) {
       console.error(`[DeferredResponse] Error processing deferred #${deferred.id}:`, err);

@@ -83,7 +83,7 @@ export async function runSupervisorCycle(): Promise<CycleResult> {
   );
 
   const now = new Date();
-  const FOUR_HOURS = 4 * 60 * 60 * 1000; // Phase 0: Reduced from 24h→4h for faster AI resume
+  const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
   const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
   const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
 
@@ -173,7 +173,7 @@ export async function runSupervisorCycle(): Promise<CycleResult> {
       if (lead.humanTakeover) {
         const lastActivity = lead.lastAgentActivityAt?.getTime() || lead.updatedAt.getTime();
         const staleMs = now.getTime() - lastActivity;
-        if (staleMs > FOUR_HOURS) {
+        if (staleMs > TWENTY_FOUR_HOURS) {
           try {
             const newDate = capDate(new Date(now.getTime() + 2 * 60 * 60 * 1000));
             await updateLeadFields(lead.id, {
@@ -282,7 +282,7 @@ export async function runSupervisorCycle(): Promise<CycleResult> {
       // ── INV 7: not_orphaned ─────────────────────────────────────
       if (lead.pipelineStage === "new_lead") {
         const leadAge = now.getTime() - lead.createdAt.getTime();
-        if (leadAge > 24 * 60 * 60 * 1000) { // 24h — orphaned lead detection (NOT related to takeover)
+        if (leadAge > TWENTY_FOUR_HOURS) {
           const convo = await getConversationHistory(lead.id, 1);
           if (convo.length === 0) {
             try {
