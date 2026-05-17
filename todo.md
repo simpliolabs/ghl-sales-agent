@@ -1586,8 +1586,8 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [x] Reduce log noise: skip or throttle the "Skipping Layer B" info log per Claude's hygiene note
 - [x] Write tests for the userId check in both paths
 - [x] Run full test suite (1189 tests — all passing)
-- [ ] Git commit + checkpoint + push to GitHub
-- [ ] Write PR#3.5 verification report for Claude
+- [x] Git commit + checkpoint + push to GitHub (merged: 831b6e8c)
+- [x] Write PR#3.5 verification report for Claude
 
 ## PR#5 (Learning System Wiring — Claude-Revised Spec)
 - [ ] Wire getPromotedLearnings() into Single Brain assembleContext() (~400 tokens)
