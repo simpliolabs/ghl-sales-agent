@@ -1503,3 +1503,14 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [x] P3.5: Delete brain-council-orchestrator.ts and composer.ts (only 2 truly dead files — other modules still used as utilities)
 - [x] P3.6: Fix all failing tests — updated source-inspection tests to target new files, fixed mocks for brain-adapter, fixed 8 pre-existing webhooks.test.ts failures
 - [x] P3.7: Run full test suite — 1,109 tests passing, 0 failures
+
+## Phase 4: Quote Persistence + Appointment Booking (No Stripe)
+
+- [x] P4.1: Create quotes table in drizzle/schema.ts (id, lead_id, product, qty, sides, per_unit, total, rush, status, sent_at, expires_at)
+- [x] P4.2: Generate and apply migration SQL (0030_amusing_blazing_skull.sql)
+- [x] P4.3: Add db helpers for quotes (insertQuote, getQuotesByLead, updateQuoteStatus)
+- [x] P4.4: Wire getQuote tool to persist results to quotes table after generating
+- [x] P4.5: Implement bookAppointment tool using GHL Calendar API
+- [x] P4.6: Register bookAppointment in single-brain tools
+- [x] P4.7: Write tests for quote persistence and appointment booking (6 tests passing)
+- [x] P4.8: Run full test suite, verify, push to git, checkpoint (1,115 tests passing)

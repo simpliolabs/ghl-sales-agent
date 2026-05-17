@@ -1,6 +1,6 @@
 import { eq, desc, asc, gte, lte, and, or, ne, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, leads, conversations, aiState, pipelineEvents, agentAssignments, knowledgeFiles, aiTweaks, invites, webhookLogs, brainCouncilAudit, systemSettings, hallOfFame, channelPerformance, seasonalCampaigns, postDeliverySequences, messageOutcomes, deferredResponses } from "../drizzle/schema";
+import { InsertUser, users, leads, conversations, aiState, pipelineEvents, agentAssignments, knowledgeFiles, aiTweaks, invites, webhookLogs, brainCouncilAudit, systemSettings, hallOfFame, channelPerformance, seasonalCampaigns, postDeliverySequences, messageOutcomes, deferredResponses, quotes } from "../drizzle/schema";
 import type { InsertLead } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { cached, conversationCache, contextCache, generalCache, patternCache } from './cache';
@@ -1362,4 +1362,56 @@ export async function hasPendingDeferredResponse(leadId: number): Promise<boolea
     eq(deferredResponses.status, "pending"),
   ));
   return (result[0]?.count || 0) > 0;
+}
+
+
+// ─── Phase 4: Quotes ────────────────────────────────────────────────────────
+import type { InsertQuoteRow, QuoteRow } from "../drizzle/schema";
+
+export async function insertQuote(data: Omit<InsertQuoteRow, "id" | "createdAt" | "sentAt">): Promise<number | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.insert(quotes).values(data);
+  return result[0].insertId;
+}
+
+export async function getQuotesByLead(leadId: number, limit = 20): Promise<QuoteRow[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(quotes)
+    .where(eq(quotes.leadId, leadId))
+    .orderBy(desc(quotes.createdAt))
+    .limit(limit);
+}
+
+export async function getLatestQuoteForLead(leadId: number): Promise<QuoteRow | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(quotes)
+    .where(eq(quotes.leadId, leadId))
+    .orderBy(desc(quotes.createdAt))
+    .limit(1);
+  return result[0] || null;
+}
+
+export async function updateQuoteStatus(quoteId: number, status: "approved" | "declined" | "expired", timestamp?: Date): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const updates: Record<string, unknown> = { status };
+  if (status === "approved") updates.approvedAt = timestamp || new Date();
+  if (status === "declined") updates.declinedAt = timestamp || new Date();
+  await db.update(quotes).set(updates).where(eq(quotes.id, quoteId));
+}
+
+export async function expireOldQuotes(daysOld = 30): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const cutoff = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000);
+  const result = await db.update(quotes)
+    .set({ status: "expired" })
+    .where(and(
+      eq(quotes.status, "sent"),
+      lte(quotes.sentAt, cutoff),
+    ));
+  return (result as any)[0]?.affectedRows || 0;
 }
