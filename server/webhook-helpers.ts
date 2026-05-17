@@ -165,6 +165,19 @@ export function extractContactData(ghlContact: Record<string, unknown>): Record<
 // Splits a long SMS into 2 natural parts at a sentence boundary.
 // Feels more human — real people send 2 quick texts, not one essay.
 function splitSmsMessage(msg: string): [string, string] | null {
+  if (!msg) return null;
+
+  // PRIORITY: Explicit \n---\n separator (brain's two-message cold-opener pattern)
+  // Fires regardless of total length — the brain explicitly chose to split here.
+  if (msg.includes('\n---\n')) {
+    const parts = msg.split('\n---\n').map(p => p.trim()).filter(p => p.length > 0);
+    if (parts.length === 2) {
+      return [parts[0], parts[1]];
+    }
+    // More or fewer than 2 parts after split — fall through to length-based logic
+  }
+
+  // EXISTING: length-gated sentence-boundary splitting for long messages
   if (msg.length <= 160) return null; // Short enough, no split needed
   // Find sentence boundaries (. ! ?) in the first 60% of the message
   const midpoint = Math.floor(msg.length * 0.6);

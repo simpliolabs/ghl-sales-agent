@@ -692,7 +692,7 @@ export async function runSingleBrain(input: SingleBrainInput): Promise<SingleBra
       confidence: 100,
     };
     const lead = await getLeadById(input.leadId);
-    const guardResult = runOutputGuards(decision, lead || {}, []);
+    const guardResult = runOutputGuards(decision, lead || {}, input, []);
     return {
       decision: guardResult.correctedDecision || decision,
       guardResult,
@@ -791,7 +791,7 @@ export async function runSingleBrain(input: SingleBrainInput): Promise<SingleBra
       decision.promptVersion = CURRENT_PROMPT_VERSION;
 
       // Run output guards
-      const guardResult = runOutputGuards(decision, lead, toolLog);
+      const guardResult = runOutputGuards(decision, lead, input, toolLog);
 
       return {
         decision: guardResult.correctedDecision || decision,
@@ -835,7 +835,7 @@ export async function runSingleBrain(input: SingleBrainInput): Promise<SingleBra
           toolLog,
           promptVersion: CURRENT_PROMPT_VERSION,
         };
-        const guardResult = runOutputGuards(decision, lead, toolLog);
+        const guardResult = runOutputGuards(decision, lead, input, toolLog);
         return {
           decision: guardResult.correctedDecision || decision,
           guardResult,
@@ -859,7 +859,7 @@ export async function runSingleBrain(input: SingleBrainInput): Promise<SingleBra
           toolLog,
           promptVersion: CURRENT_PROMPT_VERSION,
         };
-        const guardResult = runOutputGuards(decision, lead, toolLog);
+        const guardResult = runOutputGuards(decision, lead, input, toolLog);
         return {
           decision: guardResult.correctedDecision || decision,
           guardResult,
@@ -896,7 +896,7 @@ export async function runSingleBrain(input: SingleBrainInput): Promise<SingleBra
   decision.toolLog = toolLog;
   decision.promptVersion = CURRENT_PROMPT_VERSION;
 
-  const guardResult = runOutputGuards(decision, lead, toolLog);
+  const guardResult = runOutputGuards(decision, lead, input, toolLog);
 
   return {
     decision: guardResult.correctedDecision || decision,

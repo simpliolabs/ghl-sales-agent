@@ -6,12 +6,14 @@
  * 
  * Guards:
  * 1. System leak detection (mentions of internal systems)
- * 2. Channel mismatch (first response must match inbound channel)
+ * 2. Channel mismatch (inbound reply must stay on inbound channel)
  * 3. Price validation ($ in message must match getQuote tool result)
  * 4. DNC keyword in outbound message
  * 5. Null message with advance action (strip the action)
  * 6. Message length sanity check
  */
+
+import type { SingleBrainInput } from "./single-brain";
 
 export interface ToolCallRecord {
   name: string;
@@ -55,6 +57,7 @@ const DNC_KEYWORDS = ["stop", "unsubscribe", "opt out", "do not contact", "remov
 export function runOutputGuards(
   decision: BrainDecision,
   lead: LeadLike,
+  input: SingleBrainInput,
   toolLog: ToolCallRecord[] = []
 ): GuardResult {
   // Guard 1: System leak — block if message mentions internal system names
@@ -62,18 +65,24 @@ export function runOutputGuards(
     return block("system_leak", "Message contains internal system references");
   }
 
-  // Guard 2: Channel mismatch — force correct on first contact
+  // Guard 2: Channel mismatch — inbound replies must match inbound channel
+  // Fires whenever we're responding to an inbound message and the brain
+  // picked a different channel. Independent of messageCount and
+  // preferredChannel (both were wrong proxies in the original guard).
   if (
-    lead.preferredChannel &&
-    (lead.messageCount === 0 || lead.messageCount === undefined) &&
-    decision.channel !== lead.preferredChannel
+    input.inboundMessage &&
+    input.channel &&
+    decision.channel &&
+    decision.channel !== input.channel
   ) {
-    const corrected = { ...decision, channel: lead.preferredChannel as BrainDecision["channel"] };
     return {
       passed: true,
       action: "corrected",
-      reason: `Channel forced from ${decision.channel} to ${lead.preferredChannel} (first contact must match inbound)`,
-      correctedDecision: corrected,
+      reason: `Channel forced from ${decision.channel} to ${input.channel} (inbound reply must match inbound channel)`,
+      correctedDecision: {
+        ...decision,
+        channel: input.channel as BrainDecision["channel"],
+      },
     };
   }
 
