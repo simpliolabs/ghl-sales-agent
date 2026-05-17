@@ -457,6 +457,7 @@ export async function runBrainAdapter(input: BrainCouncilInput): Promise<BrainCo
         qcApproved: 1,
         messageSent: 1,
         blocked: 0,
+        emailSubject: result.decision.subject || undefined,
         strategyReasoning: `[SingleBrain v3.0] ${result.model} | ${result.llmCalls} LLM calls | ${result.durationMs}ms`,
       });
     } catch (auditErr) {

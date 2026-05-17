@@ -134,10 +134,10 @@ describe("DNC keyword detection", () => {
 // Test 3: Review links are correct
 // ============================================================
 describe("Review links correctness", () => {
-  it("composer.ts should not contain g.co/kgs/adorb", async () => {
+  it("single-brain.ts should not contain g.co/kgs/adorb", async () => {
     const fs = await import("fs");
-    const composerContent = fs.readFileSync("server/composer.ts", "utf-8");
-    expect(composerContent).not.toContain("g.co/kgs/adorb");
+    const content = fs.readFileSync("server/single-brain.ts", "utf-8");
+    expect(content).not.toContain("g.co/kgs/adorb");
   });
 
   it("brand-assets.ts should contain correct review URLs (centralized source of truth)", async () => {
@@ -148,10 +148,11 @@ describe("Review links correctness", () => {
     expect(brandContent).toContain("https://adorbcustomtees.com/pages/reviews");
   });
 
-  it("composer.ts should import from brand-assets (not hardcode URLs)", async () => {
+  it("single-brain.ts should import from sales-training (not hardcode review URLs)", async () => {
     const fs = await import("fs");
-    const composerContent = fs.readFileSync("server/composer.ts", "utf-8");
-    expect(composerContent).toContain("from \"../shared/brand-assets\"");
+    const content = fs.readFileSync("server/single-brain.ts", "utf-8");
+    expect(content).toContain("sales-training");
+    expect(content).not.toContain("g.co/kgs");
   });
 
   it("qc.ts should not contain g.co/kgs/adorb", async () => {

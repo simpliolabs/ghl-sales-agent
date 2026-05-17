@@ -78,18 +78,7 @@ describe("Lead Disposition Engine — Structural Tests", () => {
 });
 
 describe("DNC → Not Qualified Pipeline — All Entry Points", () => {
-  it("brain-council-orchestrator.ts uses channel-specific DNC with fallback to not_qualified", () => {
-    const src = readFile("brain-council-orchestrator.ts");
-    // Must use handleChannelDnc for channel-specific DNC
-    expect(src).toContain("handleChannelDnc");
-    expect(src).toContain("detectDncChannel");
-    // Must still move to not_qualified when ALL channels exhausted
-    expect(src).toContain('pipelineStage: "not_qualified"');
-    // Must call updateOpportunityStage for GHL pipeline update
-    expect(src).toContain("updateOpportunityStage");
-    // Must log DNC channel escalation or exhaustion
-    expect(src).toMatch(/DNC on.*channels exhausted.*Not Qualified/);
-  });
+
 
   it("follow-up-trigger.ts moves DNC leads to not_qualified (not just humanTakeover)", () => {
     const src = readFile("follow-up-trigger.ts");
@@ -108,7 +97,7 @@ describe("DNC → Not Qualified Pipeline — All Entry Points", () => {
   });
 
   it("all DNC handlers use centralized ghl-stages instead of hardcoded IDs", () => {
-    const files = ["brain-council-orchestrator.ts", "follow-up-trigger.ts", "webhook-contact.ts", "lead-disposition.ts"];
+    const files = ["follow-up-trigger.ts", "webhook-contact.ts", "lead-disposition.ts"];
     for (const file of files) {
       const src = readFile(file);
       // All files must import from shared/ghl-stages (either static or dynamic import)

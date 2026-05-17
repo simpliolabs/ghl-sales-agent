@@ -437,30 +437,7 @@ describe("Action Dispatcher", () => {
     });
   });
 
-  describe("Brain Council convState routing", () => {
-    it("brain-council-orchestrator.ts contains CONV STATE OVERRIDE for committed", async () => {
-      const fs = await import("fs");
-      const src = fs.readFileSync("server/brain-council-orchestrator.ts", "utf8");
-      expect(src).toContain("CONV STATE OVERRIDE");
-      expect(src).toContain('convState === "committed"');
-      expect(src).toContain('"confirm_details"');
-      expect(src).toContain('"DIRECT_RESPONSE"');
-    });
 
-    it("brain-council-orchestrator.ts contains CONV STATE OVERRIDE for objecting", async () => {
-      const fs = await import("fs");
-      const src = fs.readFileSync("server/brain-council-orchestrator.ts", "utf8");
-      expect(src).toContain('convState === "objecting"');
-      expect(src).toContain('"answer_question"');
-    });
-
-    it("brain-council-orchestrator.ts contains CONV STATE OVERRIDE for fulfilled", async () => {
-      const fs = await import("fs");
-      const src = fs.readFileSync("server/brain-council-orchestrator.ts", "utf8");
-      expect(src).toContain('convState === "fulfilled"');
-      expect(src).toContain('"post_delivery"');
-    });
-  });
 
   describe("shared/ghl-stages.ts centralization", () => {
     it("exports NOT_QUALIFIED_STAGE_IDS for both pipelines", async () => {

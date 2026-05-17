@@ -93,11 +93,11 @@ describe("Email open attribution wiring", () => {
 
 // --- 4. emailSubject flows through the pipeline ---
 describe("emailSubject pipeline wiring", () => {
-  it("brain-council-orchestrator saves emailSubject in audit", async () => {
+  it("brain-adapter saves emailSubject in decision_log", async () => {
     const code = await import("fs").then(fs =>
-      fs.readFileSync("/home/ubuntu/adorb-outreach/server/brain-council-orchestrator.ts", "utf-8")
+      fs.readFileSync("/home/ubuntu/adorb-outreach/server/brain-adapter.ts", "utf-8")
     );
-    expect(code).toContain("emailSubject: composed.subject");
+    expect(code).toContain("emailSubject");
   });
 
   it("outcome-engine copies emailSubject from audit to message_outcomes (attributeReply)", async () => {

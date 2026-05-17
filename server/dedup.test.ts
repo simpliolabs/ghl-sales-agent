@@ -140,6 +140,32 @@ vi.mock("./brain-council-review", () => ({
   runFastMissedReplyScanner: vi.fn().mockResolvedValue(0),
 }));
 
+vi.mock("./channel-fallback", () => ({
+  handleChannelDnc: vi.fn().mockResolvedValue({ escalated: false, allChannelsExhausted: false }),
+  detectDncChannel: vi.fn().mockReturnValue(null),
+}));
+
+vi.mock("./fb-window-manager", () => ({
+  isFbWindowOpen: vi.fn().mockReturnValue(true),
+  isFbChannel: vi.fn().mockReturnValue(false),
+}));
+
+vi.mock("./single-brain", () => ({
+  runSingleBrain: vi.fn().mockResolvedValue({
+    decision: { action: "send", message: "Hello from Adorb!", confidence: 85, nextFollowUpHours: 24, subject: null },
+    model: "gpt-4o",
+    promptVersion: "v3.0",
+    llmCalls: 2,
+    durationMs: 1500,
+    guardsApplied: [],
+  }),
+}));
+
+vi.mock("./lead-memory", () => ({
+  getLeadMemory: vi.fn().mockResolvedValue(null),
+  updateLeadMemoryAfterRun: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("./_core/notification", () => ({
   notifyOwner: vi.fn().mockResolvedValue(true),
 }));
@@ -174,7 +200,7 @@ describe("Duplicate Message Prevention", () => {
   describe("Brain Council Orchestrator Pre-flight Checks", () => {
     it("should abort when AI is offline", async () => {
       mockIsAiOffline.mockResolvedValue(true);
-      const { runBrainCouncil } = await import("./brain-council-orchestrator");
+      const { runBrainCouncil } = await import("./brain-adapter");
       
       const result = await runBrainCouncil({
         leadId: 1,
@@ -199,7 +225,7 @@ describe("Duplicate Message Prevention", () => {
       });
       mockGetDb.mockResolvedValue({ select: mockDbSelect, execute: vi.fn().mockResolvedValue([[]])} );
       
-      const { runBrainCouncil } = await import("./brain-council-orchestrator");
+      const { runBrainCouncil } = await import("./brain-adapter");
       
       const result = await runBrainCouncil({
         leadId: 1,
@@ -223,7 +249,7 @@ describe("Duplicate Message Prevention", () => {
       });
       mockGetDb.mockResolvedValue({ select: mockDbSelect });
       
-      const { runBrainCouncil } = await import("./brain-council-orchestrator");
+      const { runBrainCouncil } = await import("./brain-adapter");
       
       const result = await runBrainCouncil({
         leadId: 1,
@@ -236,13 +262,7 @@ describe("Duplicate Message Prevention", () => {
     });
 
     it("should release lock even if pipeline throws", async () => {
-      // Build a mock DB that handles all pre-flight queries:
-      // 1. cooldown check (select lastAiSendAttemptAt from leads)
-      // 2. humanTakeover check (select humanTakeover from leads)
-      // 3. DNC check (select messageBody, direction, senderType from conversations)
-      // 4. DND check (via isChannelDnd mock — already returns false)
-      // 5. recent AI outbound check (select from conversations)
-      // 6. circuit breaker check
+      // Build a mock DB that handles all pre-flight queries
       const mockDbSelect = vi.fn().mockReturnValue({
         from: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({
@@ -260,11 +280,11 @@ describe("Duplicate Message Prevention", () => {
       });
       mockGetDb.mockResolvedValue({ select: mockDbSelect, update: mockDbUpdate });
       
-      // Make buildLeadContext throw
-      const { buildLeadContext } = await import("./brain-context");
-      (buildLeadContext as any).mockRejectedValueOnce(new Error("Test error"));
+      // Make runSingleBrain throw
+      const { runSingleBrain } = await import("./single-brain");
+      (runSingleBrain as any).mockRejectedValueOnce(new Error("Test error"));
       
-      const { runBrainCouncil } = await import("./brain-council-orchestrator");
+      const { runBrainCouncil } = await import("./brain-adapter");
       
       await expect(runBrainCouncil({
         leadId: 1,

@@ -112,10 +112,6 @@ describe("Layer 1: Context Assembly", () => {
       expect(src).toMatch(/input\.externalHistory.*historyStr/s);
     });
 
-    it("composer.ts merges externalHistory with historyStr in CONVERSATION HISTORY section", () => {
-      const src = readFile("composer.ts");
-      expect(src).toMatch(/input\.externalHistory.*historyStr/s);
-    });
 
     it("qc.ts merges externalHistory with historyStr in PRIOR CONVERSATION section", () => {
       const src = readFile("qc.ts");
@@ -153,20 +149,7 @@ describe("Layer 1.6: Prior Contact Guard — History Lookback Fix", () => {
     expect(src).toMatch(/getConversationHistory\(leadId,\s*50\)/);
   });
 
-  it("brain-council-orchestrator.ts overrides isFirstResponse=false when GHL history has outbound messages", () => {
-    const src = readFile("brain-council-orchestrator.ts");
-    expect(src).toContain("isFirstResponse overridden to FALSE");
-    expect(src).toContain("externalHasOutbound");
-    expect(src).toMatch(/\(context as any\)\.isFirstResponse\s*=\s*false/);
-  });
 
-  it("brain-council-orchestrator.ts has programmatic approach override blocking first_contact/new_pitch when prior contact exists", () => {
-    const src = readFile("brain-council-orchestrator.ts");
-    expect(src).toContain("PROGRAMMATIC PRIOR-CONTACT GUARD");
-    expect(src).toContain("strategy.approach === 'first_contact'");
-    expect(src).toContain("strategy.approach === 'new_pitch'");
-    expect(src).toMatch(/\(strategy as any\)\.approach\s*=\s*'follow_up'/);
-  });
 
   it("strategist.ts system prompt contains PRIOR CONTACT RULE", () => {
     const src = readFile("strategist.ts");
