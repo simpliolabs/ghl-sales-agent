@@ -1,5 +1,5 @@
 /**
- * PR#3 Verification Monitor
+ * PR#3 Verification Monitor — query fix 7cdbc3e
  * 
  * Temporary in-process poller that captures the first qualifying evidence for:
  *   - Verification 5: Email HTML formatting (post-deploy email with proper HTML)
