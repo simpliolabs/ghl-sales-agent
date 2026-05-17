@@ -1,0 +1,1 @@
+ALTER TABLE `decision_log` MODIFY COLUMN `outputGuardResult` varchar(255);

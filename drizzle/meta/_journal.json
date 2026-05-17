@@ -239,6 +239,13 @@
       "when": 1778992423622,
       "tag": "0033_equal_eternals",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "5",
+      "when": 1779019435618,
+      "tag": "0034_amusing_korvac",
+      "breakpoints": true
     }
   ]
 }

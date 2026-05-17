@@ -231,10 +231,10 @@ export async function logDecision(opts: {
       promptVersion: opts.promptVersion ?? undefined,
       channel: opts.channel ?? undefined,
       inputGuardResult: opts.inputGuardResult ?? undefined,
-      outputGuardResult: opts.outputGuardResult ?? undefined,
+      outputGuardResult: opts.outputGuardResult ? opts.outputGuardResult.substring(0, 255) : undefined,
       durationMs: opts.durationMs ?? undefined,
       flaggedForReview: isBlocked ? 1 : 0,
-      flagReason: isBlocked ? `Output guard blocked: ${opts.outputGuardResult}` : undefined,
+      flagReason: isBlocked ? `Output guard blocked: ${opts.outputGuardResult}`.substring(0, 255) : undefined,
     });
   } catch (err) {
     console.error(`[Outbox] Decision log error:`, err);

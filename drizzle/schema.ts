@@ -720,7 +720,7 @@ export const decisionLog = mysqlTable("decision_log", {
   promptVersion: varchar("promptVersion", { length: 20 }),
   channel: varchar("channel", { length: 32 }),
   inputGuardResult: varchar("inputGuardResult", { length: 32 }), // pass, block:reason, defer:reason
-  outputGuardResult: varchar("outputGuardResult", { length: 32 }), // pass, block:reason
+  outputGuardResult: varchar("outputGuardResult", { length: 255 }), // pass, block:reason, error:message
   durationMs: int("durationMs"), // total processing time
   flaggedForReview: tinyint("flaggedForReview").default(0), // 1 = flagged for human review
   flagReason: varchar("flagReason", { length: 255 }), // why it was flagged
