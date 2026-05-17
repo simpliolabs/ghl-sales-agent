@@ -218,6 +218,20 @@
       "when": 1778988883813,
       "tag": "0030_amusing_blazing_skull",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "5",
+      "when": 1778989748967,
+      "tag": "0031_slim_wallop",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "5",
+      "when": 1778990566989,
+      "tag": "0032_violet_solo",
+      "breakpoints": true
     }
   ]
 }

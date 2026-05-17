@@ -426,6 +426,7 @@ ${dynamicCtx.personaGuidance}
 ${dynamicCtx.seasonalContext}
 
 ${dynamicCtx.competitiveContext ? `═══ COMPETITIVE INTELLIGENCE (lead mentioned a competitor) ═══\n${dynamicCtx.competitiveContext}` : ""}
+${context.topApproaches ? `═══ ADAPTIVE LEARNING (data-driven from past outcomes) ═══\n${context.topApproaches}` : ""}
 
 ═══ ESCALATION RULES ═══
 ${dynamicCtx.escalationRules}
@@ -457,11 +458,36 @@ interface LeadContext {
   topApproaches: string | null;
 }
 
+async function buildAdaptiveLearningContext(aiStateRow: any, lead: any): Promise<string | null> {
+  try {
+    const { getTopApproaches, getAvoidApproaches } = await import("./db");
+    const segment = aiStateRow?.segment || "general";
+    const channel = lead?.preferredChannel || "sms";
+    const stage = lead?.pipelineStage || "new_lead";
+    const [topApproaches, avoidApproaches] = await Promise.all([
+      getTopApproaches(segment, channel, stage, 3),
+      getAvoidApproaches(segment, channel, 3),
+    ]);
+    const parts: string[] = [];
+    if (topApproaches.length > 0) {
+      parts.push(`TOP APPROACHES for this segment/channel/stage (prefer these):\n${topApproaches.map((a: any) => `  \u2022 ${a.approach} (${a.winRate}% win rate, ${a.samples} samples)`).join("\n")}`);
+    }
+    if (avoidApproaches.length > 0) {
+      parts.push(`AVOID these approaches (low performance):\n${avoidApproaches.map((a: any) => `  \u2022 ${a.approach} (${a.winRate}% win rate, ${a.samples} samples)`).join("\n")}`);
+    }
+    return parts.length > 0 ? parts.join("\n") : null;
+  } catch (err) {
+    // Non-fatal — proceed without adaptive data
+    return null;
+  }
+}
+
 async function assembleContext(leadId: number): Promise<LeadContext> {
-  const [history, memory, aiStateRow] = await Promise.all([
+  const [history, memory, aiStateRow, lead] = await Promise.all([
     getConversationHistory(leadId, 20),
     getLeadMemory(leadId),
     getAiState(leadId),
+    getLeadById(leadId),
   ]);
 
   // Format conversation history for the prompt
@@ -487,7 +513,7 @@ async function assembleContext(leadId: number): Promise<LeadContext> {
       ? JSON.stringify(aiStateRow.unansweredQuestions)
       : null,
     sentimentTrend: aiStateRow?.sentimentTrend || null,
-    topApproaches: null,
+    topApproaches: await buildAdaptiveLearningContext(aiStateRow, lead),
   };
 }
 

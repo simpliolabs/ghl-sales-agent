@@ -24,7 +24,10 @@ import {
   getBrainCouncilAuditForLead,
   updateLeadFields,
   isAiOffline,
+  getDb,
 } from "./db";
+import { decisionLog } from "../drizzle/schema";
+import { eq, desc } from "drizzle-orm";
 
 // --- VIOLATION PATTERNS THAT REQUIRE CORRECTION ---
 const CRITICAL_VIOLATIONS = [
@@ -233,7 +236,43 @@ export async function handleConfusionReply(params: {
 }): Promise<boolean> {
   const { leadId, contactId, channel, confusionMessage, formData } = params;
 
-  // Check recent audit entries for this lead to find the problematic message
+  // --- Check decision_log (single brain) first ---
+  try {
+    const db = await getDb();
+    if (db) {
+      const recentDl = await db.select()
+        .from(decisionLog)
+        .where(eq(decisionLog.leadId, leadId))
+        .orderBy(desc(decisionLog.createdAt))
+        .limit(3);
+
+      const lastSentDl = recentDl.find(d =>
+        d.outputGuardResult === "pass" || (d.outputGuardResult && d.outputGuardResult.startsWith("corrected:"))
+      );
+
+      if (lastSentDl) {
+        // Single brain messages don't have QC scores or violation categories in the same way,
+        // but if the lead is confused, we should always send a correction for the most recent message.
+        // Log and notify the owner — the single brain should handle confusion via its own prompt.
+        console.log(`[AutoCorrect] Confusion detected from lead ${leadId} (single brain dl#${lastSentDl.id}): "${confusionMessage}". Sending correction.`);
+
+        const result = await sendAutoCorrection({
+          auditId: Number(lastSentDl.id),
+          leadId,
+          contactId,
+          channel,
+          reason: `Lead replied with confusion: "${confusionMessage}". Last single-brain message (dl#${lastSentDl.id}) may have caused it.`,
+          formData,
+        });
+
+        return result.success;
+      }
+    }
+  } catch (dlErr) {
+    console.error("[AutoCorrect] Decision log confusion check error (non-fatal):", dlErr);
+  }
+
+  // --- Fallback: Check brain_council_audit (legacy) ---
   const recentAudits = await getBrainCouncilAuditForLead(leadId, 5);
   const lastSentAudit = recentAudits.find(a => a.messageSent === 1 && a.correctionSent === 0);
 

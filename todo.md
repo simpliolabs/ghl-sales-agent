@@ -1514,3 +1514,18 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [x] P4.6: Register bookAppointment in single-brain tools
 - [x] P4.7: Write tests for quote persistence and appointment booking (6 tests passing)
 - [x] P4.8: Run full test suite, verify, push to git, checkpoint (1,115 tests passing)
+
+## Phase 5: Adaptive Learning System
+
+- [x] P5.1: Create segment_weights table (segment, channel, stage, approach, wins, losses, win_rate)
+- [x] P5.2: Add UNIQUE KEY on (segment, channel, stage, approach), INSERT...ON DUPLICATE KEY UPDATE
+- [x] P5.3: Wire outcome recording — recordSegmentOutcome() with INSERT...ON DUPLICATE KEY UPDATE
+- [x] P5.4: Build getTopApproaches(segment, channel, stage, n=3) and getAvoidApproaches(segment, channel, n=3)
+- [x] P5.5: Inject top/avoid approaches into single brain system prompt dynamically
+- [x] P5.6: Rewrite training-export.ts for single-brain format (dual-source: legacy brain_council_audit + new decision_log, filter by prompt version, dedup)
+- [ ] P5.7: Add abTestPromptVersion column to fine_tuning_jobs, freeze version at A/B start
+- [ ] P5.8: Update getActiveModel() to check for promoted LoRA model
+- [x] P5.9: Add confusion detection in webhook-message.ts using CONFUSION_PATTERNS (already wired; updated handleConfusionReply to check decision_log for single brain)
+- [x] P5.10: Add post-send wrong-business reference check in outbox-worker (regex scan + owner notification)
+- [x] P5.11: Write tests for all Phase 5 features (45 tests in phase5-adaptive-learning.test.ts — all passing)
+- [ ] P5.12: Run full test suite, push to git, checkpoint

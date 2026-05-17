@@ -1,6 +1,6 @@
 import { eq, desc, asc, gte, lte, and, or, ne, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, leads, conversations, aiState, pipelineEvents, agentAssignments, knowledgeFiles, aiTweaks, invites, webhookLogs, brainCouncilAudit, systemSettings, hallOfFame, channelPerformance, seasonalCampaigns, postDeliverySequences, messageOutcomes, deferredResponses, quotes } from "../drizzle/schema";
+import { InsertUser, users, leads, conversations, aiState, pipelineEvents, agentAssignments, knowledgeFiles, aiTweaks, invites, webhookLogs, brainCouncilAudit, systemSettings, hallOfFame, channelPerformance, seasonalCampaigns, postDeliverySequences, messageOutcomes, deferredResponses, quotes, segmentWeights } from "../drizzle/schema";
 import type { InsertLead } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { cached, conversationCache, contextCache, generalCache, patternCache } from './cache';
@@ -1414,4 +1414,93 @@ export async function expireOldQuotes(daysOld = 30): Promise<number> {
       lte(quotes.sentAt, cutoff),
     ));
   return (result as any)[0]?.affectedRows || 0;
+}
+
+// ─── Phase 5: Segment Weights (adaptive learning) ─────────────────────────────
+
+/**
+ * Record a win or loss for a given (segment, channel, stage, approach) combo.
+ * Uses INSERT...ON DUPLICATE KEY UPDATE for atomic increment.
+ * Recalculates win_rate after each update.
+ */
+export async function recordSegmentOutcome(
+  segment: string,
+  channel: string,
+  stage: string,
+  approach: string,
+  outcome: "win" | "loss"
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const winInc = outcome === "win" ? 1 : 0;
+  const lossInc = outcome === "loss" ? 1 : 0;
+  await db.execute(sql`
+    INSERT INTO segment_weights (segment, channel, stage, approach, wins, losses, winRate)
+    VALUES (${segment}, ${channel}, ${stage}, ${approach}, ${winInc}, ${lossInc}, ${winInc})
+    ON DUPLICATE KEY UPDATE
+      wins = wins + ${winInc},
+      losses = losses + ${lossInc},
+      winRate = (wins + ${winInc}) / GREATEST((wins + ${winInc}) + (losses + ${lossInc}), 1)
+  `);
+}
+
+/**
+ * Get top N approaches by win_rate for a given segment/channel/stage combo.
+ * Only returns approaches with at least `minSamples` total outcomes (wins+losses).
+ */
+export async function getTopApproaches(
+  segment: string,
+  channel: string,
+  stage: string,
+  n = 3,
+  minSamples = 3
+): Promise<Array<{ approach: string; winRate: number; samples: number }>> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    approach: segmentWeights.approach,
+    winRate: segmentWeights.winRate,
+    wins: segmentWeights.wins,
+    losses: segmentWeights.losses,
+  }).from(segmentWeights).where(and(
+    eq(segmentWeights.segment, segment),
+    eq(segmentWeights.channel, channel),
+    eq(segmentWeights.stage, stage),
+    sql`(${segmentWeights.wins} + ${segmentWeights.losses}) >= ${minSamples}`,
+  )).orderBy(desc(segmentWeights.winRate)).limit(n);
+  return rows.map(r => ({
+    approach: r.approach,
+    winRate: Number(r.winRate),
+    samples: r.wins + r.losses,
+  }));
+}
+
+/**
+ * Get bottom N approaches (to avoid) for a given segment/channel combo.
+ * Returns approaches with win_rate < 0.1 and at least `minSamples` outcomes.
+ */
+export async function getAvoidApproaches(
+  segment: string,
+  channel: string,
+  n = 3,
+  minSamples = 3
+): Promise<Array<{ approach: string; winRate: number; samples: number }>> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    approach: segmentWeights.approach,
+    winRate: segmentWeights.winRate,
+    wins: segmentWeights.wins,
+    losses: segmentWeights.losses,
+  }).from(segmentWeights).where(and(
+    eq(segmentWeights.segment, segment),
+    eq(segmentWeights.channel, channel),
+    sql`(${segmentWeights.wins} + ${segmentWeights.losses}) >= ${minSamples}`,
+    sql`${segmentWeights.winRate} < 0.1`,
+  )).orderBy(asc(segmentWeights.winRate)).limit(n);
+  return rows.map(r => ({
+    approach: r.approach,
+    winRate: Number(r.winRate),
+    samples: r.wins + r.losses,
+  }));
 }

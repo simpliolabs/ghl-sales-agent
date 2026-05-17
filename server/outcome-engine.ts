@@ -11,8 +11,8 @@
  */
 
 import { eq, desc, and, sql, gte, isNull } from "drizzle-orm";
-import { getDb } from "./db";
-import { brainCouncilAudit, messageOutcomes, leads, conversations, pipelineEvents, abExperiments } from "../drizzle/schema";
+import { getDb, recordSegmentOutcome } from "./db";
+import { brainCouncilAudit, messageOutcomes, leads, conversations, pipelineEvents, abExperiments, decisionLog } from "../drizzle/schema";
 import { invokeLLM } from "./_core/llm";
 import { cached, patternCache } from "./cache";
 import { DNC_KEYWORDS } from "./scheduling-engine";
@@ -32,6 +32,11 @@ const POSITIVE_STAGES: string[] = [STAGES.QUALIFIED, STAGES.QUOTE_SENT, STAGES.P
 /**
  * Called when an inbound message arrives. Finds the most recent AI audit entry
  * for this lead within the attribution window and records the outcome.
+ * 
+ * Checks BOTH sources:
+ *   1. decision_log (single brain, promptVersion='v3.0'+) — preferred
+ *   2. brain_council_audit (legacy 4-brain pipeline) — fallback
+ * Uses whichever has the most recent sent message.
  */
 export async function attributeReply(opts: {
   leadId: number;
@@ -44,7 +49,19 @@ export async function attributeReply(opts: {
 
   const windowStart = new Date(opts.replyTimestamp.getTime() - ATTRIBUTION_WINDOW_HOURS * 60 * 60 * 1000);
 
-  // Find the most recent AI audit entry for this lead within the attribution window
+  // --- Check decision_log (single brain) for recent sent messages ---
+  const recentDecisions = await db.select()
+    .from(decisionLog)
+    .where(and(
+      eq(decisionLog.leadId, opts.leadId),
+      sql`(${decisionLog.outputGuardResult} = 'pass' OR ${decisionLog.outputGuardResult} LIKE 'corrected:%')`,
+      sql`${decisionLog.brainReasoning} IS NOT NULL`,
+      gte(decisionLog.createdAt, windowStart),
+    ))
+    .orderBy(desc(decisionLog.createdAt))
+    .limit(1);
+
+  // --- Check brain_council_audit (legacy) for recent sent messages ---
   const recentAudits = await db.select()
     .from(brainCouncilAudit)
     .where(and(
@@ -55,18 +72,131 @@ export async function attributeReply(opts: {
     .orderBy(desc(brainCouncilAudit.createdAt))
     .limit(1);
 
-  if (recentAudits.length === 0) return null;
+  // Pick the most recent source
+  const dlEntry = recentDecisions[0];
+  const bcaEntry = recentAudits[0];
+  const dlTime = dlEntry ? new Date(dlEntry.createdAt).getTime() : 0;
+  const bcaTime = bcaEntry ? new Date(bcaEntry.createdAt).getTime() : 0;
 
-  const audit = recentAudits[0];
-  const sentAt = new Date(audit.createdAt).getTime();
+  if (!dlEntry && !bcaEntry) return null;
+
+  const useSingleBrain = dlTime >= bcaTime && !!dlEntry;
+
+  // Compute common fields
+  const sentAt = useSingleBrain ? dlTime : bcaTime;
   const replyMinutes = Math.round((opts.replyTimestamp.getTime() - sentAt) / (1000 * 60));
-
-  // Quick sentiment classification (lightweight — no LLM call for speed)
   const sentiment = classifySentimentFast(opts.replyMessage);
-
-  // DNC detection — flag if the reply contains DNC keywords
   const isDnc = isDncReply(opts.replyMessage);
 
+  if (useSingleBrain && dlEntry) {
+    // --- SINGLE BRAIN ATTRIBUTION PATH ---
+    return _attributeReplyFromDecisionLog(db, opts, dlEntry, replyMinutes, sentiment, isDnc);
+  } else if (bcaEntry) {
+    // --- LEGACY ATTRIBUTION PATH ---
+    return _attributeReplyFromBrainCouncilAudit(db, opts, bcaEntry, replyMinutes, sentiment, isDnc);
+  }
+  return null;
+}
+
+/** Attribute a reply to a decision_log entry (single brain). */
+async function _attributeReplyFromDecisionLog(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  opts: { leadId: number; replyMessage: string; replyTimestamp: Date; channel: string },
+  dl: typeof decisionLog.$inferSelect,
+  replyMinutes: number,
+  sentiment: string,
+  isDnc: boolean,
+): Promise<{ auditId: number; replyMinutes: number; sentiment: string }> {
+  // Check for existing outcome linked to this decision_log entry
+  const existing = await db.select()
+    .from(messageOutcomes)
+    .where(eq(messageOutcomes.decisionLogId, dl.id))
+    .limit(1);
+
+  if (existing.length > 0) {
+    if (!existing[0].gotReply) {
+      await db.update(messageOutcomes)
+        .set({ gotReply: 1, replyMinutes, replySentiment: sentiment, dncTriggered: isDnc ? 1 : 0, attributedAt: opts.replyTimestamp })
+        .where(eq(messageOutcomes.id, existing[0].id));
+    }
+    return { auditId: Number(dl.id), replyMinutes, sentiment };
+  }
+
+  // Create new outcome record linked to decision_log
+  await db.insert(messageOutcomes).values({
+    auditId: 0, // No brain_council_audit entry for single brain
+    decisionLogId: Number(dl.id),
+    leadId: opts.leadId,
+    channel: dl.channel || opts.channel,
+    gotReply: 1,
+    replyMinutes,
+    replySentiment: sentiment,
+    dncTriggered: isDnc ? 1 : 0,
+    attributedAt: opts.replyTimestamp,
+  });
+
+  // --- HALL OF FAME AUTO-PROMOTION ---
+  try {
+    const shouldPromote = (replyMinutes < 30 && sentiment !== "negative") || sentiment === "positive";
+    if (shouldPromote && dl.brainReasoning) {
+      const { promoteToHallOfFame } = await import("./db");
+      const reason = sentiment === "positive" ? "positive_reply" : "fast_reply";
+      await promoteToHallOfFame({
+        auditId: Number(dl.id),
+        leadId: opts.leadId,
+        message: dl.brainReasoning,
+        framework: "single_brain",
+        approach: dl.trigger || undefined,
+        channel: dl.channel || undefined,
+        replyMinutes,
+        replySentiment: sentiment,
+        promotionReason: reason,
+      });
+      console.log(`[Outcome] \u{1F3C6} Hall of Fame (single brain): dl ${dl.id} promoted (${reason}, ${replyMinutes}min, ${sentiment})`);
+    }
+  } catch (hofErr) {
+    console.error("[Outcome] Hall of Fame promotion error (non-fatal):", hofErr);
+  }
+
+  // --- CHANNEL PERFORMANCE TRACKING ---
+  try {
+    const { upsertChannelPerformance } = await import("./db");
+    await upsertChannelPerformance(opts.leadId, opts.channel, {
+      replied: true,
+      replyMinutes,
+      positiveSentiment: sentiment === "positive",
+    });
+  } catch (cpErr) {
+    console.error("[Outcome] Channel performance update error (non-fatal):", cpErr);
+  }
+
+  // --- SEGMENT WEIGHT RECORDING (WIN) ---
+  try {
+    const approach = dl.trigger || "single_brain";
+    if (opts.channel) {
+      const [leadRow] = await db.select({ segment: leads.omnisendSegment, stage: leads.pipelineStage })
+        .from(leads).where(eq(leads.id, opts.leadId)).limit(1);
+      const segment = leadRow?.segment || "unknown";
+      const stage = leadRow?.stage || "new_lead";
+      await recordSegmentOutcome(segment, opts.channel, stage, approach, "win");
+      console.log(`[Outcome] \u{1F4CA} Segment weight WIN (single brain): ${segment}/${opts.channel}/${stage}/${approach}`);
+    }
+  } catch (swErr) {
+    console.error("[Outcome] Segment weight recording error (non-fatal):", swErr);
+  }
+
+  return { auditId: Number(dl.id), replyMinutes, sentiment };
+}
+
+/** Attribute a reply to a brain_council_audit entry (legacy). */
+async function _attributeReplyFromBrainCouncilAudit(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  opts: { leadId: number; replyMessage: string; replyTimestamp: Date; channel: string },
+  audit: typeof brainCouncilAudit.$inferSelect,
+  replyMinutes: number,
+  sentiment: string,
+  isDnc: boolean,
+): Promise<{ auditId: number; replyMinutes: number; sentiment: string }> {
   // Check if we already have an outcome for this audit entry
   const existing = await db.select()
     .from(messageOutcomes)
@@ -74,7 +204,6 @@ export async function attributeReply(opts: {
     .limit(1);
 
   if (existing.length > 0) {
-    // Update existing outcome with reply data if it didn't have one
     if (!existing[0].gotReply) {
       await db.update(messageOutcomes)
         .set({ gotReply: 1, replyMinutes, replySentiment: sentiment, dncTriggered: isDnc ? 1 : 0, attributedAt: opts.replyTimestamp })
@@ -88,17 +217,15 @@ export async function attributeReply(opts: {
     auditId: audit.id,
     leadId: opts.leadId,
     framework: audit.strategyFramework,
-    angle: audit.strategyApproach, // approach is the angle category
+    angle: audit.strategyApproach,
     approach: audit.strategyApproach,
     channel: audit.channel,
-    segment: undefined, // will be enriched by pattern analysis
+    segment: undefined,
     agentName: audit.composerFromName,
     personalizationTier: audit.strategyTier ? parseInt(audit.strategyTier) : undefined,
-    // Phase 4: Self-Learning metadata from audit
     experimentId: (audit as any).experimentId || undefined,
     variant: (audit as any).variant || undefined,
     persona: (audit as any).persona || undefined,
-    // Email subject tracking
     emailSubject: (audit as any).emailSubject || undefined,
     gotReply: 1,
     replyMinutes,
@@ -108,7 +235,6 @@ export async function attributeReply(opts: {
   });
 
   // --- HALL OF FAME AUTO-PROMOTION ---
-  // Fast reply (< 30 min) or positive sentiment → promote to Hall of Fame
   try {
     const shouldPromote = (replyMinutes < 30 && sentiment !== "negative") || sentiment === "positive";
     if (shouldPromote && audit.finalMessage) {
@@ -126,7 +252,7 @@ export async function attributeReply(opts: {
         replySentiment: sentiment,
         promotionReason: reason,
       });
-      console.log(`[Outcome] 🏆 Hall of Fame: audit ${audit.id} promoted (${reason}, ${replyMinutes}min, ${sentiment})`);
+      console.log(`[Outcome] \u{1F3C6} Hall of Fame: audit ${audit.id} promoted (${reason}, ${replyMinutes}min, ${sentiment})`);
     }
   } catch (hofErr) {
     console.error("[Outcome] Hall of Fame promotion error (non-fatal):", hofErr);
@@ -156,6 +282,21 @@ export async function attributeReply(opts: {
     console.error("[Outcome] Fine-tuning A/B recording error (non-fatal):", ftErr);
   }
 
+  // --- SEGMENT WEIGHT RECORDING (WIN) ---
+  try {
+    const approach = audit.strategyApproach || audit.strategyFramework;
+    if (approach && opts.channel) {
+      const [leadRow] = await db.select({ segment: leads.omnisendSegment, stage: leads.pipelineStage })
+        .from(leads).where(eq(leads.id, opts.leadId)).limit(1);
+      const segment = (audit as any).persona || leadRow?.segment || "unknown";
+      const stage = leadRow?.stage || "new_lead";
+      await recordSegmentOutcome(segment, opts.channel, stage, approach, "win");
+      console.log(`[Outcome] \u{1F4CA} Segment weight WIN: ${segment}/${opts.channel}/${stage}/${approach}`);
+    }
+  } catch (swErr) {
+    console.error("[Outcome] Segment weight recording error (non-fatal):", swErr);
+  }
+
   return { auditId: audit.id, replyMinutes, sentiment };
 }
 
@@ -173,7 +314,23 @@ export async function attributeStageAdvance(opts: {
   if (!db) return;
 
   const windowStart = new Date(Date.now() - ATTRIBUTION_WINDOW_HOURS * 60 * 60 * 1000);
+  const isConversion = CONVERSION_STAGES.includes(opts.toStage);
+  const scoreChange = (opts.newScore !== undefined && opts.previousScore !== undefined)
+    ? opts.newScore - opts.previousScore : undefined;
 
+  // --- Check decision_log (single brain) ---
+  const recentDecisions = await db.select()
+    .from(decisionLog)
+    .where(and(
+      eq(decisionLog.leadId, opts.leadId),
+      sql`(${decisionLog.outputGuardResult} = 'pass' OR ${decisionLog.outputGuardResult} LIKE 'corrected:%')`,
+      sql`${decisionLog.brainReasoning} IS NOT NULL`,
+      gte(decisionLog.createdAt, windowStart),
+    ))
+    .orderBy(desc(decisionLog.createdAt))
+    .limit(1);
+
+  // --- Check brain_council_audit (legacy) ---
   const recentAudits = await db.select()
     .from(brainCouncilAudit)
     .where(and(
@@ -184,48 +341,70 @@ export async function attributeStageAdvance(opts: {
     .orderBy(desc(brainCouncilAudit.createdAt))
     .limit(1);
 
-  if (recentAudits.length === 0) return;
+  const dlEntry = recentDecisions[0];
+  const bcaEntry = recentAudits[0];
+  const dlTime = dlEntry ? new Date(dlEntry.createdAt).getTime() : 0;
+  const bcaTime = bcaEntry ? new Date(bcaEntry.createdAt).getTime() : 0;
 
-  const audit = recentAudits[0];
-  const isConversion = CONVERSION_STAGES.includes(opts.toStage);
-  const scoreChange = (opts.newScore !== undefined && opts.previousScore !== undefined)
-    ? opts.newScore - opts.previousScore : undefined;
+  if (!dlEntry && !bcaEntry) return;
 
-  const existing = await db.select()
-    .from(messageOutcomes)
-    .where(eq(messageOutcomes.auditId, audit.id))
-    .limit(1);
+  const useSingleBrain = dlTime >= bcaTime && !!dlEntry;
 
-  if (existing.length > 0) {
-    await db.update(messageOutcomes)
-      .set({
+  if (useSingleBrain && dlEntry) {
+    // Single brain path — use decisionLogId
+    const existing = await db.select()
+      .from(messageOutcomes)
+      .where(eq(messageOutcomes.decisionLogId, Number(dlEntry.id)))
+      .limit(1);
+
+    if (existing.length > 0) {
+      await db.update(messageOutcomes)
+        .set({ stageAdvanced: 1, toStage: opts.toStage, converted: isConversion ? 1 : 0, scoreChange, attributedAt: new Date() })
+        .where(eq(messageOutcomes.id, existing[0].id));
+    } else {
+      await db.insert(messageOutcomes).values({
+        auditId: 0,
+        decisionLogId: Number(dlEntry.id),
+        leadId: opts.leadId,
+        channel: dlEntry.channel || undefined,
         stageAdvanced: 1,
         toStage: opts.toStage,
         converted: isConversion ? 1 : 0,
         scoreChange,
         attributedAt: new Date(),
-      })
-      .where(eq(messageOutcomes.id, existing[0].id));
-  } else {
-    await db.insert(messageOutcomes).values({
-      auditId: audit.id,
-      leadId: opts.leadId,
-      framework: audit.strategyFramework,
-      angle: audit.strategyApproach,
-      approach: audit.strategyApproach,
-      channel: audit.channel,
-      agentName: audit.composerFromName,
-      personalizationTier: audit.strategyTier ? parseInt(audit.strategyTier) : undefined,
-      // Phase 4: Self-Learning metadata from audit
-      experimentId: (audit as any).experimentId || undefined,
-      variant: (audit as any).variant || undefined,
-      persona: (audit as any).persona || undefined,
-      stageAdvanced: 1,
-      toStage: opts.toStage,
-      converted: isConversion ? 1 : 0,
-      scoreChange,
-      attributedAt: new Date(),
-    });
+      });
+    }
+  } else if (bcaEntry) {
+    // Legacy path — use auditId
+    const existing = await db.select()
+      .from(messageOutcomes)
+      .where(eq(messageOutcomes.auditId, bcaEntry.id))
+      .limit(1);
+
+    if (existing.length > 0) {
+      await db.update(messageOutcomes)
+        .set({ stageAdvanced: 1, toStage: opts.toStage, converted: isConversion ? 1 : 0, scoreChange, attributedAt: new Date() })
+        .where(eq(messageOutcomes.id, existing[0].id));
+    } else {
+      await db.insert(messageOutcomes).values({
+        auditId: bcaEntry.id,
+        leadId: opts.leadId,
+        framework: bcaEntry.strategyFramework,
+        angle: bcaEntry.strategyApproach,
+        approach: bcaEntry.strategyApproach,
+        channel: bcaEntry.channel,
+        agentName: bcaEntry.composerFromName,
+        personalizationTier: bcaEntry.strategyTier ? parseInt(bcaEntry.strategyTier) : undefined,
+        experimentId: (bcaEntry as any).experimentId || undefined,
+        variant: (bcaEntry as any).variant || undefined,
+        persona: (bcaEntry as any).persona || undefined,
+        stageAdvanced: 1,
+        toStage: opts.toStage,
+        converted: isConversion ? 1 : 0,
+        scoreChange,
+        attributedAt: new Date(),
+      });
+    }
   }
 }
 
@@ -625,7 +804,117 @@ export async function backfillOutcomes(): Promise<number> {
       dncTriggered: dncTriggered ? 1 : 0,
       attributedAt: gotReply ? new Date(replies[0].timestamp) : (stageAdvanced ? new Date(stageEvents[0].timestamp) : undefined),
     });
+
+    // --- SEGMENT WEIGHT RECORDING (WIN or LOSS based on reply) ---
+    try {
+      const approachLabel = entry.approach || entry.framework;
+      if (approachLabel && entry.channel) {
+        const segment = entry.persona || lead?.segment || "unknown";
+        // Get lead's current stage
+        const [leadStage] = await db.select({ stage: leads.pipelineStage })
+          .from(leads).where(eq(leads.id, entry.leadId)).limit(1);
+        const stage = leadStage?.stage || "new_lead";
+        const outcome = gotReply ? "win" : "loss";
+        await recordSegmentOutcome(segment, entry.channel, stage, approachLabel, outcome);
+      }
+    } catch (swErr) {
+      // Non-fatal — don't break the backfill loop
+    }
+
     created++;
+  }
+
+  // --- BACKFILL SINGLE BRAIN: decision_log entries without outcome records ---
+  try {
+    const untrackedDl = await db.execute(sql.raw(`
+      SELECT dl.id as dlId, dl.leadId, dl.channel, dl.trigger as triggerType, dl.createdAt as sentAt
+      FROM decision_log dl
+      LEFT JOIN message_outcomes mo ON mo.decisionLogId = dl.id
+      WHERE (dl.outputGuardResult = 'pass' OR dl.outputGuardResult LIKE 'corrected:%')
+        AND dl.brainReasoning IS NOT NULL
+        AND dl.createdAt >= '${windowStart.toISOString().slice(0, 19)}'
+        AND mo.id IS NULL
+      ORDER BY dl.createdAt DESC
+      LIMIT 50
+    `));
+
+    const dlRows = Array.isArray((untrackedDl as any)[0]) ? (untrackedDl as any)[0] : untrackedDl;
+    if (Array.isArray(dlRows)) {
+      for (const entry of dlRows) {
+        const sentAt = new Date(entry.sentAt);
+        const replyWindow = new Date(sentAt.getTime() + ATTRIBUTION_WINDOW_HOURS * 60 * 60 * 1000);
+
+        const replies = await db.select({
+          id: conversations.id,
+          timestamp: conversations.timestamp,
+          messageBody: conversations.messageBody,
+        })
+          .from(conversations)
+          .where(and(
+            eq(conversations.leadId, entry.leadId),
+            eq(conversations.direction, "inbound"),
+            gte(conversations.timestamp, sentAt),
+            sql`${conversations.timestamp} <= ${replyWindow}`,
+          ))
+          .orderBy(conversations.timestamp)
+          .limit(1);
+
+        const gotReply = replies.length > 0;
+        const replyMin = gotReply
+          ? Math.round((new Date(replies[0].timestamp).getTime() - sentAt.getTime()) / (1000 * 60))
+          : undefined;
+        const sent = gotReply ? classifySentimentFast(replies[0].messageBody || "") : undefined;
+        const dnc = gotReply ? isDncReply(replies[0].messageBody || "") : false;
+
+        const stageEvents2 = await db.select()
+          .from(pipelineEvents)
+          .where(and(
+            eq(pipelineEvents.leadId, entry.leadId),
+            gte(pipelineEvents.timestamp, sentAt),
+          ))
+          .orderBy(pipelineEvents.timestamp)
+          .limit(1);
+
+        const stageAdv = stageEvents2.length > 0;
+        const toSt = stageAdv ? stageEvents2[0].toStage : undefined;
+        const conv = toSt ? CONVERSION_STAGES.includes(toSt) : false;
+
+        const [leadInfo] = await db.select({ segment: leads.omnisendSegment })
+          .from(leads).where(eq(leads.id, entry.leadId)).limit(1);
+
+        await db.insert(messageOutcomes).values({
+          auditId: 0,
+          decisionLogId: Number(entry.dlId),
+          leadId: entry.leadId,
+          channel: entry.channel || undefined,
+          segment: leadInfo?.segment || undefined,
+          gotReply: gotReply ? 1 : 0,
+          replyMinutes: replyMin,
+          replySentiment: sent,
+          stageAdvanced: stageAdv ? 1 : 0,
+          toStage: toSt,
+          converted: conv ? 1 : 0,
+          dncTriggered: dnc ? 1 : 0,
+          attributedAt: gotReply ? new Date(replies[0].timestamp) : (stageAdv ? new Date(stageEvents2[0].timestamp) : undefined),
+        });
+
+        // Segment weight recording
+        try {
+          const approach = entry.triggerType || "single_brain";
+          if (entry.channel) {
+            const [leadStage2] = await db.select({ stage: leads.pipelineStage })
+              .from(leads).where(eq(leads.id, entry.leadId)).limit(1);
+            const seg = leadInfo?.segment || "unknown";
+            const st = leadStage2?.stage || "new_lead";
+            await recordSegmentOutcome(seg, entry.channel, st, approach, gotReply ? "win" : "loss");
+          }
+        } catch { /* non-fatal */ }
+
+        created++;
+      }
+    }
+  } catch (dlErr) {
+    console.error("[Outcome] Decision log backfill error (non-fatal):", dlErr);
   }
 
   return created;
