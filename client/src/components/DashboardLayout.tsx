@@ -22,7 +22,7 @@ import {
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import { trpc } from "@/lib/trpc";
-import { LayoutDashboard, LogOut, PanelLeft, Users, Flame, BarChart3, Brain, FolderOpen, Settings, GitBranch, ScrollText, Webhook, WifiOff, Wifi, HandMetal, FlaskConical } from "lucide-react";
+import { LayoutDashboard, LogOut, PanelLeft, Users, Flame, BarChart3, Brain, FolderOpen, Settings, GitBranch, ScrollText, Webhook, WifiOff, Wifi, HandMetal, FlaskConical, Eye } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -34,11 +34,7 @@ const menuItems = [
   { icon: Flame, label: "Hot Leads", path: "/hot-leads", adminOnly: false },
   { icon: GitBranch, label: "Pipeline", path: "/pipeline", adminOnly: false },
   { icon: Users, label: "All Leads", path: "/leads", adminOnly: false },
-  { icon: Brain, label: "AI Performance", path: "/ai-performance", adminOnly: false },
-  { icon: ScrollText, label: "Brain Council Log", path: "/audit-log", adminOnly: false },
-  { icon: HandMetal, label: "Handoff Queue", path: "/handoff-queue", adminOnly: false },
-  { icon: FlaskConical, label: "Self-Learning", path: "/self-learning", adminOnly: false },
-  { icon: Webhook, label: "Webhook Logs", path: "/webhook-logs", adminOnly: true },
+  { icon: Eye, label: "Review Queue", path: "/handoff-queue", adminOnly: false },
   { icon: FolderOpen, label: "Knowledge Base", path: "/knowledge", adminOnly: true },
   { icon: Settings, label: "Settings", path: "/settings", adminOnly: true },
 ];

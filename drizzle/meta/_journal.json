@@ -232,6 +232,13 @@
       "when": 1778990566989,
       "tag": "0032_violet_solo",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "5",
+      "when": 1778992423622,
+      "tag": "0033_equal_eternals",
+      "breakpoints": true
     }
   ]
 }

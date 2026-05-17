@@ -221,6 +221,7 @@ export async function logDecision(opts: {
   const db = await getDb();
   if (!db) return;
 
+  const isBlocked = opts.outputGuardResult && opts.outputGuardResult.startsWith("block:");
   try {
     await db.insert(decisionLog).values({
       outboxId: opts.outboxId != null ? Number(opts.outboxId) : null,
@@ -232,6 +233,8 @@ export async function logDecision(opts: {
       inputGuardResult: opts.inputGuardResult ?? undefined,
       outputGuardResult: opts.outputGuardResult ?? undefined,
       durationMs: opts.durationMs ?? undefined,
+      flaggedForReview: isBlocked ? 1 : 0,
+      flagReason: isBlocked ? `Output guard blocked: ${opts.outputGuardResult}` : undefined,
     });
   } catch (err) {
     console.error(`[Outbox] Decision log error:`, err);
@@ -467,6 +470,19 @@ async function processOutboxRow(row: OutboxRow): Promise<void> {
               priority: "standard",
             });
           } catch { /* notification non-fatal */ }
+          // Flag the decision_log entry for review
+          try {
+            const flagDb = await getDb();
+            if (flagDb) {
+              const { decisionLog: dlTable } = await import("../drizzle/schema");
+              const { eq, desc } = await import("drizzle-orm");
+              const [latestLog] = await flagDb.select({ id: dlTable.id }).from(dlTable)
+                .where(eq(dlTable.leadId, leadId)).orderBy(desc(dlTable.createdAt)).limit(1);
+              if (latestLog) {
+                await flagDb.update(dlTable).set({ flaggedForReview: 1, flagReason: `Wrong business reference: "${matchStr}"` }).where(eq(dlTable.id, latestLog.id));
+              }
+            }
+          } catch { /* flag non-fatal */ }
         }
       } catch (wbErr) {
         console.error("[Outbox] Post-send wrong-business check error (non-fatal):", wbErr);

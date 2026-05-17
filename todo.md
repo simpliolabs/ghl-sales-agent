@@ -1528,4 +1528,17 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [x] P5.9: Add confusion detection in webhook-message.ts using CONFUSION_PATTERNS (already wired; updated handleConfusionReply to check decision_log for single brain)
 - [x] P5.10: Add post-send wrong-business reference check in outbox-worker (regex scan + owner notification)
 - [x] P5.11: Write tests for all Phase 5 features (45 tests in phase5-adaptive-learning.test.ts — all passing)
-- [ ] P5.12: Run full test suite, push to git, checkpoint
+- [x] P5.12: Run full test suite (1160 passing), checkpoint saved (60c810cb)
+
+## Phase 6: Dashboard Overhaul + Full Loop Testing
+
+- [x] P6.1: Revenue metrics panel on Dashboard (messages sent, replies, quotes, deals, revenue)
+- [x] P6.2: Review Queue dual-tab (Agent Handoffs + Flagged Messages with acknowledge)
+- [x] P6.3: Decision_log audit trail on Lead Detail page
+- [x] P6.4: One-click lead controls (Send Now button on Lead Detail + admin-only)
+- [x] P6.5: Remove deprecated pages (AI Performance, Brain Council Log, Self-Learning, Webhook Logs)
+- [x] P6.6: Full loop visual testing — server running, no console errors, no TS errors
+- [x] P6.7: Full loop code testing — 1181 tests passing, TypeScript clean, no server errors
+- [x] P6.8: Repair: auto-flag decision_log on output guard blocks + wrong-business post-send flagging
+- [x] P6.9: 21 tests in phase6-dashboard.test.ts — all passing
+- [x] P6.10: Final verification, checkpoint, push to GitHub

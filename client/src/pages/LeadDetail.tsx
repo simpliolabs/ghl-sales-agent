@@ -10,7 +10,7 @@ import {
   ArrowLeft, Mail, Phone, Globe, Building2, Brain, MessageSquare,
   UserCheck, HandMetal, DollarSign, StickyNote, FileSearch, CalendarClock,
   ExternalLink, MailOpen, MousePointerClick, MailX, Calendar, Clock,
-  AlertTriangle, Send, RefreshCw, BookOpen
+  AlertTriangle, Send, RefreshCw, BookOpen, Zap, FileText, Flag, CheckCircle2
 } from "lucide-react";
 import { useLocation, useParams } from "wouter";
 import { toast } from "sonner";
@@ -27,8 +27,14 @@ export default function LeadDetail() {
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [rescheduleReason, setRescheduleReason] = useState("");
 
+  const { data: decisionLogs } = trpc.dashboard.decisionLogForLead.useQuery({ leadId, limit: 15 }, { enabled: leadId > 0 });
+
   const toggleTakeover = trpc.leads.toggleHumanTakeover.useMutation({
     onSuccess: () => { toast.success("Updated"); utils.leads.detail.invalidate({ id: leadId }); },
+  });
+  const sendNow = trpc.leads.sendNow.useMutation({
+    onSuccess: (res) => { toast.success(res.message); },
+    onError: (err) => toast.error(err.message),
   });
   const reschedule = trpc.leads.reschedule.useMutation({
     onSuccess: (res) => {
@@ -310,16 +316,27 @@ export default function LeadDetail() {
               </CardContent>
             </Card>
 
-            {/* Human Takeover Toggle */}
-            <Button
-              variant={isHumanTakeover ? "default" : "destructive"}
-              className="w-full"
-              onClick={() => toggleTakeover.mutate({ id: lead.id, takeover: !isHumanTakeover })}
-              disabled={toggleTakeover.isPending}
-            >
-              <HandMetal className="h-4 w-4 mr-2" />
-              {isHumanTakeover ? "Re-enable AI" : "Take Over (Pause AI)"}
-            </Button>
+            {/* One-Click Controls */}
+            <div className="space-y-2">
+              <Button
+                variant="default"
+                className="w-full"
+                onClick={() => sendNow.mutate({ id: lead.id })}
+                disabled={sendNow.isPending || isHumanTakeover}
+              >
+                <Zap className="h-4 w-4 mr-2" />
+                {sendNow.isPending ? "Queuing..." : "Send Message Now"}
+              </Button>
+              <Button
+                variant={isHumanTakeover ? "default" : "destructive"}
+                className="w-full"
+                onClick={() => toggleTakeover.mutate({ id: lead.id, takeover: !isHumanTakeover })}
+                disabled={toggleTakeover.isPending}
+              >
+                <HandMetal className="h-4 w-4 mr-2" />
+                {isHumanTakeover ? "Re-enable AI" : "Take Over (Pause AI)"}
+              </Button>
+            </div>
           </div>
 
           {/* ═══ RIGHT COLUMN: Conversation History ═══ */}
@@ -379,6 +396,36 @@ export default function LeadDetail() {
                   <div key={fact.id} className="flex items-start gap-2 text-sm rounded-md bg-muted/40 px-3 py-2">
                     <span className="text-xs font-medium text-muted-foreground shrink-0 min-w-[100px]">{fact.factKey.replace(/_/g, " ")}</span>
                     <span className="text-xs text-foreground">{fact.factValue}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Decision Log Audit Trail */}
+        {decisionLogs && decisionLogs.length > 0 && (
+          <Card>
+            <CardHeader><CardTitle className="text-base flex items-center gap-2"><FileText className="h-4 w-4" />AI Decision Log</CardTitle></CardHeader>
+            <CardContent>
+              <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+                {decisionLogs.map((log: any) => (
+                  <div key={log.id} className={`rounded-lg border p-3 text-sm ${log.flaggedForReview ? 'border-orange-400/60 bg-orange-50/30' : ''}`}>
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <Badge variant="outline" className="text-[10px]">{log.trigger}</Badge>
+                      <Badge variant="secondary" className="text-[10px]">{log.channel || 'email'}</Badge>
+                      {log.outputGuardResult && log.outputGuardResult !== 'pass' && (
+                        <Badge variant="destructive" className="text-[10px]">Guard: {log.outputGuardResult}</Badge>
+                      )}
+                      {log.flaggedForReview === 1 && <Flag className="h-3 w-3 text-orange-500" />}
+                      <span className="text-[10px] text-muted-foreground ml-auto">{new Date(log.createdAt).toLocaleString()}</span>
+                    </div>
+                    {log.brainReasoning && <p className="text-xs text-muted-foreground line-clamp-3 mt-1">{log.brainReasoning.substring(0, 300)}</p>}
+                    {log.message && (
+                      <div className="mt-2 p-2 bg-muted/50 rounded text-xs">
+                        <span className="font-medium">Message:</span> {log.message.substring(0, 200)}{log.message.length > 200 ? '...' : ''}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
