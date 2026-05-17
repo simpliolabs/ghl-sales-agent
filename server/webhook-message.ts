@@ -430,6 +430,8 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     const OUTBOUND_SYSTEM_PATTERNS = [
       // Appointment/booking notifications
       "appointment", "booking confirmed", "booking cancelled", "new appointment created",
+      "details updated", "has been scheduled", "has been booked", "calendar event",
+      "scheduled for", "confirmed for", "rescheduled", "consultation:",
       // Task notifications
       "task created", "task completed", "task assigned",
       // Opportunity lifecycle
@@ -442,8 +444,14 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
       "pipeline", "stage changed", "status changed",
       // Forms
       "form submitted", "form response",
+      // GHL internal activity cards (non-message events that fire as outbound webhooks)
+      "activity", "note added", "tag added", "tag removed",
     ];
-    const isSystemOutbound = OUTBOUND_SYSTEM_PATTERNS.some(p => outBody.includes(p));
+    // Also detect GHL system-generated messages by checking if the webhook has no real userId
+    // or if the message type indicates it's a system notification (not a typed human message)
+    const messageType = String(payload.messageType || payload.type || "").toLowerCase();
+    const isGhlSystemType = ["type_activity", "type_call", "type_note"].includes(messageType);
+    const isSystemOutbound = OUTBOUND_SYSTEM_PATTERNS.some(p => outBody.includes(p)) || isGhlSystemType;
     
     // Check if this outbound message matches a recent AI message we sent
     const recentConvs = await getConversationHistory(lead!.id, 10);
@@ -477,6 +485,20 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   }
 
   // --- SMART HANDOFF LOGIC ---
+  // SAFETY NET: If humanTakeover=1 but there are NO actual human outbound messages
+  // in our conversations table, this was likely a false positive from a GHL system message.
+  // Auto-release the lead so the AI can respond.
+  if (lead!.humanTakeover === 1 && lead!.pipelineStage !== "not_qualified") {
+    const recentConvsCheck = await getConversationHistory(lead!.id, 20);
+    const hasRealHumanOutbound = recentConvsCheck.some((c: any) =>
+      c.direction === "outbound" && c.senderType === "human"
+    );
+    if (!hasRealHumanOutbound) {
+      console.log(`[Webhook] SAFETY NET: Lead ${lead!.id} has humanTakeover=1 but NO human outbound messages found. Auto-releasing.`);
+      await updateLeadFields(lead!.id, { humanTakeover: 0, lastAgentActivityAt: null });
+      lead = { ...lead!, humanTakeover: 0, lastAgentActivityAt: null } as typeof lead;
+    }
+  }
   let lastAgentHoursAgo: number | null = null;
   if (lead!.lastAgentActivityAt) {
     const agentTime = new Date(lead!.lastAgentActivityAt).getTime();

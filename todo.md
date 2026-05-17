@@ -1542,3 +1542,12 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [x] P6.8: Repair: auto-flag decision_log on output guard blocks + wrong-business post-send flagging
 - [x] P6.9: 21 tests in phase6-dashboard.test.ts — all passing
 - [x] P6.10: Final verification, checkpoint, push to GitHub
+
+## Bugs / Issues
+
+- [x] BUG: Delores Mills replied 3x via Facebook (12:26-12:30 AM May 18) after AI initial message — system did not respond
+  - ROOT CAUSE: GHL appointment confirmation webhook fired as outbound, system treated it as human agent message → set humanTakeover=1
+  - FIX 1: Added more system message patterns ("details updated", "consultation:", "scheduled for", etc.) + GHL system message type detection
+  - FIX 2: Added SAFETY NET — if humanTakeover=1 but NO actual human outbound messages in conversations, auto-release on next inbound
+  - FIX 3: Released Delores manually (humanTakeover=0, nextFollowUpAt=1min) — AI will respond on next trigger
+- [ ] REVIEW: Discuss with user whether removed pages (AI Performance, Brain Council Log, Self-Learning, Webhook Logs) should be restored
