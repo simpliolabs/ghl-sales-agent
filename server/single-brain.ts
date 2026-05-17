@@ -56,7 +56,7 @@ const TOOLS: Tool[] = [
         type: "object",
         properties: {
           qty: { type: "number", description: "Number of items" },
-          sides: { type: "number", enum: [1, 2], description: "1 for front-only, 2 for front+back" },
+          sides: { type: "number", description: "1 for front-only, 2 for front+back" },
           product: {
             type: "string",
             description: "Product key. Default: tshirt_gildan_3000. Options: hoodie, polo_embroidered, hat_embroidered, mug_uv, tote_bag, sticker_decal, business_cards_flyers, pens_promo",
@@ -402,7 +402,8 @@ Name: ${lead.name || "Unknown"}
 Business: ${lead.businessName || "Unknown"}
 Email: ${lead.email || "None"}
 Phone: ${lead.phone || "None"}
-Preferred Channel: ${lead.preferredChannel || "SMS"}
+Active Channel (from last conversation): ${context.activeChannel}
+Preferred Channel (may be stale): ${lead.preferredChannel || "SMS"}
 Pipeline Stage: ${lead.pipelineStage || "new_lead"}
 Segment: ${context.segment || "general"}
 Score: ${lead.opportunityScore || 0}/100
@@ -451,6 +452,7 @@ interface LeadContext {
   segment: string;
   memory: string;
   historyStr: string;
+  activeChannel: string;
   messageCount: number;
   lastAngleUsed: string | null;
   unansweredQuestions: string | null;
@@ -490,6 +492,11 @@ async function assembleContext(leadId: number): Promise<LeadContext> {
     getLeadById(leadId),
   ]);
 
+  // Derive active channel from most recent inbound message in conversation history
+  // (history is ordered newest-first from DB)
+  const lastInbound = history.find((msg: any) => msg.direction === "inbound" && msg.channel);
+  const activeChannel = lastInbound?.channel || lead?.preferredChannel || "SMS";
+
   // Format conversation history for the prompt
   const historyStr = history.length > 0
     ? history
@@ -507,6 +514,7 @@ async function assembleContext(leadId: number): Promise<LeadContext> {
     segment: aiStateRow?.segment || "general",
     memory,
     historyStr,
+    activeChannel,
     messageCount: aiStateRow?.messageCount || 0,
     lastAngleUsed: aiStateRow?.lastAngleUsed || null,
     unansweredQuestions: aiStateRow?.unansweredQuestions
@@ -715,9 +723,10 @@ export async function runSingleBrain(input: SingleBrainInput): Promise<SingleBra
 
   // Add the trigger context as user message
   if (input.inboundMessage) {
+    const channelNote = input.channel ? ` on ${input.channel}` : "";
     messages.push({
       role: "user",
-      content: `The lead just sent this message: "${input.inboundMessage}"\n\nFollow the reasoning process. Answer their question/need FIRST, then advance your agenda if appropriate. Use tools if needed (getQuote for pricing, escalateToHuman for complaints, markDNC for opt-outs).`,
+      content: `The lead just sent this message${channelNote}: "${input.inboundMessage}"\n\nYou MUST reply on the same channel they messaged on (${context.activeChannel}). Follow the reasoning process. Answer their question/need FIRST, then advance your agenda if appropriate. Use tools if needed (getQuote for pricing, escalateToHuman for complaints, markDNC for opt-outs).`,
     });
   } else {
     messages.push({
@@ -739,16 +748,40 @@ export async function runSingleBrain(input: SingleBrainInput): Promise<SingleBra
     });
     llmCalls++;
 
+    if (!response || !response.choices) {
+      console.error(`[SingleBrain] LLM returned no choices for lead ${input.leadId}. Response keys:`, Object.keys(response || {}), 'Full:', JSON.stringify(response).substring(0, 500));
+      throw new Error(`LLM returned invalid response (no choices array) for lead ${input.leadId}`);
+    }
     const choice = response.choices[0];
-    if (!choice) throw new Error("No response from LLM");
+    if (!choice) throw new Error("No response from LLM — choices array is empty");
 
     const assistantMsg = choice.message;
 
     // If no tool calls, we have the final response
     if (!assistantMsg.tool_calls || assistantMsg.tool_calls.length === 0) {
-      const content = typeof assistantMsg.content === "string"
+      let content = typeof assistantMsg.content === "string"
         ? assistantMsg.content
         : (assistantMsg.content as any)?.[0]?.text || "";
+
+      // If the response doesn't contain valid JSON, do a structured follow-up call
+      const hasJson = /\{[\s\S]*"message"[\s\S]*\}/.test(content);
+      if (!hasJson && content.length > 0) {
+        console.log(`[SingleBrain] LLM returned unstructured text for lead ${input.leadId} — doing structured follow-up call`);
+        // Add the unstructured response as assistant context, then ask for JSON
+        messages.push({ role: "assistant", content });
+        messages.push({ role: "user", content: "Now format your decision as the required JSON structure with fields: reasoning, message, channel, nextFollowUpHours, pipelineAction, routeToHuman, routeReason, confidence." });
+        const structuredResponse = await invokeLLM({
+          messages,
+          model,
+          response_format: DECISION_SCHEMA,
+        });
+        llmCalls++;
+        if (structuredResponse?.choices?.[0]?.message?.content) {
+          content = typeof structuredResponse.choices[0].message.content === "string"
+            ? structuredResponse.choices[0].message.content
+            : (structuredResponse.choices[0].message.content as any)?.[0]?.text || content;
+        }
+      }
 
       const decision = parseDecision(content, input, lead);
       decision.toolLog = toolLog;
@@ -783,6 +816,7 @@ export async function runSingleBrain(input: SingleBrainInput): Promise<SingleBra
         role: "tool",
         content: JSON.stringify(result),
         tool_call_id: toolCall.id,
+        name: toolCall.function.name,
       });
 
       // Handle side-effect tools

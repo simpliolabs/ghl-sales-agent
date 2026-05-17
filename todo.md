@@ -1551,3 +1551,10 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
   - FIX 2: Added SAFETY NET — if humanTakeover=1 but NO actual human outbound messages in conversations, auto-release on next inbound
   - FIX 3: Released Delores manually (humanTakeover=0, nextFollowUpAt=1min) — AI will respond on next trigger
 - [ ] REVIEW: Discuss with user whether removed pages (AI Performance, Brain Council Log, Self-Learning, Webhook Logs) should be restored
+- [x] FIX: Remove channel override band-aid from brain-adapter.ts — let single brain decide naturally
+- [x] FIX: Update system prompt context to show Active Channel derived from last inbound in conversation history
+- [x] FIX: Include channel info in user message for inbound replies ("You MUST reply on the same channel they messaged on")
+- [x] FIX: Update Delores's preferredChannel to FB
+- [x] BUG: LLM tool definition had numeric enum for `sides` — API rejects non-string enums (removed enum, kept description)
+- [x] BUG: Tool response messages missing `name` field — Gemini requires function_response.name (added toolCall.function.name)
+- [x] BUG: LLM returns unstructured reasoning text instead of JSON after tool calls — added structured follow-up call with response_format
