@@ -199,16 +199,15 @@ describe("Stale Takeover Expiry", () => {
     expect(src).toContain("isNull(leads.lastAgentActivityAt)");
   });
 
-  it("lead-disposition.ts handles lastAgentActivityAt > 4 hours as stale (Phase 0: reduced from 24h)", () => {
+  it("lead-disposition.ts handles lastAgentActivityAt > 24 hours as stale", () => {
     const src = readFile("lead-disposition.ts");
-    expect(src).toContain("4 * 60 * 60 * 1000"); // Phase 0: 4hr timeout
+    expect(src).toContain("24 * 60 * 60 * 1000"); // 24hr timeout
   });
 
   it("lead-disposition.ts stale takeover query does NOT have 3-day age filter (removed to fix lead #690005)", () => {
     const src = readFile("lead-disposition.ts");
     expect(src).toContain("Removed 3-day age filter");
-    // Comment still references 24hr but the actual threshold is now 4h (Phase 0)
-    expect(src).toContain("agent inactivity window is sufficient");
+    expect(src).toContain("24hr agent inactivity window is sufficient");
   });
 
   it("lead-disposition.ts handles agent-silent leads with >24hr stale takeover", () => {

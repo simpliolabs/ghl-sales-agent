@@ -1,1 +1,0 @@
-ALTER TABLE `outbox` MODIFY COLUMN `source` enum('webhook','responder','follow_up','manual','nurture','correction','first_contact','self_review','fast_scan','deferred') NOT NULL;

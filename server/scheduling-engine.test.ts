@@ -240,20 +240,20 @@ describe("Scheduling Engine — Structural Validation", () => {
     expect(src).toContain("OverdueCatchUp");
   });
 
-  it("ghl.ts send gate should use 4-hour window (Phase 0: reduced from 24h)", async () => {
+  it("ghl.ts send gate should use 24-hour window", async () => {
     const fs = await import("fs");
     const path = await import("path");
     const src = fs.readFileSync(path.join(__dirname, "ghl.ts"), "utf-8");
-    expect(src).toContain("4 * 60 * 60 * 1000"); // Phase 0: 4 hours
-    expect(src).not.toMatch(/AGENT_TAKEOVER_WINDOW_MS\s*=\s*24\s*\*\s*60\s*\*\s*60\s*\*\s*1000/);
+    expect(src).toContain("24 * 60 * 60 * 1000"); // 24 hours
+    expect(src).not.toMatch(/AGENT_TAKEOVER_WINDOW_MS\s*=\s*2\s*\*\s*60\s*\*\s*60\s*\*\s*1000/);
   });
 
-  it("lead-disposition.ts should use 4-hour stale takeover threshold (Phase 0: reduced from 24h)", async () => {
+  it("lead-disposition.ts should use 24-hour stale takeover threshold", async () => {
     const fs = await import("fs");
     const path = await import("path");
     const src = fs.readFileSync(path.join(__dirname, "lead-disposition.ts"), "utf-8");
-    expect(src).toContain("4 * 60 * 60 * 1000");
-    expect(src).toContain("4h timeout");
+    expect(src).toContain("24 * 60 * 60 * 1000");
+    expect(src).toContain("24hr timeout");
   });
 
   it("routers.ts should expose compressSchedule and triggerOverdueCatchUp admin endpoints", async () => {

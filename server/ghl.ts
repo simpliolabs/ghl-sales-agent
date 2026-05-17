@@ -25,7 +25,7 @@ const ghlClient = axios.create({
 // COOLDOWN_SECONDS will actually be sent to GHL.
 // ============================================================
 
-const COOLDOWN_SECONDS = 30; // Phase 0: Reduced from 60→30s to improve responsiveness
+const COOLDOWN_SECONDS = 60; // Block duplicate sends within 60 seconds
 const lastSendTimestamps = new Map<string, number>(); // contactId -> epoch ms
 
 // Cleanup old entries every 5 minutes to prevent memory leak
@@ -45,7 +45,7 @@ setInterval(() => {
 // Max 10 sends per 60-second rolling window across ALL contacts.
 // ============================================================
 const BURST_WINDOW_MS = 60_000; // 60-second rolling window
-const BURST_MAX_SENDS = 5;     // Phase 0: Reduced from 10→5 per window (proactive cap)
+const BURST_MAX_SENDS = 10;     // max sends per window
 const globalSendTimestamps: number[] = []; // epoch ms of each recent send
 
 function checkGlobalBurstLimit(): boolean {
@@ -152,7 +152,7 @@ export async function sendMessage(contactId: string, opts: {
   //   (a) Check local DB humanTakeover flag + lastAgentActivityAt
   //   (b) Check GHL conversation history for recent non-AI outbound messages
   // ================================================================
-  const AGENT_TAKEOVER_WINDOW_MS = 4 * 60 * 60 * 1000; // Phase 0: Reduced from 24h→4h — AI resumes faster after human agent goes silent
+  const AGENT_TAKEOVER_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours (was 2hr — upgraded per approved fix)
   try {
     const lead = await getLeadByGhlContactId(contactId);
     if (lead) {

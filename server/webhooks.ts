@@ -26,7 +26,6 @@ import { runDispositionSweep } from "./lead-disposition";
 import { runPromotionScan } from "./learning-loop";
 import { seedKnownErrors } from "./error-memory";
 import { runAndStoreSupervisorCycle, logTimerHeartbeat } from "./supervisor";
-import { ENV } from "./_core/env";
 
 // --- CONTACT-LEVEL MUTEX ---
 // Prevents concurrent processing of the same ghlContactId across different
@@ -160,60 +159,48 @@ export function createWebhookRouter(): Router {
     }
   }, 3 * 60 * 1000);
 
-  // --- RETROACTIVE CORRECTION SCAN (every 15 minutes) --- [LEGACY: gated by DISABLE_LEGACY_TIMERS]
-  if (!ENV.disableLegacyTimers) {
-    setInterval(async () => {
-      try {
-        const corrected = await retroactiveCorrectionScan();
-        if (corrected > 0) console.log(`[AutoCorrect/Timer] Retroactive scan corrected ${corrected} messages`);
-      } catch (err) {
-        console.error('[AutoCorrect/Timer] Scan error:', err);
-      }
-    }, 15 * 60 * 1000);
-  } else {
-    console.log(`[Phase0] AutoCorrect timer DISABLED by DISABLE_LEGACY_TIMERS`);
-  }
+  // --- RETROACTIVE CORRECTION SCAN (every 15 minutes) ---
+  setInterval(async () => {
+    try {
+      const corrected = await retroactiveCorrectionScan();
+      if (corrected > 0) console.log(`[AutoCorrect/Timer] Retroactive scan corrected ${corrected} messages`);
+    } catch (err) {
+      console.error('[AutoCorrect/Timer] Scan error:', err);
+    }
+  }, 15 * 60 * 1000);
 
-  // --- SELF-LEARNING: Backfill outcome records every 30 minutes --- [LEGACY: gated by DISABLE_LEGACY_TIMERS]
-  if (!ENV.disableLegacyTimers) {
-    setInterval(async () => {
-      try {
-        const created = await backfillOutcomes();
-        if (created > 0) console.log(`[Learn/Timer] Backfilled ${created} outcome records`);
-        await logTimerHeartbeat('timer_outcomes_last_run');
-      } catch (err) {
-        console.error('[Learn/Timer] Backfill error:', err);
-      }
-    }, 30 * 60 * 1000);
+  // --- SELF-LEARNING: Backfill outcome records every 30 minutes ---
+  setInterval(async () => {
+    try {
+      const created = await backfillOutcomes();
+      if (created > 0) console.log(`[Learn/Timer] Backfilled ${created} outcome records`);
+      await logTimerHeartbeat('timer_outcomes_last_run');
+    } catch (err) {
+      console.error('[Learn/Timer] Backfill error:', err);
+    }
+  }, 30 * 60 * 1000);
 
-    // Run initial backfill 60s after startup
-    setTimeout(async () => {
-      try {
-        const created = await backfillOutcomes();
-        console.log(`[Learn/Timer] Initial backfill: ${created} outcome records created`);
-      } catch (err) {
-        console.error('[Learn/Timer] Initial backfill error:', err);
-      }
-    }, 60 * 1000);
-  } else {
-    console.log(`[Phase0] Outcome backfill timer DISABLED by DISABLE_LEGACY_TIMERS`);
-  }
+  // Run initial backfill 60s after startup
+  setTimeout(async () => {
+    try {
+      const created = await backfillOutcomes();
+      console.log(`[Learn/Timer] Initial backfill: ${created} outcome records created`);
+    } catch (err) {
+      console.error('[Learn/Timer] Initial backfill error:', err);
+    }
+  }, 60 * 1000);
 
-  // --- LEARNING LOOP: Promotion scan every 2 hours --- [LEGACY: gated by DISABLE_LEGACY_TIMERS]
-  if (!ENV.disableLegacyTimers) {
-    setInterval(async () => {
-      try {
-        const result = await runPromotionScan();
-        if (result.promoted > 0 || result.demoted > 0) {
-          console.log(`[Learn/Promotion] Scan: ${result.promoted} promoted, ${result.demoted} demoted, ${result.total} evaluated`);
-        }
-      } catch (err) {
-        console.error('[Learn/Promotion] Scan error:', err);
+  // --- LEARNING LOOP: Promotion scan every 2 hours ---
+  setInterval(async () => {
+    try {
+      const result = await runPromotionScan();
+      if (result.promoted > 0 || result.demoted > 0) {
+        console.log(`[Learn/Promotion] Scan: ${result.promoted} promoted, ${result.demoted} demoted, ${result.total} evaluated`);
       }
-    }, 2 * 60 * 60 * 1000);
-  } else {
-    console.log(`[Phase0] Learning promotion timer DISABLED by DISABLE_LEGACY_TIMERS`);
-  }
+    } catch (err) {
+      console.error('[Learn/Promotion] Scan error:', err);
+    }
+  }, 2 * 60 * 60 * 1000);
 
   // --- ERROR MEMORY: Seed known errors on startup ---
   setTimeout(async () => {
@@ -277,141 +264,127 @@ export function createWebhookRouter(): Router {
     }
   }, 2 * 60 * 1000);
 
-  // --- LOOKBACK DRIP: Auto-analyze unprocessed leads every 30 minutes (5 per batch) --- [LEGACY: gated by DISABLE_LEGACY_TIMERS]
+  // --- LOOKBACK DRIP: Auto-analyze unprocessed leads every 30 minutes (5 per batch) ---
   let lookbackRunning = false;
-  if (!ENV.disableLegacyTimers) {
-    setInterval(async () => {
-      if (lookbackRunning) return;
-      lookbackRunning = true;
-      try {
-        const result = await runLookback({
-          maxLeads: 5,
-          delayBetweenMs: 5000,
-          onlyUnprocessed: true,
-          skipResearch: false,
-        });
-        if (result.processed > 0) {
-          console.log(`[Lookback/Timer] Drip: ${result.processed} analyzed (${result.engage} engage, ${result.skip} skip, ${result.caution} caution, ${result.humanNeeded} human, ${result.errors} errors)`);
-        }
-        await logTimerHeartbeat('timer_lookback_last_run');
-      } catch (err) {
-        console.error('[Lookback/Timer] Drip error:', err);
-      } finally {
-        lookbackRunning = false;
+  setInterval(async () => {
+    if (lookbackRunning) return; // Prevent overlapping runs
+    lookbackRunning = true;
+    try {
+      const result = await runLookback({
+        maxLeads: 5,
+        delayBetweenMs: 5000,
+        onlyUnprocessed: true,
+        skipResearch: false,
+      });
+      if (result.processed > 0) {
+        console.log(`[Lookback/Timer] Drip: ${result.processed} analyzed (${result.engage} engage, ${result.skip} skip, ${result.caution} caution, ${result.humanNeeded} human, ${result.errors} errors)`);
       }
-    }, 30 * 60 * 1000);
+      await logTimerHeartbeat('timer_lookback_last_run');
+    } catch (err) {
+      console.error('[Lookback/Timer] Drip error:', err);
+    } finally {
+      lookbackRunning = false;
+    }
+  }, 30 * 60 * 1000);
 
-    // Run initial lookback drip 2 minutes after startup
-    setTimeout(async () => {
-      if (lookbackRunning) return;
-      lookbackRunning = true;
-      try {
-        const result = await runLookback({
-          maxLeads: 5,
-          delayBetweenMs: 5000,
-          onlyUnprocessed: true,
-          skipResearch: false,
-        });
-        console.log(`[Lookback/Timer] Initial drip: ${result.processed} analyzed (${result.engage} engage, ${result.skip} skip, ${result.errors} errors)`);
-      } catch (err) {
-        console.error('[Lookback/Timer] Initial drip error:', err);
-      } finally {
-        lookbackRunning = false;
-      }
-    }, 2 * 60 * 1000);
-  } else {
-    console.log(`[Phase0] Lookback timer DISABLED by DISABLE_LEGACY_TIMERS`);
-  }
+  // Run initial lookback drip 2 minutes after startup
+  setTimeout(async () => {
+    if (lookbackRunning) return;
+    lookbackRunning = true;
+    try {
+      const result = await runLookback({
+        maxLeads: 5,
+        delayBetweenMs: 5000,
+        onlyUnprocessed: true,
+        skipResearch: false,
+      });
+      console.log(`[Lookback/Timer] Initial drip: ${result.processed} analyzed (${result.engage} engage, ${result.skip} skip, ${result.errors} errors)`);
+    } catch (err) {
+      console.error('[Lookback/Timer] Initial drip error:', err);
+    } finally {
+      lookbackRunning = false;
+    }
+  }, 2 * 60 * 1000);
 
-  // --- FAST MISSED-REPLY SCANNER: Catch unanswered inbound messages within 3 minutes --- [LEGACY: gated by DISABLE_LEGACY_TIMERS]
+  // --- FAST MISSED-REPLY SCANNER: Catch unanswered inbound messages within 3 minutes ---
+  // This runs every 2 minutes and only looks at messages from the last 5 minutes
+  // to ensure the Council responds like a live agent within 3 minutes
   let fastScanRunning = false;
-  if (!ENV.disableLegacyTimers) {
-    setInterval(async () => {
-      if (fastScanRunning) return;
-      fastScanRunning = true;
-      try {
-        const { runFastMissedReplyScanner } = await import('./brain-council-review');
-        const count = await runFastMissedReplyScanner();
-        if (count > 0) console.log(`[FastScan/Timer] Responded to ${count} missed message(s) within 3-min window`);
-        await logTimerHeartbeat('timer_fastscan_last_run');
-      } catch (err) {
-        console.error('[FastScan/Timer] Error:', err);
-      } finally {
-        fastScanRunning = false;
-      }
-    }, 2 * 60 * 1000);
-  } else {
-    console.log(`[Phase0] Fast scanner timer DISABLED by DISABLE_LEGACY_TIMERS`);
-  }
+  setInterval(async () => {
+    if (fastScanRunning) return;
+    fastScanRunning = true;
+    try {
+      const { runFastMissedReplyScanner } = await import('./brain-council-review');
+      const count = await runFastMissedReplyScanner();
+      if (count > 0) console.log(`[FastScan/Timer] Responded to ${count} missed message(s) within 3-min window`);
+      await logTimerHeartbeat('timer_fastscan_last_run');
+    } catch (err) {
+      console.error('[FastScan/Timer] Error:', err);
+    } finally {
+      fastScanRunning = false;
+    }
+  }, 2 * 60 * 1000);
 
-  // --- BRAIN COUNCIL SELF-REVIEW: Detect and recover from mistakes every 30 minutes --- [LEGACY: gated by DISABLE_LEGACY_TIMERS]
+  // --- BRAIN COUNCIL SELF-REVIEW: Detect and recover from mistakes every 30 minutes ---
   let councilReviewRunning = false;
-  if (!ENV.disableLegacyTimers) {
-    setInterval(async () => {
-      if (councilReviewRunning) return;
-      councilReviewRunning = true;
-      try {
-        const stats = await runBrainCouncilSelfReview();
-        if (stats.recovered > 0) console.log(`[CouncilReview/Timer] ${stats.reviewed} reviewed, ${stats.recovered} recovered, ${stats.skipped} skipped, ${stats.errors} errors`);
-        await logTimerHeartbeat('timer_selfreview_last_run');
-      } catch (err) {
-        console.error('[CouncilReview/Timer] Error:', err);
-      } finally {
-        councilReviewRunning = false;
-      }
-    }, 30 * 60 * 1000);
-    // Run initial Council review 5 minutes after startup (give system time to settle)
-    setTimeout(async () => {
-      if (councilReviewRunning) return;
-      councilReviewRunning = true;
-      try {
-        const stats = await runBrainCouncilSelfReview();
-        console.log(`[CouncilReview/Timer] Initial review: ${stats.reviewed} reviewed, ${stats.recovered} recovered, ${stats.skipped} skipped, ${stats.errors} errors`);
-      } catch (err) {
-        console.error('[CouncilReview/Timer] Initial review error:', err);
-      } finally {
-        councilReviewRunning = false;
-      }
-    }, 5 * 60 * 1000);
-  } else {
-    console.log(`[Phase0] Self-review timer DISABLED by DISABLE_LEGACY_TIMERS`);
-  }
+  setInterval(async () => {
+    if (councilReviewRunning) return;
+    councilReviewRunning = true;
+    try {
+      const stats = await runBrainCouncilSelfReview();
+      if (stats.recovered > 0) console.log(`[CouncilReview/Timer] ${stats.reviewed} reviewed, ${stats.recovered} recovered, ${stats.skipped} skipped, ${stats.errors} errors`);
+      await logTimerHeartbeat('timer_selfreview_last_run');
+    } catch (err) {
+      console.error('[CouncilReview/Timer] Error:', err);
+    } finally {
+      councilReviewRunning = false;
+    }
+  }, 30 * 60 * 1000);
+  // Run initial Council review 5 minutes after startup (give system time to settle)
+  setTimeout(async () => {
+    if (councilReviewRunning) return;
+    councilReviewRunning = true;
+    try {
+      const stats = await runBrainCouncilSelfReview();
+      console.log(`[CouncilReview/Timer] Initial review: ${stats.reviewed} reviewed, ${stats.recovered} recovered, ${stats.skipped} skipped, ${stats.errors} errors`);
+    } catch (err) {
+      console.error('[CouncilReview/Timer] Initial review error:', err);
+    } finally {
+      councilReviewRunning = false;
+    }
+  }, 5 * 60 * 1000);
 
-  // --- LEAD DISPOSITION SWEEP: Clean up stuck/stale leads every 30 minutes --- [LEGACY: gated by DISABLE_LEGACY_TIMERS]
+  // --- LEAD DISPOSITION SWEEP: Clean up stuck/stale leads every 2 hours ---
   let dispositionRunning = false;
-  if (!ENV.disableLegacyTimers) {
-    setInterval(async () => {
-      if (dispositionRunning) return;
-      dispositionRunning = true;
-      try {
-        const stats = await runDispositionSweep();
-        if (stats.processed > 0) {
-          console.log(`[Disposition/Timer] ${stats.dncDisposed} DNC disposed, ${stats.emailEscalated} email escalated, ${stats.takeoverExpired} takeover expired, ${stats.errors} errors`);
-        }
-        await logTimerHeartbeat('timer_disposition_last_run');
-      } catch (err) {
-        console.error('[Disposition/Timer] Error:', err);
-      } finally {
-        dispositionRunning = false;
+  setInterval(async () => {
+    if (dispositionRunning) return;
+    dispositionRunning = true;
+    try {
+      const stats = await runDispositionSweep();
+      if (stats.processed > 0) {
+        console.log(`[Disposition/Timer] ${stats.dncDisposed} DNC disposed, ${stats.emailEscalated} email escalated, ${stats.takeoverExpired} takeover expired, ${stats.errors} errors`);
       }
-    }, 30 * 60 * 1000);
+    } catch (err) {
+      console.error('[Disposition/Timer] Error:', err);
+    } finally {
+      dispositionRunning = false;
+    }
+      await logTimerHeartbeat('timer_disposition_last_run');
+  }, 30 * 60 * 1000); // Every 30 minutes (tightened from 2hr)
 
-    // Run initial disposition sweep 3 minutes after startup
-    setTimeout(async () => {
-      if (dispositionRunning) return;
-      dispositionRunning = true;
-      try {
-        const stats = await runDispositionSweep();
-        console.log(`[Disposition/Timer] Initial sweep: ${stats.dncDisposed} DNC disposed, ${stats.emailEscalated} email escalated, ${stats.takeoverExpired} takeover expired, ${stats.errors} errors`);
-      } catch (err) {
-        console.error('[Disposition/Timer] Initial sweep error:', err);
-      } finally {
-        dispositionRunning = false;
-      }
-    }, 3 * 60 * 1000);
-  } else {
-    console.log(`[Phase0] Disposition sweep timer DISABLED by DISABLE_LEGACY_TIMERS`);
-  }
+  // Run initial disposition sweep 3 minutes after startup
+  setTimeout(async () => {
+    if (dispositionRunning) return;
+    dispositionRunning = true;
+    try {
+      const stats = await runDispositionSweep();
+      console.log(`[Disposition/Timer] Initial sweep: ${stats.dncDisposed} DNC disposed, ${stats.emailEscalated} email escalated, ${stats.takeoverExpired} takeover expired, ${stats.errors} errors`);
+    } catch (err) {
+      console.error('[Disposition/Timer] Initial sweep error:', err);
+    } finally {
+      dispositionRunning = false;
+    }
+  }, 3 * 60 * 1000);
 
   // --- WEBHOOK HEALTH CHECK ---
   router.get("/api/webhooks/health", (_req: Request, res: Response) => {
