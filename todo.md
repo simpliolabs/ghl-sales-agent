@@ -1558,7 +1558,7 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [x] BUG: LLM tool definition had numeric enum for `sides` — API rejects non-string enums (removed enum, kept description)
 - [x] BUG: Tool response messages missing `name` field — Gemini requires function_response.name (added toolCall.function.name)
 - [x] BUG: LLM returns unstructured reasoning text instead of JSON after tool calls — added structured follow-up call with response_format
-- [ ] BUG: Email signature not rendering as HTML — shows as plain text dump (Wayne G Foster May 17)
+- [x] BUG: Email signature not rendering as HTML — shows as plain text dump (Wayne G Foster May 17) (PR#3)
 - [ ] BUG: System sends email to lead who never responds to email — should switch to SMS (Wayne G Foster: SMS Jan, Email Apr 11, Email May 17 — no replies to email)
 - [ ] FIX: Channel escalation logic — if lead never replied to email, next attempt MUST use SMS
 - [ ] FIX: Reactivate 365 Facebook/ghl/fb leads (set reactivatedFromMigration=1) — these are active-source leads blocked only by Gate 2
@@ -1571,3 +1571,10 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [x] Part B: Add dead-contact retry loop fix in outbox-worker.ts (isContactNotFound → mark not_qualified)
 - [x] Part C: Run backfill SQL for 5 known dead-contact leads
 - [x] Part D: Run sweep query and report row count + 10-row sample
+
+## PR #3 (SMS Split + Email Formatting Fix)
+- [x] Change 1: splitSmsMessage() — add explicit \n---\n separator detection as priority check (webhook-helpers.ts)
+- [x] Change 2: buildSendOpts() — apply ensureEmailSignature() + formatEmailHtml() for Email channel (outbox-worker.ts)
+- [x] Change 3: Switch outbox sendMessage() → sendMessageWithRetry() at both call sites (lines 296, 429)
+- [x] Change 4: Adapt error handling for sendMessageWithRetry return shape (success/error pattern instead of try/catch)
+- [x] Fix pre-existing test failures: add missing `input` parameter to runOutputGuards calls in phase2-single-brain.test.ts

@@ -103,9 +103,10 @@ describe("Output Guards — runOutputGuards", () => {
   };
 
   const baseLead = { preferredChannel: "SMS", messageCount: 5 };
+  const baseInput = { leadId: 1, trigger: "test", channel: "SMS" };
 
   it("passes a clean message", () => {
-    const result = runOutputGuards(baseDecision, baseLead);
+    const result = runOutputGuards(baseDecision, baseLead, baseInput);
     expect(result.passed).toBe(true);
     expect(result.action).toBe("pass");
   });
@@ -113,35 +114,35 @@ describe("Output Guards — runOutputGuards", () => {
   // Guard 1: System leak detection
   it("blocks messages mentioning 'brain council'", () => {
     const decision = { ...baseDecision, message: "The brain council decided to send you this." };
-    const result = runOutputGuards(decision, baseLead);
+    const result = runOutputGuards(decision, baseLead, baseInput);
     expect(result.passed).toBe(false);
     expect(result.reason).toContain("system_leak");
   });
 
   it("blocks messages mentioning 'strategist'", () => {
     const decision = { ...baseDecision, message: "Our strategist brain says you need this." };
-    const result = runOutputGuards(decision, baseLead);
+    const result = runOutputGuards(decision, baseLead, baseInput);
     expect(result.passed).toBe(false);
     expect(result.reason).toContain("system_leak");
   });
 
   it("blocks messages mentioning 'outbox'", () => {
     const decision = { ...baseDecision, message: "Your message is in the outbox queue." };
-    const result = runOutputGuards(decision, baseLead);
+    const result = runOutputGuards(decision, baseLead, baseInput);
     expect(result.passed).toBe(false);
     expect(result.reason).toContain("system_leak");
   });
 
   it("blocks messages mentioning 'single brain'", () => {
     const decision = { ...baseDecision, message: "The single brain generated this response." };
-    const result = runOutputGuards(decision, baseLead);
+    const result = runOutputGuards(decision, baseLead, baseInput);
     expect(result.passed).toBe(false);
     expect(result.reason).toContain("system_leak");
   });
 
   it("blocks messages with JSON-like internal format", () => {
     const decision = { ...baseDecision, message: 'Here is the output: json {"message": "hello", "channel": "SMS"}' };
-    const result = runOutputGuards(decision, baseLead);
+    const result = runOutputGuards(decision, baseLead, baseInput);
     expect(result.passed).toBe(false);
     expect(result.reason).toContain("system_leak");
   });
@@ -150,7 +151,9 @@ describe("Output Guards — runOutputGuards", () => {
   it("force-corrects channel mismatch on first contact", () => {
     const decision = { ...baseDecision, channel: "Email" as const };
     const lead = { preferredChannel: "SMS", messageCount: 0 };
-    const result = runOutputGuards(decision, lead);
+    // Inbound on SMS, brain picks Email → should correct to SMS
+    const input = { leadId: 1, trigger: "test", inboundMessage: "Hi", channel: "SMS" };
+    const result = runOutputGuards(decision, lead, input);
     expect(result.passed).toBe(true);
     expect(result.action).toBe("corrected");
     expect(result.correctedDecision?.channel).toBe("SMS");
@@ -159,15 +162,17 @@ describe("Output Guards — runOutputGuards", () => {
   it("does NOT force-correct channel for existing conversations", () => {
     const decision = { ...baseDecision, channel: "Email" as const };
     const lead = { preferredChannel: "SMS", messageCount: 10 };
-    const result = runOutputGuards(decision, lead);
+    // No inbound message → Guard 2 doesn't fire (outbound-only)
+    const input = { leadId: 1, trigger: "follow_up", channel: "SMS" };
+    const result = runOutputGuards(decision, lead, input);
     expect(result.passed).toBe(true);
-    expect(result.action).toBe("pass"); // No correction for established leads
+    expect(result.action).toBe("pass"); // No correction — no inbound to mismatch against
   });
 
   // Guard 3: Price validation
   it("blocks price mention without getQuote tool call", () => {
     const decision = { ...baseDecision, message: "That'll be $450 for your order!" };
-    const result = runOutputGuards(decision, baseLead, []);
+    const result = runOutputGuards(decision, baseLead, baseInput, []);
     expect(result.passed).toBe(false);
     expect(result.reason).toContain("unverified_price");
   });
@@ -177,7 +182,7 @@ describe("Output Guards — runOutputGuards", () => {
     const toolLog: ToolCallRecord[] = [
       { name: "getQuote", args: '{"qty":50,"sides":1}', result: { total: 450.00 } },
     ];
-    const result = runOutputGuards(decision, baseLead, toolLog);
+    const result = runOutputGuards(decision, baseLead, baseInput, toolLog);
     expect(result.passed).toBe(true);
   });
 
@@ -186,7 +191,7 @@ describe("Output Guards — runOutputGuards", () => {
     const toolLog: ToolCallRecord[] = [
       { name: "getQuote", args: '{"qty":50,"sides":1}', result: { total: 450.00 } },
     ];
-    const result = runOutputGuards(decision, baseLead, toolLog);
+    const result = runOutputGuards(decision, baseLead, baseInput, toolLog);
     expect(result.passed).toBe(false);
     expect(result.reason).toContain("price_mismatch");
   });
@@ -194,14 +199,14 @@ describe("Output Guards — runOutputGuards", () => {
   // Guard 4: DNC keyword in outbound
   it("blocks outbound messages containing 'unsubscribe'", () => {
     const decision = { ...baseDecision, message: "Click here to unsubscribe from our list." };
-    const result = runOutputGuards(decision, baseLead);
+    const result = runOutputGuards(decision, baseLead, baseInput);
     expect(result.passed).toBe(false);
     expect(result.reason).toContain("outbound_dnc_phrase");
   });
 
   it("blocks outbound messages containing 'opt out'", () => {
     const decision = { ...baseDecision, message: "You can opt out anytime." };
-    const result = runOutputGuards(decision, baseLead);
+    const result = runOutputGuards(decision, baseLead, baseInput);
     expect(result.passed).toBe(false);
     expect(result.reason).toContain("outbound_dnc_phrase");
   });
@@ -209,7 +214,7 @@ describe("Output Guards — runOutputGuards", () => {
   // Guard 5: Null message with advance action
   it("strips advance action from null-message decisions", () => {
     const decision = { ...baseDecision, message: null, pipelineAction: "advance" as const };
-    const result = runOutputGuards(decision, baseLead);
+    const result = runOutputGuards(decision, baseLead, baseInput);
     expect(result.passed).toBe(true);
     expect(result.action).toBe("corrected");
     expect(result.correctedDecision?.pipelineAction).toBeNull();
@@ -218,14 +223,14 @@ describe("Output Guards — runOutputGuards", () => {
   // Guard 6: Message length
   it("blocks absurdly long messages (>2000 chars)", () => {
     const decision = { ...baseDecision, message: "x".repeat(2001) };
-    const result = runOutputGuards(decision, baseLead);
+    const result = runOutputGuards(decision, baseLead, baseInput);
     expect(result.passed).toBe(false);
     expect(result.reason).toContain("message_too_long");
   });
 
   it("passes messages at exactly 2000 chars", () => {
     const decision = { ...baseDecision, message: "x".repeat(2000) };
-    const result = runOutputGuards(decision, baseLead);
+    const result = runOutputGuards(decision, baseLead, baseInput);
     expect(result.passed).toBe(true);
   });
 });

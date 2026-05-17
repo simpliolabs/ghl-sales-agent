@@ -22,6 +22,7 @@ import { outbox, decisionLog } from "../drizzle/schema";
 import type { OutboxRow, InsertOutboxRow } from "../drizzle/schema";
 import { sql, eq } from "drizzle-orm";
 import { sendMessage } from "./ghl";
+import { sendMessageWithRetry, ensureEmailSignature, formatEmailHtml } from "./webhook-helpers";
 import type { BrainCouncilInput } from "./brain-types";
 import { promptVersions } from "../drizzle/schema";
 
@@ -292,14 +293,40 @@ async function processOutboxRow(row: OutboxRow): Promise<void> {
       // Path A: Pre-composed content (static nurture, correction sequences)
       const channel = String(payload.channel || lead.preferredChannel || "SMS");
       const sendOpts = buildSendOpts(channel, String(payload.draftMessage), payload);
-      const result = await sendMessage(contactId, sendOpts);
+      const result = await sendMessageWithRetry(contactId, sendOpts, {
+        id: leadId,
+        email: lead.email,
+        phone: lead.phone,
+      });
 
-      if (result?.blocked) {
-        await markOutbox(row.id, "skipped", `send_blocked:${result.reason}`);
-        await logDecision({ outboxId: row.id, leadId, trigger: String(payload.trigger || row.source), channel, outputGuardResult: `block:${result.reason}`, durationMs: Date.now() - startTime });
+      if (!result.success) {
+        // Dead-contact case: wrapper tried to resolve, failed
+        if (result.errorType === "contact_not_found") {
+          await updateLeadFields(leadId, {
+            pipelineStage: "not_qualified",
+            nextFollowUpAt: new Date("2099-01-01"),
+          });
+          await markOutbox(row.id, "failed", "ghl_contact_deleted");
+          await logDecision({
+            outboxId: row.id, leadId,
+            trigger: String(payload.trigger || row.source),
+            inputGuardResult: "pass",
+            outputGuardResult: "block:ghl_contact_deleted",
+            durationMs: Date.now() - startTime,
+          });
+          return;
+        }
+        // Other failure types — wrapper already tried fallbacks
+        await markOutbox(row.id, "failed", result.error || result.errorType || "send_failed");
+        await logDecision({ outboxId: row.id, leadId, trigger: String(payload.trigger || row.source), channel, outputGuardResult: `error:${(result.error || result.errorType || "send_failed").slice(0, 100)}`, durationMs: Date.now() - startTime });
+        console.warn(`[Outbox] Path A send failed for lead ${leadId}: ${result.errorType} - ${result.error}`);
         return;
       }
 
+      // Success path
+      if (result.correctionTaken) {
+        console.log(`[Outbox] Path A send succeeded with correction: ${result.correctionTaken} for lead ${leadId}`);
+      }
       await markOutbox(row.id, "sent");
       await logDecision({
         outboxId: row.id, leadId,
@@ -399,10 +426,31 @@ async function processOutboxRow(row: OutboxRow): Promise<void> {
 
       // ── Send the message via GHL ──────────────────────────────────────
       const sendOpts = buildSendOpts(finalDecision.channel, finalDecision.message, payload);
-      const result = await sendMessage(contactId, sendOpts);
+      const result = await sendMessageWithRetry(contactId, sendOpts, {
+        id: leadId,
+        email: lead.email,
+        phone: lead.phone,
+      });
 
-      if (result?.blocked) {
-        await markOutbox(row.id, "skipped", `send_blocked:${result.reason}`);
+      if (!result.success) {
+        // Dead-contact case: wrapper tried to resolve, failed
+        if (result.errorType === "contact_not_found") {
+          await updateLeadFields(leadId, {
+            pipelineStage: "not_qualified",
+            nextFollowUpAt: new Date("2099-01-01"),
+          });
+          await markOutbox(row.id, "failed", "ghl_contact_deleted");
+          await logDecision({
+            outboxId: row.id, leadId,
+            trigger: String(payload.trigger || row.source),
+            inputGuardResult: "pass",
+            outputGuardResult: "block:ghl_contact_deleted",
+            durationMs: Date.now() - startTime,
+          });
+          return;
+        }
+        // Other failure types — wrapper already tried fallbacks
+        await markOutbox(row.id, "failed", result.error || result.errorType || "send_failed");
         await logDecision({
           outboxId: row.id, leadId,
           trigger: String(payload.trigger || row.source),
@@ -410,13 +458,17 @@ async function processOutboxRow(row: OutboxRow): Promise<void> {
           promptVersion,
           channel: finalDecision.channel,
           inputGuardResult: "pass",
-          outputGuardResult: `block:send_${result.reason}`,
+          outputGuardResult: `error:${(result.error || result.errorType || "send_failed").slice(0, 100)}`,
           durationMs,
         });
+        console.warn(`[Outbox] Path B send failed for lead ${leadId}: ${result.errorType} - ${result.error}`);
         return;
       }
 
       // ── Success! Update state ─────────────────────────────────────────
+      if (result.correctionTaken) {
+        console.log(`[Outbox] Path B send succeeded with correction: ${result.correctionTaken} for lead ${leadId}`);
+      }
       await markOutbox(row.id, "sent");
 
       // Schedule next follow-up if brain suggested one
@@ -660,17 +712,43 @@ function buildSendOpts(channel: string, message: string, payload: Record<string,
   const type = typeMap[normalizedChannel] || "SMS";
 
   if (type === "Email") {
+    // Apply signature (idempotent — function checks if already present)
+    const withSig = ensureEmailSignature(message);
+
+    // Derive subject if not provided
+    const subject = String(payload.subject || payload.emailSubject || deriveEmailSubject(withSig));
+
     return {
       type,
-      message,
-      subject: String(payload.subject || ""),
-      html: String(payload.html || message),
-      fromName: String(payload.fromName || ""),
+      message: withSig,                    // plain-text version
+      subject,
+      html: formatEmailHtml(withSig),      // HTML version with signature, <hr>, links
+      fromName: String(payload.fromName || resolveAgentFromName(payload) || ""),
       threadId: payload.threadId ? String(payload.threadId) : undefined,
       replyMessageId: payload.replyMessageId ? String(payload.replyMessageId) : undefined,
     };
   }
   return { type, message };
+}
+
+function deriveEmailSubject(message: string): string {
+  // Strip greeting and take first ~50 chars as subject
+  const cleaned = message
+    .replace(/^(Hey|Hi|Hello)\b[^,.!?\n]*[,.!?]?\s*/i, '')
+    .split(/[\n.!?]/)[0]
+    .trim();
+  const truncated = cleaned.length > 60 ? cleaned.slice(0, 57).trimEnd() + '...' : cleaned;
+  return truncated || "Following up from Adorb Custom Tees";
+}
+
+function resolveAgentFromName(payload: Record<string, unknown>): string {
+  // If payload includes an assigned agent name, use "Chris at Adorb Custom Tees" or similar
+  const agent = payload.assignedAgent || payload.agent;
+  if (typeof agent === 'string' && agent.length > 0) {
+    const firstName = agent.split(/\s+/)[0];
+    return `${firstName} at Adorb Custom Tees`;
+  }
+  return "Adorb Custom Tees";
 }
 
 // ─── Drain Loop ──────────────────────────────────────────────────────────────
