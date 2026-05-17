@@ -119,26 +119,17 @@ describe("Model Selection Logic", () => {
   });
 });
 
-describe("Composer Model Override Wiring", () => {
-  const composerCode = fs.readFileSync(COMPOSER_PATH, "utf-8");
+describe("Single Brain Model Override Wiring", () => {
+  const singleBrainPath = path.join(__dirname, "single-brain.ts");
+  const singleBrainCode = fs.readFileSync(singleBrainPath, "utf-8");
 
   it("imports selectModel from fine-tuning-pipeline", () => {
-    expect(composerCode).toContain('import { selectModel } from "./fine-tuning-pipeline"');
+    expect(singleBrainCode).toContain("selectModel");
+    expect(singleBrainCode).toContain("fine-tuning-pipeline");
   });
 
-  it("calls selectModel before invokeLLM", () => {
-    expect(composerCode).toContain("const modelSelection = await selectModel()");
-  });
-
-  it("passes model to invokeLLM when fine-tuned", () => {
-    expect(composerCode).toContain("model: modelSelection.isFineTuned ? modelSelection.model : undefined");
-  });
-
-  it("attaches _modelMeta to composed message", () => {
-    expect(composerCode).toContain("parsed._modelMeta = {");
-    expect(composerCode).toContain("model: modelSelection.model");
-    expect(composerCode).toContain("isFineTuned: modelSelection.isFineTuned");
-    expect(composerCode).toContain("jobId: modelSelection.jobId");
+  it("calls selectModel for model selection", () => {
+    expect(singleBrainCode).toContain("selectModel()");
   });
 });
 

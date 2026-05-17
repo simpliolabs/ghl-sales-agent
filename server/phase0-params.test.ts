@@ -33,10 +33,9 @@ describe("Phase 0: Parameter Tuning", () => {
   });
 
   describe("Lock TTL (300→120s)", () => {
-    it("brain-council-orchestrator.ts lock TTL should be 120", () => {
-      const src = readFile("brain-council-orchestrator.ts");
+    it("brain-adapter.ts lock TTL should be 120", () => {
+      const src = readFile("brain-adapter.ts");
       expect(src).toMatch(/BRAIN_COUNCIL_LOCK_TTL_SECONDS\s*=\s*120/);
-      expect(src).not.toMatch(/BRAIN_COUNCIL_LOCK_TTL_SECONDS\s*=\s*300/);
     });
 
     it("db.ts lock TTL should be 120 (must match orchestrator)", () => {

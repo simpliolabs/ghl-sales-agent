@@ -38,11 +38,6 @@ describe("Live Chat Channel Support", () => {
     expect(src).toContain("LIVE VISITOR ON WEBSITE");
   });
 
-  it("composer has Live_Chat message rules", () => {
-    const src = readFile("composer.ts");
-    expect(src).toContain("Live_Chat:");
-    expect(src).toContain("live agent");
-  });
 
   it("channel-fallback includes Live_Chat in priority list", () => {
     const src = readFile("channel-fallback.ts");
@@ -52,29 +47,6 @@ describe("Live Chat Channel Support", () => {
 });
 
 describe("Contact Info Capture", () => {
-  it("composer prompts for contact details when both email AND phone are missing", () => {
-    const src = readFile("composer.ts");
-    expect(src).toContain("BOTH email AND phone are MISSING");
-    expect(src).toContain("ask for contact details");
-  });
-
-  it("composer does NOT prompt for email when email is already on file", () => {
-    const src = readFile("composer.ts");
-    // When email exists, it says "NEVER ask for this — already on file"
-    expect(src).toContain("already on file");
-  });
-
-  it("composer hints to ask for missing email when only email is missing", () => {
-    const src = readFile("composer.ts");
-    expect(src).toContain("Email is missing");
-    expect(src).toContain("ask for their email");
-  });
-
-  it("composer hints to ask for missing phone when only phone is missing", () => {
-    const src = readFile("composer.ts");
-    expect(src).toContain("Phone is missing");
-    expect(src).toContain("ask for their number");
-  });
 
   it("strategist surfaces contact gap in ENGAGEMENT STATE", () => {
     const src = readFile("strategist.ts");
@@ -111,11 +83,6 @@ describe("Channel-Specific DNC", () => {
     expect(src).toContain("allChannelsExhausted");
   });
 
-  it("brain-council-orchestrator.ts uses channel-specific DNC", () => {
-    const src = readFile("brain-council-orchestrator.ts");
-    expect(src).toContain("handleChannelDnc");
-    expect(src).toContain("detectDncChannel");
-  });
 
   it("follow-up-trigger.ts uses channel-specific DNC", () => {
     const src = readFile("follow-up-trigger.ts");

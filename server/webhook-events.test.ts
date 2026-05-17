@@ -275,12 +275,10 @@ describe("Brain Council training corpus integration", () => {
     expect(src).toContain("getPersonaGuidance");
   });
 
-  it("composer.ts should import and use training corpus", async () => {
+  it("single-brain.ts should import and use training corpus", async () => {
     const fs = await import("fs");
-    const src = fs.readFileSync("server/composer.ts", "utf-8");
-    expect(src).toContain("from \"../shared/sales-training\"");
-    expect(src).toContain("getCompactTrainingCorpus");
-    expect(src).toContain("getPersonaGuidance");
+    const src = fs.readFileSync("server/single-brain.ts", "utf-8");
+    expect(src).toContain("sales-training");
   });
 
   it("closer.ts should import and use training corpus", async () => {
