@@ -446,6 +446,32 @@ async function processOutboxRow(row: OutboxRow): Promise<void> {
         durationMs,
       });
 
+      // ── POST-SEND: Wrong-business reference check ─────────────────────
+      // Lightweight regex scan for competitor/unrelated business names in the sent message.
+      // Logs a warning and notifies owner if detected — does NOT auto-correct (too risky post-send).
+      try {
+        const WRONG_BIZ_PATTERNS = [
+          /\b(vistaprint|custom\s?ink|zazzle|printful|printify|canva|spreadshirt|teespring|bonfire)\b/i,
+          /\b(chick-?fil-?a|mcdonald'?s|starbucks|walmart|target|amazon)\b/i,
+        ];
+        const msgToCheck = finalDecision.message || "";
+        const wrongBizMatch = msgToCheck ? WRONG_BIZ_PATTERNS.find(p => p.test(msgToCheck)) : undefined;
+        if (wrongBizMatch) {
+          const matchStr = msgToCheck.match(wrongBizMatch)?.[0] || "unknown";
+          console.warn(`[Outbox] \u26A0\uFE0F POST-SEND wrong-business detected in message to lead ${leadId}: "${matchStr}"`);
+          try {
+            const { notifyOwner } = await import("./_core/notification");
+            await notifyOwner({
+              title: `\u26A0\uFE0F Wrong Business Reference: Lead #${leadId}`,
+              content: `A sent message to lead #${leadId} (${lead.name || "unknown"}) references "${matchStr}" which is not Adorb Custom Tees.\n\nMessage excerpt: ${finalDecision.message.substring(0, 200)}...\n\nThis was detected post-send. Please review and manually correct if needed.`,
+              priority: "standard",
+            });
+          } catch { /* notification non-fatal */ }
+        }
+      } catch (wbErr) {
+        console.error("[Outbox] Post-send wrong-business check error (non-fatal):", wbErr);
+      }
+
     } else {
       // ── Legacy fallback: Brain Council path ────────────────────────────
       const { runBrainCouncil } = await import("./brain-adapter");

@@ -1,0 +1,1 @@
+ALTER TABLE `message_outcomes` ADD `decisionLogId` bigint;

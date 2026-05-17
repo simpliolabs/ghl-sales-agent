@@ -1,4 +1,4 @@
-import { int, bigint, mysqlEnum, mysqlTable, text, timestamp, varchar, json, tinyint } from "drizzle-orm/mysql-core";
+import { int, bigint, mysqlEnum, mysqlTable, text, timestamp, varchar, json, tinyint, uniqueIndex, decimal } from "drizzle-orm/mysql-core";
 
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
@@ -276,7 +276,8 @@ export const brainCouncilAudit = mysqlTable("brain_council_audit", {
 // Self-learning: Outcome tracking — links each AI message to its measurable result
 export const messageOutcomes = mysqlTable("message_outcomes", {
   id: int("id").autoincrement().primaryKey(),
-  auditId: int("auditId").notNull(), // FK → brain_council_audit.id
+  auditId: int("auditId").notNull(), // FK → brain_council_audit.id (legacy) or 0 for single-brain
+  decisionLogId: bigint("decisionLogId", { mode: "number" }), // FK → decision_log.id (single brain)
   leadId: int("leadId").notNull(),
   // What the AI sent
   framework: varchar("framework", { length: 64 }),
@@ -767,3 +768,20 @@ export const quotes = mysqlTable("quotes", {
 });
 export type QuoteRow = typeof quotes.$inferSelect;
 export type InsertQuoteRow = typeof quotes.$inferInsert;
+
+// ─── Phase 5: Segment Weights (adaptive learning from outcome data) ───────────
+export const segmentWeights = mysqlTable("segment_weights", {
+  id: int("id").autoincrement().primaryKey(),
+  segment: varchar("segment", { length: 64 }).notNull(), // persona segment e.g. "small_business_owner"
+  channel: varchar("channel", { length: 32 }).notNull(), // SMS, Email, FB, IG
+  stage: varchar("stage", { length: 64 }).notNull(), // pipeline stage
+  approach: varchar("approach", { length: 255 }).notNull(), // approach label e.g. "direct_cta", "social_proof"
+  wins: int("wins").default(0).notNull(),
+  losses: int("losses").default(0).notNull(),
+  winRate: decimal("winRate", { precision: 5, scale: 4 }).default("0.0000").notNull(), // 0.0000 - 1.0000
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  uniqueCombo: uniqueIndex("uq_segment_channel_stage_approach").on(table.segment, table.channel, table.stage, table.approach),
+}));
+export type SegmentWeightRow = typeof segmentWeights.$inferSelect;
+export type InsertSegmentWeightRow = typeof segmentWeights.$inferInsert;
