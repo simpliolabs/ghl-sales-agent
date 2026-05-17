@@ -1469,3 +1469,37 @@
 - [x] P2.10: Conversation state derivation built into single-brain.ts (pipelineAction from tool calls)
 - [x] P2.11: Write tests — 30 tests: pricing engine (8), output guards (14), stage behavior (3), pricing data (5)
 - [x] P2.12: All 1,148 tests passing across 51 files, 0 TypeScript errors
+
+## Phase 3: Strangle & Delete (Claude Architect Recommendations — May 2026)
+- [ ] P3.0: CRITICAL — Verify what broken legacy path is currently shipping (pull recent outbox sends, check decision_log)
+- [ ] P3.0b: Seed prompt_versions with abTrafficPercent=100 (route ALL traffic to single brain immediately)
+- [ ] P3.0c: Enable critical output guards in BLOCKING mode: DNC, system prompt leak, price hallucination
+- [ ] P3.0d: Enable try-to-repair-then-block guards: channel mismatch, null-advance
+- [ ] P3.0e: Keep length guard as log-only initially
+- [ ] P3.1: Delete 47 source-inspection tests (anti-pattern — test implementation details not behavior)
+- [ ] P3.2: Extract behavior inventory from 53 behavior tests
+- [ ] P3.3: Cross-check behavior inventory against existing 30 Phase 2 tests
+- [ ] P3.4: Write new tests against new APIs for gaps (output-guards.ts, single-brain.ts, pricing-engine.ts)
+- [ ] P3.5: Delete all 100 old failing tests once inventory captured
+- [ ] P3.6: webhook-message.ts — Inline input/output guards as middleware, write to decision_log directly (Option C, latency-sensitive)
+- [ ] P3.7: webhook-contact.ts — Route to priority outbox lane (Option B)
+- [ ] P3.8: Delete brain-council-orchestrator.ts (once 100% single brain confirmed working)
+- [ ] P3.9: Delete all 12 stub files
+- [ ] P3.10: Verify all tests pass, checkpoint
+
+## Post-Phase-3 Roadmap
+- [ ] Dynamic Pricing: Build pricing_tiers DB table, sheet parser, 12h refresh schedule + manual "Refresh Pricing" button in admin
+
+## Phase 3 Revised: Controlled A/B Test (Claude Architect Turn 4 — May 2026)
+
+Context: Production is fine. Legacy Brain Council is working. No emergency.
+Approach: Measured 5% A/B ramp, 2-3 week validation, outcome-based decision.
+
+- [x] P3-R1: Revert all 12 uncommitted stub files (git checkout server/*.ts)
+- [x] P3-R2: Update prompt_versions.abTrafficPercent from 0 → 5 (5% single brain traffic)
+- [x] P3-R3: Verify decision_log captures promptVersion for A/B split measurement (single brain → "v2.0", legacy → null)
+- [x] P3-R4: Verify outbox worker correctly routes 5% to single brain, 95% to legacy (Math.random() < 5 → single brain)
+- [x] P3-R5: Save checkpoint and deploy
+- [ ] P3-R6: After 2-3 weeks — compare reply rates, conversion, time-to-reply between promptVersion=null (legacy) vs promptVersion=set (single brain)
+- [ ] P3-R7: If single brain wins → ramp to 25%, then 50%, then 100% over next month
+- [ ] P3-R8: If single brain loses or ties → keep legacy, delete stubs, close the overhaul as research
