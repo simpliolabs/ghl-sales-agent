@@ -16,6 +16,7 @@ import { processLostLeadNurture, processImportedContactNurture } from "../lost-l
 import { warmSlotPointersFromCalendar } from "../ghl";
 import { ENV } from "./env";
 import { startOutboxWorker } from "../outbox-worker";
+import { startPR3Monitor } from "../pr3-verification-monitor";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -184,6 +185,9 @@ async function startServer() {
     } else {
       console.log(`[Phase0] Seasonal campaign timer DISABLED by DISABLE_LEGACY_TIMERS`);
     }
+
+    // --- PR#3 Verification Monitor (TEMPORARY — remove after verifications captured) ---
+    startPR3Monitor();
 
     // --- CRON: Stuck Processing Lock Cleaner every 5 minutes ---
     // Clears processingLockedAt values older than 5 minutes.
