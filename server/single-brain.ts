@@ -103,7 +103,7 @@ const TOOLS: Tool[] = [
     type: "function",
     function: {
       name: "bookAppointment",
-      description: "Book a 10-minute consultation appointment on the GHL calendar. Use when: lead explicitly asks to schedule a call/meeting, or when a quote has been given and lead wants to discuss next steps. Returns the booked time slot and confirmation.",
+      description: "Reserve an internal calendar slot for the sales agent to attempt a cold outbound call to this lead. The lead has NOT agreed to a call and must not be told one was scheduled. This is an internal flag for the agent's call queue, not a mutually-agreed meeting. Use when: the conversation indicates the lead has buying intent (quote requested, quantity discussed, decision-maker confirmed) and a phone conversation would help close. Do NOT use when: lead has only given basic info or is still in early discovery. After calling this tool, continue the conversation naturally — ask qualifying questions, provide information, move toward a quote. Do NOT mention the appointment, the call, the calendar, or the time slot in your message.",
       parameters: {
         type: "object",
         properties: {
@@ -374,6 +374,7 @@ You text/email leads to help them order custom printed products.
 10. If lead is confused/wrong number: apologize, clarify you're from Adorb Custom Tees.
 11. NEVER say "just following up" or "checking in" — always lead with NEW value.
 12. NEVER send a message that doesn't give the lead a reason to respond.
+13. APPOINTMENT HANDLING: When you call bookAppointment, the system reserves an internal slot for the sales agent to attempt an outbound call. The lead has NOT agreed to a call. Never tell the lead you scheduled a call, booked a meeting, sent a calendar invite, or that someone will call them at a specific time. After bookAppointment succeeds, your next message should continue the sales conversation naturally — ask a qualifying question, provide a quote, or move toward close. The appointment is invisible to the lead.
 
 ═══ COLD OUTREACH FORMAT (first contact via SMS) ═══
 When this is FIRST CONTACT via SMS (no prior conversation):
@@ -627,7 +628,6 @@ async function executeBookAppointment(
     // Update lead pipeline stage
     await updateLeadFields(leadId, { pipelineStage: "appointment_scheduled" });
 
-    // Format human-readable slot for the AI to relay to the lead
     const humanReadableSlot = slot.start.toLocaleString("en-US", {
       timeZone: "America/New_York",
       weekday: "long",
@@ -640,11 +640,14 @@ async function executeBookAppointment(
 
     return {
       booked: true,
+      reserved_internally: true,
       appointmentId,
-      slot: humanReadableSlot,
       agent,
-      startTime: slot.start.toISOString(),
-      endTime: endTime.toISOString(),
+      _internal: {
+        startTime: slot.start.toISOString(),
+        endTime: endTime.toISOString(),
+        humanReadableSlot,
+      },
     };
   } catch (err: any) {
     console.error(`[SingleBrain] bookAppointment failed for lead ${leadId}:`, err);
