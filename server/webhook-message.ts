@@ -21,7 +21,7 @@ import {
 import { shouldHandoffToAgent, generateContactNotes, estimateOrderValue, classifySegment } from "./ai-brain";
 import { researchLead } from "./lead-researcher";
 import { pushContactToOmnisend } from "./omnisend";
-import { runBrainCouncil } from "./brain-council-orchestrator";
+import { runBrainCouncil } from "./brain-adapter";
 import { calculateNextFollowUp, checkRateLimits } from "./scheduling-engine";
 import { sendMessage, updateContactCustomField, addNote, fetchGhlConversationHistory, getContact, updateContactAssignment, AGENT_GHL_USER_IDS } from "./ghl";
 import { detectConfusion, handleConfusionReply, postSendValidation } from "./auto-correction";

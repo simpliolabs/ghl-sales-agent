@@ -20,7 +20,7 @@ import { getDb, isAiOffline } from "./db";
 import { leads, conversations, brainCouncilAudit } from "../drizzle/schema";
 import { formatEmailHtml } from "./webhook-helpers";
 import { eq, desc, and, gte, sql } from "drizzle-orm";
-import { runBrainCouncil } from "./brain-council-orchestrator";
+import { runBrainCouncil } from "./brain-adapter";
 import { sendMessage, fetchGhlConversationHistory } from "./ghl";
 import { addConversation, updateLeadFields, getConversationHistory } from "./db";
 import { notifyOwner } from "./_core/notification";

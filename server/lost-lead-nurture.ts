@@ -37,7 +37,7 @@ import {
   addBrainCouncilAudit,
 } from "./db";
 import { fetchGhlConversationHistory } from "./ghl";
-import { runBrainCouncil } from "./brain-council-orchestrator";
+import { runBrainCouncil } from "./brain-adapter";
 import { BRAND } from "../shared/brand-assets";
 import { buildSendOpts, sendMessageWithRetry } from "./webhook-helpers";
 import { isTcpaQuietHoursForRecipient } from "./area-code-timezone";
