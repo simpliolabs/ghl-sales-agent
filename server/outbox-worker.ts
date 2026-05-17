@@ -112,8 +112,10 @@ export async function enqueueOutbox(opts: EnqueueOpts): Promise<{ enqueued: bool
 
 // ─── Claim ───────────────────────────────────────────────────────────────────
 /**
- * Atomically claim pending outbox rows using FOR UPDATE SKIP LOCKED.
- * Also reclaims rows that were claimed but never completed (worker crash).
+ * Atomically claim pending outbox rows.
+ * Uses a single conditional UPDATE (WHERE outbox_status = 'pending') so concurrent
+ * drain cycles cannot both claim the same row — the second UPDATE finds 0 rows.
+ * Also reclaims rows that were claimed but never completed (worker crash / expiry).
  */
 async function claimOutboxRows(workerId: string, limit: number): Promise<OutboxRow[]> {
   const db = await getDb();
@@ -123,37 +125,40 @@ async function claimOutboxRows(workerId: string, limit: number): Promise<OutboxR
   const expiry = new Date(now.getTime() - CLAIM_EXPIRY_MS);
 
   try {
-    // Step 1: Find claimable IDs with FOR UPDATE SKIP LOCKED
-    const result = await db.execute(sql`
-      SELECT id FROM outbox
-      WHERE (outbox_status = 'pending' AND scheduledAt <= ${now})
-         OR (outbox_status = 'claimed' AND claimedAt < ${expiry})
+    // Step 1a: Atomic claim of PENDING rows.
+    // Single UPDATE with WHERE outbox_status = 'pending' — no separate SELECT needed.
+    // Two concurrent calls cannot both claim the same row because the second UPDATE
+    // finds outbox_status already = 'claimed' and matches 0 rows.
+    await db.execute(sql`
+      UPDATE outbox
+      SET outbox_status = 'claimed', claimedBy = ${workerId}, claimedAt = ${now}
+      WHERE outbox_status = 'pending'
+        AND scheduledAt <= ${now}
       ORDER BY scheduledAt ASC
       LIMIT ${limit}
-      FOR UPDATE SKIP LOCKED
     `);
 
-    const rowData = Array.isArray(result) && Array.isArray(result[0]) ? result[0] : [];
-    if (!rowData.length) return [];
+    // Step 1b: Reclaim expired claimed rows (worker crash / previous drain died mid-flight).
+    // These use a separate UPDATE so they don't compete with the LIMIT above.
+    await db.execute(sql`
+      UPDATE outbox
+      SET outbox_status = 'claimed', claimedBy = ${workerId}, claimedAt = ${now}
+      WHERE outbox_status = 'claimed'
+        AND claimedAt < ${expiry}
+      ORDER BY scheduledAt ASC
+      LIMIT ${limit}
+    `);
 
-    const ids: number[] = rowData.map((r: any) => Number(r.id));
-
-    // Step 2: Claim them
-    for (const rowId of ids) {
-      await db.execute(sql`
-        UPDATE outbox
-        SET outbox_status = 'claimed', claimedBy = ${workerId}, claimedAt = ${now}
-        WHERE id = ${rowId}
-      `);
-    }
-
-    // Step 3: Fetch the full rows
-    const claimed: OutboxRow[] = [];
-    for (const rowId of ids) {
-      const fetchResult = await db.execute(sql`SELECT * FROM outbox WHERE id = ${rowId}`);
-      const fetchData = Array.isArray(fetchResult) && Array.isArray(fetchResult[0]) ? fetchResult[0] : [];
-      if (fetchData.length > 0) claimed.push(fetchData[0] as unknown as OutboxRow);
-    }
+    // Step 2: Fetch what we just claimed (rows where claimedBy = workerId AND claimedAt = now).
+    const fetchResult = await db.execute(sql`
+      SELECT * FROM outbox
+      WHERE claimedBy = ${workerId}
+        AND claimedAt = ${now}
+        AND outbox_status = 'claimed'
+      ORDER BY scheduledAt ASC
+    `);
+    const fetchData = Array.isArray(fetchResult) && Array.isArray(fetchResult[0]) ? fetchResult[0] : [];
+    const claimed = fetchData as unknown as OutboxRow[];
 
     if (claimed.length > 0) {
       console.log(`[Outbox] Claimed ${claimed.length} row(s) by ${workerId}`);
@@ -751,6 +756,11 @@ function resolveAgentFromName(payload: Record<string, unknown>): string {
   return "Adorb Custom Tees";
 }
 
+// isDraining guard: prevents a slow drain cycle from overlapping with the next
+// interval tick. If drainOutbox() is still running when the timer fires again,
+// the new call returns immediately instead of spawning a second concurrent drain.
+let isDraining = false;
+
 // ─── Drain Loop ──────────────────────────────────────────────────────────────
 /**
  * Main drain function. Claims pending rows and processes them sequentially.
@@ -758,6 +768,15 @@ function resolveAgentFromName(payload: Record<string, unknown>): string {
  */
 export async function drainOutbox(): Promise<{ processed: number; sent: number; skipped: number; failed: number }> {
   const stats = { processed: 0, sent: 0, skipped: 0, failed: 0 };
+
+  // Guard: skip if a previous drain cycle is still in progress.
+  // Prevents the 5-second interval from spawning concurrent drains when
+  // a brain call takes longer than the interval (common for 5-20s LLM calls).
+  if (isDraining) {
+    console.log(`[Outbox] Drain skipped — previous cycle still running (${INSTANCE_ID})`);
+    return stats;
+  }
+  isDraining = true;
 
   try {
     const rows = await claimOutboxRows(INSTANCE_ID, CLAIM_BATCH_SIZE);
@@ -786,13 +805,13 @@ export async function drainOutbox(): Promise<{ processed: number; sent: number; 
     if (stats.processed > 0) {
       console.log(`[Outbox] Drain cycle: ${stats.processed} processed, ${stats.sent} sent, ${stats.skipped} skipped, ${stats.failed} failed`);
     }
-  } catch (err) {
+    } catch (err) {
     console.error(`[Outbox] Drain cycle error:`, err);
+  } finally {
+    isDraining = false;
   }
-
   return stats;
 }
-
 // ─── Timer Registration ──────────────────────────────────────────────────────
 let drainTimer: ReturnType<typeof setInterval> | null = null;
 

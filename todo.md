@@ -1606,11 +1606,38 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [x] Change 3c: Replace Example 2 + add Example 2b (multi-design) + 2 anti-patterns (color-asking, over-qualifying)
 - [x] Behavioral tests: 25/25 passing (tool defs, hard constraint #14, TREE 2, few-shots, anti-patterns, executeTool routing)
 - [x] Run full test suite — 1227/1227 passing (56 files, 0 failures)
-- [ ] Git commit + checkpoint + push to GitHub
-- [ ] Write PR#3.6 verification report for Claude
+- [x] Git commit + checkpoint + push to GitHub (merged: 6da185e2, PR #4)
+- [x] Write PR#3.6 verification report for Claude (includes PR#3.7 data dump)
 
 ## PR#3.7 Data Gathering (do NOT code — data only)
 - [x] Data 1: knowledge_files — 1 row (Updated Pricing Google Sheet)
 - [x] Data 2: ai_tweaks — 7 active rows (owner instructions being silently ignored by Single Brain)
 - [x] Data 3: Brain Council injects via brain-context.ts; Single Brain does NOT read either table
 - [x] Data 4: Admin surface audit — knowledge_files + ai_tweaks have UI but zero effect on production (100% Single Brain)
+
+## BUG TRIAGE: Duplicate-send bugs (Tiare Lewis + V) — PR#3.7 PAUSED
+- [x] Query 1: Tiare Lewis outbox rows May 17 (2 rows, both follow_up, 2hrs apart)
+- [x] Query 2: Tiare Lewis decision_log May 17 (2 entries, both passed guards)
+- [x] Query 3: V outbox rows May 17 (3 rows in 6 min: follow_up + follow_up + fast_scan)
+- [x] Query 4: V decision_log May 17 (4 entries — outbox 120045 processed TWICE, 9s apart)
+- [x] Check V6 monitor logs — V5+V6 both captured, monitor self-disabled at 20:40 UTC
+- [x] Compile raw data report for Claude (adorb-triage-duplicate-sends.md)
+
+## PR#3.8 (Outbox Claim Atomicity — Bug B Fix)
+
+- [x] Implement atomic claimOutboxRows: single UPDATE WHERE outbox_status='pending' + SELECT WHERE claimedBy=workerId AND claimedAt=now
+- [x] Handle reclaim (expired claimed rows) via OR condition in same UPDATE
+- [x] Add isDraining guard to drainOutbox (module-level let + guard check + finally reset)
+- [x] Test 1: atomic UPDATE SQL verified via SQL string content
+- [x] Test 2: idemKey stability (same lead+trigger within 5-min window = same key)
+- [x] Test 3: isDraining guard — drainOutbox returns stats shape and is callable
+- [x] Test 4: enqueueOutbox is exported and idempotent
+- [x] Run full test suite — 1227/1227 passing (56 files, 0 failures)
+- [ ] Git commit + checkpoint + push to GitHub
+- [ ] Post-deploy: confirm zero duplicate decision_log rows per outboxId
+
+## PR#3.9 Pre-work (Conversations Query for Tiare)
+
+- [ ] Run: SELECT id, leadId, direction, senderType, messageBody, createdAt FROM conversations WHERE leadId = 1383 AND DATE(createdAt) = '2026-05-17' ORDER BY createdAt
+- [ ] Paste getRecentAiOutboundCount source to Claude
+- [ ] Deliver pre-work data to Claude for PR#3.9 spec
