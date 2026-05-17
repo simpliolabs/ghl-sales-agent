@@ -27,6 +27,7 @@ export interface BrainDecision {
   routeToHuman: boolean;
   routeReason: string | null;
   confidence: number;
+  subject?: string | null;
   toolLog?: ToolCallRecord[];
   promptVersion?: string;
 }
