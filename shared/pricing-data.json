@@ -1,0 +1,136 @@
+{
+  "minimumOrder": 1,
+  "note": "No minimums — even 1 shirt. Pricing per unit decreases with quantity.",
+  "tierLookupRule": "For quantities between two rows, ALWAYS use the row whose qty is LESS THAN OR EQUAL TO the customer's qty. Never skip ahead to a higher-qty tier.",
+  "defaultProduct": "tshirt_gildan_3000",
+  "products": {
+    "tshirt_gildan_3000": {
+      "name": "Custom T-Shirt (Gildan Style 3000)",
+      "printMethod": "DTG/DTF",
+      "tiers": [
+        { "minQty": 1,   "maxQty": 5,   "sides": { "1": null,  "2": null  }, "note": "call for quote" },
+        { "minQty": 6,   "maxQty": 11,  "sides": { "1": 15.35, "2": 18.35 } },
+        { "minQty": 12,  "maxQty": 19,  "sides": { "1": 14.10, "2": 17.10 } },
+        { "minQty": 20,  "maxQty": 44,  "sides": { "1": 11.90, "2": 14.90 } },
+        { "minQty": 45,  "maxQty": 59,  "sides": { "1": 8.75,  "2": 11.75 } },
+        { "minQty": 60,  "maxQty": 74,  "sides": { "1": 7.85,  "2": 10.85 } },
+        { "minQty": 75,  "maxQty": 99,  "sides": { "1": 6.85,  "2": 9.85  } },
+        { "minQty": 100, "maxQty": 149, "sides": { "1": 5.85,  "2": 8.85  } },
+        { "minQty": 150, "maxQty": 199, "sides": { "1": 5.75,  "2": 8.75  } },
+        { "minQty": 200, "maxQty": null, "sides": { "1": 5.50, "2": 8.50  } }
+      ],
+      "sizeUpcharges": { "2XL": 2.50, "3XL-5XL": 3.50 },
+      "twoSideAdditional": 3.00,
+      "rushAvailable": true,
+      "setupFee": 0
+    },
+    "hoodie": {
+      "name": "Hoodie (Gildan Heavy Blend / Similar)",
+      "printMethod": "DTG/DTF",
+      "tiers": [
+        { "minQty": 1,   "maxQty": 5,   "sides": { "1": [32, 38], "2": [35, 41] }, "isRange": true },
+        { "minQty": 6,   "maxQty": 11,  "sides": { "1": [28, 32], "2": [31, 35] }, "isRange": true },
+        { "minQty": 12,  "maxQty": 23,  "sides": { "1": [24, 28], "2": [27, 31] }, "isRange": true },
+        { "minQty": 24,  "maxQty": 47,  "sides": { "1": [20, 24], "2": [23, 27] }, "isRange": true },
+        { "minQty": 48,  "maxQty": 99,  "sides": { "1": [16, 20], "2": [19, 23] }, "isRange": true },
+        { "minQty": 100, "maxQty": null, "sides": { "1": [14, 18], "2": [17, 21] }, "isRange": true }
+      ],
+      "rushAvailable": true,
+      "setupFee": 0
+    },
+    "polo_embroidered": {
+      "name": "Polo Shirt (Embroidered)",
+      "printMethod": "Embroidery",
+      "tiers": [
+        { "minQty": 1,   "maxQty": 11,  "price": [22, 28], "isRange": true },
+        { "minQty": 12,  "maxQty": 23,  "price": [18, 22], "isRange": true },
+        { "minQty": 24,  "maxQty": 47,  "price": [15, 19], "isRange": true },
+        { "minQty": 48,  "maxQty": 99,  "price": [12, 16], "isRange": true },
+        { "minQty": 100, "maxQty": null, "price": [10, 14], "isRange": true }
+      ],
+      "note": "Pricing varies by stitch count — offer to get agent quote for exact pricing",
+      "rushAvailable": true,
+      "setupFee": 0
+    },
+    "hat_embroidered": {
+      "name": "Hat / Cap (Embroidered)",
+      "printMethod": "Embroidery",
+      "tiers": [
+        { "minQty": 1,   "maxQty": 11,  "price": [18, 24], "isRange": true },
+        { "minQty": 12,  "maxQty": 23,  "price": [14, 18], "isRange": true },
+        { "minQty": 24,  "maxQty": 47,  "price": [11, 15], "isRange": true },
+        { "minQty": 48,  "maxQty": null, "price": [8, 12],  "isRange": true }
+      ],
+      "rushAvailable": true,
+      "setupFee": 0
+    },
+    "mug_uv": {
+      "name": "Mug (UV Printing)",
+      "printMethod": "UV",
+      "tiers": [
+        { "minQty": 1,   "maxQty": 11,  "price": [12, 16], "isRange": true },
+        { "minQty": 12,  "maxQty": 23,  "price": [9, 12],  "isRange": true },
+        { "minQty": 24,  "maxQty": 47,  "price": [7, 10],  "isRange": true },
+        { "minQty": 48,  "maxQty": null, "price": [5, 8],   "isRange": true }
+      ],
+      "rushAvailable": true,
+      "setupFee": 0
+    },
+    "tote_bag": {
+      "name": "Tote Bag (DTF)",
+      "printMethod": "DTF",
+      "tiers": [
+        { "minQty": 1,   "maxQty": 11,  "price": [14, 18], "isRange": true },
+        { "minQty": 12,  "maxQty": 23,  "price": [10, 14], "isRange": true },
+        { "minQty": 24,  "maxQty": null, "price": [7, 11],  "isRange": true }
+      ],
+      "rushAvailable": true,
+      "setupFee": 0
+    },
+    "sticker_decal": {
+      "name": "Stickers / Decals (UV DTF)",
+      "printMethod": "UV DTF",
+      "tiers": [
+        { "minQty": 1,   "maxQty": 24,  "price": [3, 5],      "isRange": true },
+        { "minQty": 25,  "maxQty": 99,  "price": [1.50, 3],   "isRange": true },
+        { "minQty": 100, "maxQty": null, "price": [0.75, 1.50], "isRange": true }
+      ],
+      "rushAvailable": true,
+      "setupFee": 0
+    },
+    "business_cards_flyers": {
+      "name": "Business Cards / Flyers",
+      "printMethod": "Offset/Digital",
+      "tiers": [
+        { "minQty": 100,  "maxQty": 249,  "price": [25, 35],  "isRange": true },
+        { "minQty": 250,  "maxQty": 499,  "price": [40, 55],  "isRange": true },
+        { "minQty": 500,  "maxQty": 999,  "price": [60, 80],  "isRange": true },
+        { "minQty": 1000, "maxQty": null,  "price": [80, 120], "isRange": true }
+      ],
+      "note": "Price is per batch, not per unit",
+      "rushAvailable": true,
+      "setupFee": 0
+    },
+    "pens_promo": {
+      "name": "Pens / Promotional Items",
+      "printMethod": "Various",
+      "tiers": [
+        { "minQty": 50,  "maxQty": 99,  "price": [2, 4],     "isRange": true },
+        { "minQty": 100, "maxQty": 249, "price": [1.50, 3],  "isRange": true },
+        { "minQty": 250, "maxQty": null, "price": [1, 2],    "isRange": true }
+      ],
+      "rushAvailable": true,
+      "setupFee": 0
+    }
+  },
+  "pricingRules": {
+    "exactQtyStated": "Give EXACT dollar total (no ranges). Use the tier table.",
+    "qtyUnknown": "Ask for quantity FIRST. Give NO price until quantity is known.",
+    "defaultShirt": "Always quote Gildan Style 3000 (cheapest). Only switch if customer asks.",
+    "rangeProducts": "For products with price ranges (hoodies, hats, etc.), present as a range and offer to get exact quote from team.",
+    "productsNotOnList": "I'll have our team put together a custom quote for that.",
+    "neverPresentExactAsEstimate": "When you have the number, state it confidently.",
+    "rushOrders": "Same-day available, may have surcharge — offer to check.",
+    "embroideryPricing": "Varies by stitch count — offer to get agent quote."
+  }
+}

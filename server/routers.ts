@@ -38,6 +38,7 @@ import { runAutoSkillHunter, getSkillProposals, reviewSkillProposal } from "./au
 import { getLeadMemoryFacts } from "./lead-memory";
 import { runStrategyReview, getStrategyAdjustmentHistory } from "./strategy-autopilot";
 import { extractAgentPatterns, recordAgentLearning } from "./learning-loop";
+import { getOutboxStats, enqueueOutbox, makeIdemKey } from "./outbox-worker";
 import { createTrainingExport, listTrainingExports, getTrainingExport } from "./training-export";
 
 // Auto-synthesize uploaded content using LLM
@@ -114,6 +115,10 @@ export const appRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
+  }),
+
+  outbox: router({
+    stats: protectedProcedure.query(async () => getOutboxStats()),
   }),
 
   leads: router({
