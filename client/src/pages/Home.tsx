@@ -1,7 +1,7 @@
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Flame, Users, Brain, TrendingUp, MessageSquare, UserCheck, ShieldCheck, Activity, AlertTriangle, Clock, CalendarClock, BarChart3, Zap, CheckCircle2, XCircle } from "lucide-react";
+import { Flame, Users, Brain, TrendingUp, MessageSquare, UserCheck, ShieldCheck, Activity, AlertTriangle, Clock, CalendarClock, BarChart3, Zap, CheckCircle2, XCircle, DollarSign, Send, Reply, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,6 +12,7 @@ export default function Home() {
   const { data: pipelineStats, isLoading: pipeLoading } = trpc.pipeline.stats.useQuery();
   const { data: hotLeads, isLoading: hotLoading } = trpc.leads.hot.useQuery();
   const { data: agentWork, isLoading: agentLoading } = trpc.agents.workload.useQuery();
+  const { data: revenue, isLoading: revLoading } = trpc.dashboard.revenueMetrics.useQuery(undefined, { refetchInterval: 120000 });
   const { data: scheduleDist, isLoading: schedLoading } = trpc.leads.scheduleDistribution.useQuery(undefined, { refetchInterval: 120000 });
   const { data: healthData, isLoading: healthLoading } = trpc.system.healthMonitor.useQuery(undefined, { refetchInterval: 60000 });
   const { data: supervisorStatus, isLoading: supLoading } = trpc.ai.supervisorStatus.useQuery(undefined, { refetchInterval: 60000 });
@@ -37,7 +38,16 @@ export default function Home() {
           <p className="text-muted-foreground mt-1">Adorb Outreach command center</p>
         </div>
 
-        {/* ═══ TOP KPI CARDS ═══ */}
+        {/* ═══ REVENUE METRICS ═══ */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          <MetricCard title="Messages Sent" value={revLoading ? undefined : String(revenue?.messagesSent || 0)} subtitle="Total outbound" icon={<Send className="h-4 w-4 text-blue-500" />} loading={revLoading} />
+          <MetricCard title="Replies" value={revLoading ? undefined : String(revenue?.replies || 0)} subtitle="Lead responses" icon={<Reply className="h-4 w-4 text-emerald-500" />} loading={revLoading} />
+          <MetricCard title="Quotes Sent" value={revLoading ? undefined : String(revenue?.quotesSent || 0)} subtitle="Pricing delivered" icon={<FileText className="h-4 w-4 text-orange-500" />} loading={revLoading} />
+          <MetricCard title="Deals Closed" value={revLoading ? undefined : String(revenue?.dealsClosed || 0)} subtitle="Won opportunities" icon={<CheckCircle2 className="h-4 w-4 text-violet-500" />} loading={revLoading} />
+          <MetricCard title="Revenue" value={revLoading ? undefined : `$${(revenue?.revenue || 0).toLocaleString()}`} subtitle="Total won value" icon={<DollarSign className="h-4 w-4 text-green-600" />} loading={revLoading} />
+        </div>
+
+        {/* ═══ SECONDARY KPI CARDS ═══ */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard title="Hot Leads" value={isLoading ? undefined : String(hotLeads?.length || 0)} subtitle="Score 80+" icon={<Flame className="h-4 w-4 text-orange-500" />} loading={isLoading} />
           <MetricCard title="Total Leads" value={isLoading ? undefined : String(perf?.totalLeads || 0)} subtitle="In system" icon={<Users className="h-4 w-4 text-blue-500" />} loading={isLoading} />

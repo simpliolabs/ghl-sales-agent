@@ -136,6 +136,21 @@ export const appRouter = router({
       await updateLeadFields(input.id, { humanTakeover: input.takeover ? 1 : 0 });
       return { success: true };
     }),
+    sendNow: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      // Enqueue a message to be sent immediately via the outbox
+      const lead = await getLeadById(input.id);
+      if (!lead) throw new TRPCError({ code: 'NOT_FOUND', message: 'Lead not found' });
+      if (lead.humanTakeover === 1) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Lead is in human takeover mode. Release to AI first.' });
+      const idemKey = makeIdemKey(input.id, 'manual');
+      await enqueueOutbox({
+        leadId: input.id,
+        idemKey,
+        source: 'manual',
+        payload: { trigger: 'manual_send', channelHint: lead.preferredChannel || 'email' },
+        scheduledAt: new Date(),
+      });
+      return { success: true, message: `Message queued for ${lead.name || 'lead'}` };
+    }),
     reschedule: adminProcedure.input(z.object({
       id: z.number(),
       nextFollowUpAt: z.string(), // ISO date string
@@ -222,6 +237,72 @@ export const appRouter = router({
         }));
       }
       return { scored, errors, total: unscoredLeads.length };
+    }),
+  }),
+
+  // ─── Dashboard Revenue Metrics ───
+  dashboard: router({
+    revenueMetrics: protectedProcedure.query(async () => {
+      const { getDb } = await import("./db");
+      const db = await getDb();
+      if (!db) return { messagesSent: 0, replies: 0, quotesSent: 0, dealsClosed: 0, revenue: 0 };
+      const { outbox, conversations, quotes, leads } = await import("../drizzle/schema");
+      const { sql: sqlFn, count } = await import("drizzle-orm");
+      const [sent] = await db.select({ cnt: count() }).from(outbox).where(sqlFn`status = 'sent'`);
+      const [replies] = await db.select({ cnt: count() }).from(conversations).where(sqlFn`direction = 'inbound' AND senderType = 'lead'`);
+      const [qSent] = await db.select({ cnt: count() }).from(quotes);
+      const [closed] = await db.select({ cnt: count() }).from(leads).where(sqlFn`opportunityStatus = 'won'`);
+      const [rev] = await db.select({ total: sqlFn<number>`COALESCE(SUM(pipelineValue), 0)` }).from(leads).where(sqlFn`opportunityStatus = 'won'`);
+      return {
+        messagesSent: sent?.cnt || 0,
+        replies: replies?.cnt || 0,
+        quotesSent: qSent?.cnt || 0,
+        dealsClosed: closed?.cnt || 0,
+        revenue: rev?.total || 0,
+      };
+    }),
+    flaggedMessages: protectedProcedure.query(async () => {
+      const { getDb } = await import("./db");
+      const db = await getDb();
+      if (!db) return [];
+      const { decisionLog, leads: leadsTable } = await import("../drizzle/schema");
+      const { eq, desc, sql: sqlFn } = await import("drizzle-orm");
+      const rows = await db.select({
+        id: decisionLog.id,
+        leadId: decisionLog.leadId,
+        leadName: leadsTable.name,
+        businessName: leadsTable.businessName,
+        trigger: decisionLog.trigger,
+        brainReasoning: decisionLog.brainReasoning,
+        channel: decisionLog.channel,
+        outputGuardResult: decisionLog.outputGuardResult,
+        flagReason: decisionLog.flagReason,
+        flagAcknowledged: decisionLog.flagAcknowledged,
+        createdAt: decisionLog.createdAt,
+      })
+        .from(decisionLog)
+        .leftJoin(leadsTable, eq(decisionLog.leadId, leadsTable.id))
+        .where(eq(decisionLog.flaggedForReview, 1))
+        .orderBy(desc(decisionLog.createdAt))
+        .limit(100);
+      return rows;
+    }),
+    acknowledgeFlagged: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
+      const { decisionLog } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      await db.update(decisionLog).set({ flagAcknowledged: 1 }).where(eq(decisionLog.id, input.id));
+      return { success: true };
+    }),
+    decisionLogForLead: protectedProcedure.input(z.object({ leadId: z.number(), limit: z.number().optional() })).query(async ({ input }) => {
+      const { getDb } = await import("./db");
+      const db = await getDb();
+      if (!db) return [];
+      const { decisionLog } = await import("../drizzle/schema");
+      const { eq, desc } = await import("drizzle-orm");
+      return db.select().from(decisionLog).where(eq(decisionLog.leadId, input.leadId)).orderBy(desc(decisionLog.createdAt)).limit(input.limit || 20);
     }),
   }),
 

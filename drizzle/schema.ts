@@ -722,6 +722,9 @@ export const decisionLog = mysqlTable("decision_log", {
   inputGuardResult: varchar("inputGuardResult", { length: 32 }), // pass, block:reason, defer:reason
   outputGuardResult: varchar("outputGuardResult", { length: 32 }), // pass, block:reason
   durationMs: int("durationMs"), // total processing time
+  flaggedForReview: tinyint("flaggedForReview").default(0), // 1 = flagged for human review
+  flagReason: varchar("flagReason", { length: 255 }), // why it was flagged
+  flagAcknowledged: tinyint("flagAcknowledged").default(0), // 1 = reviewed/dismissed by human
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 export type DecisionLogRow = typeof decisionLog.$inferSelect;
