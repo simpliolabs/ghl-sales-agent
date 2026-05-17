@@ -1586,8 +1586,8 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [x] Reduce log noise: skip or throttle the "Skipping Layer B" info log per Claude's hygiene note
 - [x] Write tests for the userId check in both paths
 - [x] Run full test suite (1189 tests — all passing)
-- [ ] Git commit + checkpoint + push to GitHub
-- [ ] Write PR#3.5 verification report for Claude
+- [x] Git commit + checkpoint + push to GitHub (merged: 831b6e8c)
+- [x] Write PR#3.5 verification report for Claude
 
 ## PR#5 (Learning System Wiring — Claude-Revised Spec)
 - [ ] Wire getPromotedLearnings() into Single Brain assembleContext() (~400 tokens)
@@ -1595,3 +1595,30 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [ ] Change promotion scan ordering: sort candidates by (category_priority DESC, recurrenceCount DESC) where best_practice=3, correction=2, avoid=1
 - [ ] Leave PROMOTION_THRESHOLD=3 untouched (do NOT lower)
 - [ ] Do NOT hard-reserve slots (let priority ordering handle allocation naturally)
+
+## PR#3.6 (Multi-Design Pricing Fix — pricing-engine + tool + prompt)
+- [x] Change 1: Add getMultiDesignQuote() to pricing-engine.ts (multi-design pricing with volume discount)
+- [x] Change 1 tests: 13/13 passing (single-design fallback, multi-design no/with discount, 100/4 edge, 100/5 edge, rush+discount, even-split flag, null-price tier fallback)
+- [x] Change 2: Add getMultiDesignQuote tool definition to single-brain.ts
+- [x] Change 2: Add executeTool handler for getMultiDesignQuote in single-brain.ts (with DB persistence, even-split heuristic)
+- [x] Change 3a: Add PRICING INPUTS section as Hard Constraint #14
+- [x] Change 3b: Replace TREE 2 with new PRICING / QUOTE FLOW (multi-design branching, even-split, framing rule)
+- [x] Change 3c: Replace Example 2 + add Example 2b (multi-design) + 2 anti-patterns (color-asking, over-qualifying)
+- [x] Behavioral tests: 25/25 passing (tool defs, hard constraint #14, TREE 2, few-shots, anti-patterns, executeTool routing)
+- [x] Run full test suite — 1227/1227 passing (56 files, 0 failures)
+- [x] Git commit + checkpoint + push to GitHub (merged: 6da185e2, PR #4)
+- [x] Write PR#3.6 verification report for Claude (includes PR#3.7 data dump)
+
+## PR#3.7 Data Gathering (do NOT code — data only)
+- [x] Data 1: knowledge_files — 1 row (Updated Pricing Google Sheet)
+- [x] Data 2: ai_tweaks — 7 active rows (owner instructions being silently ignored by Single Brain)
+- [x] Data 3: Brain Council injects via brain-context.ts; Single Brain does NOT read either table
+- [x] Data 4: Admin surface audit — knowledge_files + ai_tweaks have UI but zero effect on production (100% Single Brain)
+
+## BUG TRIAGE: Duplicate-send bugs (Tiare Lewis + V) — PR#3.7 PAUSED
+- [x] Query 1: Tiare Lewis outbox rows May 17 (2 rows, both follow_up, 2hrs apart)
+- [x] Query 2: Tiare Lewis decision_log May 17 (2 entries, both passed guards)
+- [x] Query 3: V outbox rows May 17 (3 rows in 6 min: follow_up + follow_up + fast_scan)
+- [x] Query 4: V decision_log May 17 (4 entries — outbox 120045 processed TWICE, 9s apart)
+- [x] Check V6 monitor logs — V5+V6 both captured, monitor self-disabled at 20:40 UTC
+- [x] Compile raw data report for Claude (adorb-triage-duplicate-sends.md)

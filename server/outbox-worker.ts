@@ -751,6 +751,11 @@ function resolveAgentFromName(payload: Record<string, unknown>): string {
   return "Adorb Custom Tees";
 }
 
+// isDraining guard: prevents a slow drain cycle from overlapping with the next
+// interval tick. If drainOutbox() is still running when the timer fires again,
+// the new call returns immediately instead of spawning a second concurrent drain.
+let isDraining = false;
+
 // ─── Drain Loop ──────────────────────────────────────────────────────────────
 /**
  * Main drain function. Claims pending rows and processes them sequentially.
@@ -758,6 +763,26 @@ function resolveAgentFromName(payload: Record<string, unknown>): string {
  */
 export async function drainOutbox(): Promise<{ processed: number; sent: number; skipped: number; failed: number }> {
   const stats = { processed: 0, sent: 0, skipped: 0, failed: 0 };
+
+  // Guard: skip if a previous drain cycle is still in progress.
+  // Prevents the 5-second interval from spawning concurrent drains when
+  // a brain call takes longer than the interval (common for 5-20s LLM calls).
+  if (isDraining) {
+    console.log(`[Outbox] Drain skipped — previous cycle still running (${INSTANCE_ID})`);
+    return stats;
+  }
+  isDraining = true;
+
+  // Guard: skip if a previous drain cycle is still in progress.
+  // Prevents the 5-second interval from spawning concurrent drains when
+  // a brain call takes longer than the interval (common for 5-20s LLM calls).
+  if (isDraining) {
+    console.log(`[Outbox] Drain skipped — previous cycle still running (${INSTANCE_ID})`);
+    return stats;
+  }
+  isDraining = true;
+
+
 
   try {
     const rows = await claimOutboxRows(INSTANCE_ID, CLAIM_BATCH_SIZE);
@@ -788,6 +813,8 @@ export async function drainOutbox(): Promise<{ processed: number; sent: number; 
     }
   } catch (err) {
     console.error(`[Outbox] Drain cycle error:`, err);
+  } finally {
+    isDraining = false;
   }
 
   return stats;
