@@ -9,6 +9,31 @@
 
 import pricingData from "../shared/pricing-data.json";
 
+// ── Multi-design types ─────────────────────────────────────────────────
+
+export interface DesignSpec {
+  qty: number;
+  sides: 1 | 2;
+}
+
+export interface MultiDesignQuoteResult {
+  designs: Array<{
+    qty: number;
+    sides: 1 | 2;
+    perUnit: number;
+    subtotal: number;
+    discountedSubtotal: number;
+  }>;
+  volumeDiscountApplied: boolean;
+  volumeDiscountReason: string | null;
+  subtotalBeforeRush: number;
+  rushSurcharge: number;
+  estimateTotal: number;
+  evenSplitAssumed: boolean;
+  notes: string[];
+  breakdown: string;
+}
+
 export interface QuoteResult {
   product: string;
   productName: string;
@@ -33,6 +58,129 @@ export interface QuoteResult {
  * For other products: returns a price range.
  * For unknown products or out-of-range quantities: returns callForQuote=true.
  */
+/**
+ * Multi-design quote calculator.
+ *
+ * Each design is priced independently at its own quantity tier.
+ * Volume discount: 10% off each design if totalQty >= 100 AND designs <= 4.
+ * Rush: +20% on the whole order.
+ * Size upcharges are NOT included — they finalize the estimate later.
+ *
+ * @param designs - Array of { qty, sides } per distinct design
+ * @param rush - Rush order flag (20% surcharge)
+ * @param product - Product key (default: tshirt_gildan_3000)
+ * @param evenSplitAssumed - Whether the caller assumed an even split (set by tool wrapper)
+ */
+export function getMultiDesignQuote(
+  designs: DesignSpec[],
+  rush: boolean = false,
+  product: string = "tshirt_gildan_3000",
+  evenSplitAssumed: boolean = false
+): MultiDesignQuoteResult {
+  const p = (pricingData.products as any)[product];
+  const notes: string[] = [];
+
+  if (!p) {
+    return {
+      designs: [], volumeDiscountApplied: false, volumeDiscountReason: null,
+      subtotalBeforeRush: 0, rushSurcharge: 0, estimateTotal: 0,
+      evenSplitAssumed, notes: [`Product "${product}" not in pricing table.`],
+      breakdown: `Product "${product}" not in our pricing table. I'll have our team put together a custom quote for that.`,
+    };
+  }
+
+  const totalQty = designs.reduce((sum, d) => sum + d.qty, 0);
+  const designCount = designs.length;
+
+  // Price each design independently
+  const pricedDesigns = designs.map((d) => {
+    // Find tier for this design's qty
+    const tier = [...p.tiers]
+      .filter((t: any) => d.qty >= t.minQty)
+      .sort((a: any, b: any) => b.minQty - a.minQty)[0];
+
+    if (!tier) {
+      // Qty below minimum — use first tier with actual prices as fallback
+      const sideKey = String(d.sides) as "1" | "2";
+      const fallbackTier = [...p.tiers]
+        .sort((a: any, b: any) => a.minQty - b.minQty)
+        .find((t: any) => t.sides?.[sideKey] != null);
+      const perUnit = fallbackTier ? (fallbackTier as any).sides[sideKey] : 0;
+      const minQty = fallbackTier ? fallbackTier.minQty : 1;
+      notes.push(`Design with qty ${d.qty} is below minimum tier (${minQty}). Using ${minQty}-tier price as estimate.`);
+      return { qty: d.qty, sides: d.sides as 1 | 2, perUnit, subtotal: perUnit * d.qty, discountedSubtotal: perUnit * d.qty };
+    }
+
+    const sideKey = String(d.sides) as "1" | "2";
+    const rawPrice = (tier as any).sides?.[sideKey];
+
+    // If the matched tier has null price (e.g., 1-5 "call for quote"), use next tier with actual prices
+    if (rawPrice == null) {
+      const fallbackTier = [...p.tiers]
+        .sort((a: any, b: any) => a.minQty - b.minQty)
+        .find((t: any) => t.sides?.[sideKey] != null);
+      const perUnit = fallbackTier ? (fallbackTier as any).sides[sideKey] : 0;
+      const minQty = fallbackTier ? fallbackTier.minQty : 1;
+      notes.push(`Design with qty ${d.qty} is below minimum tier (${minQty}). Using ${minQty}-tier price as estimate.`);
+      return { qty: d.qty, sides: d.sides as 1 | 2, perUnit, subtotal: perUnit * d.qty, discountedSubtotal: perUnit * d.qty };
+    }
+
+    const perUnit = rawPrice;
+    const subtotal = perUnit * d.qty;
+    return { qty: d.qty, sides: d.sides as 1 | 2, perUnit, subtotal, discountedSubtotal: subtotal };
+  });
+
+  // Volume discount: 10% off if totalQty >= 100 AND designCount <= 4
+  let volumeDiscountApplied = false;
+  let volumeDiscountReason: string | null = null;
+  if (totalQty >= 100 && designCount <= 4) {
+    volumeDiscountApplied = true;
+    volumeDiscountReason = `10% volume discount applied: ${totalQty} total shirts across ${designCount} designs (requires ≥100 qty and ≤4 designs).`;
+    for (const d of pricedDesigns) {
+      d.discountedSubtotal = Math.round(d.subtotal * 0.90 * 100) / 100;
+    }
+  }
+
+  const subtotalBeforeRush = pricedDesigns.reduce((sum, d) => sum + d.discountedSubtotal, 0);
+  const rushSurcharge = rush ? Math.round(subtotalBeforeRush * 0.20 * 100) / 100 : 0;
+  const estimateTotal = Math.round((subtotalBeforeRush + rushSurcharge) * 100) / 100;
+
+  if (evenSplitAssumed) {
+    notes.push("Quantities were split evenly across designs — confirm the actual breakdown with the lead.");
+  }
+  notes.push("Size upcharges (2XL +$2.50, 3XL-5XL +$3.50) not included — finalize after size breakdown is confirmed.");
+  notes.push("Excludes tax and shipping.");
+
+  // Build human-readable breakdown
+  const designLines = pricedDesigns.map((d, i) => {
+    let line = `  Design ${i + 1}: ${d.qty} × $${d.perUnit.toFixed(2)} (${d.sides}-side) = $${d.subtotal.toFixed(2)}`;
+    if (volumeDiscountApplied) {
+      line += ` → $${d.discountedSubtotal.toFixed(2)} after 10% discount`;
+    }
+    return line;
+  }).join("\n");
+
+  let breakdown = `${totalQty} shirts, ${designCount} design${designCount > 1 ? "s" : ""} (${p.name}):\n${designLines}`;
+  if (volumeDiscountApplied) breakdown += `\n  Volume discount: 10% off (≥100 qty, ≤4 designs)`;
+  breakdown += `\n  Subtotal: $${subtotalBeforeRush.toFixed(2)}`;
+  if (rush) breakdown += `\n  Rush surcharge (20%): +$${rushSurcharge.toFixed(2)}`;
+  breakdown += `\n  Estimate total: $${estimateTotal.toFixed(2)}`;
+  if (evenSplitAssumed) breakdown += `\n  ⚠ Even split assumed — confirm actual breakdown with lead.`;
+  breakdown += `\n  Size upcharges not included. Excludes tax and shipping.`;
+
+  return {
+    designs: pricedDesigns,
+    volumeDiscountApplied,
+    volumeDiscountReason,
+    subtotalBeforeRush,
+    rushSurcharge,
+    estimateTotal,
+    evenSplitAssumed,
+    notes,
+    breakdown,
+  };
+}
+
 export function getQuote(
   qty: number,
   sides: 1 | 2,
