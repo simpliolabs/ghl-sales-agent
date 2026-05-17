@@ -99,6 +99,23 @@ const TOOLS: Tool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "bookAppointment",
+      description: "Book a 10-minute consultation appointment on the GHL calendar. Use when: lead explicitly asks to schedule a call/meeting, or when a quote has been given and lead wants to discuss next steps. Returns the booked time slot and confirmation.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Appointment title (e.g. 'T-shirt order consultation'). Defaults to 'Consultation: {business name}'." },
+          notes: { type: "string", description: "Notes for the agent about what the lead wants to discuss" },
+          preferredAgent: { type: "string", description: "Agent name if lead requested a specific person. Options: 'Abby Bouwer', 'Chris McHendry'" },
+        },
+        required: [],
+        additionalProperties: false,
+      },
+    },
+  },
 ];
 
 // ── JSON Schema for response_format ────────────────────────────────────
@@ -375,7 +392,7 @@ Before composing your message, you MUST complete these 4 steps in the "reasoning
 ═══ BRAND VOICE ═══
 ${BRAND_VOICE_GUIDE}
 
-═══ CURRENT STAGE: ${stage.toUpperCase()} ═══
+═══ CURRENT STAGE: ${String(stage).toUpperCase()} ═══
 Objective: ${behavior.objective}
 ${behavior.signals_to_ask_for.length > 0 ? `Ask about: ${behavior.signals_to_ask_for.join(", ")}` : ""}
 ${behavior.avoid.length > 0 ? `Avoid: ${behavior.avoid.join(", ")}` : ""}
@@ -475,19 +492,129 @@ async function assembleContext(leadId: number): Promise<LeadContext> {
 }
 
 // ── Tool execution ──────────────────────────────────────────────────────
+import { insertQuote, updateLeadFields } from "./db";
+import { createAppointment, getNextBusinessHoursSlot, getCalendarEvents, AGENT_CALENDAR_IDS, toETOffsetString } from "./ghl";
 
-function executeTool(name: string, argsStr: string): any {
+async function executeTool(name: string, argsStr: string, leadId: number): Promise<any> {
   const args = JSON.parse(argsStr);
 
   switch (name) {
-    case "getQuote":
-      return getQuote(args.qty, args.sides, args.product, args.rush);
+    case "getQuote": {
+      const result = getQuote(args.qty, args.sides, args.product, args.rush);
+      // Persist quote to DB
+      try {
+        const toCents = (v: number | null) => v != null ? Math.round(v * 100) : null;
+        await insertQuote({
+          leadId,
+          product: result.product,
+          productName: result.productName,
+          qty: result.qty,
+          sides: result.sides,
+          perUnit: toCents(result.perUnit),
+          perUnitRangeLow: result.perUnitRange ? Math.round(result.perUnitRange[0] * 100) : null,
+          perUnitRangeHigh: result.perUnitRange ? Math.round(result.perUnitRange[1] * 100) : null,
+          subtotal: toCents(result.subtotal),
+          rushFee: toCents(result.rushFee),
+          setupFee: Math.round((result.setupFee || 0) * 100),
+          total: toCents(result.total),
+          rush: args.rush ? 1 : 0,
+          status: result.callForQuote ? "call_for_quote" : "sent",
+          breakdown: result.breakdown,
+          callForQuote: result.callForQuote ? 1 : 0,
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30-day validity
+        });
+      } catch (err) {
+        console.error(`[SingleBrain] Failed to persist quote for lead ${leadId}:`, err);
+      }
+      return result;
+    }
     case "escalateToHuman":
       return { escalated: true, reason: args.reason };
     case "markDNC":
       return { marked: true, reason: args.reason };
+    case "bookAppointment": {
+      return await executeBookAppointment(args, leadId);
+    }
     default:
       return { error: `Unknown tool: ${name}` };
+  }
+}
+
+/**
+ * Book an appointment on the GHL calendar for this lead.
+ * Finds next available business-hours slot, creates the appointment,
+ * and updates the lead's pipeline stage to 'appointment_scheduled'.
+ */
+async function executeBookAppointment(
+  args: { title?: string; notes?: string; preferredAgent?: string },
+  leadId: number,
+): Promise<any> {
+  try {
+    const lead = await getLeadById(leadId);
+    if (!lead || !lead.ghlContactId) {
+      return { error: "Cannot book appointment: lead has no GHL contact ID" };
+    }
+
+    // Determine agent — prefer the lead's assigned agent, fallback to Abby
+    const agent = args.preferredAgent || lead.assignedAgent || "Abby Bouwer";
+    const calendarId = AGENT_CALENDAR_IDS[agent] || AGENT_CALENDAR_IDS["Abby Bouwer"];
+
+    // Find next available slot with conflict checking
+    let slot = getNextBusinessHoursSlot(new Date(), agent);
+    let attempts = 0;
+    while (attempts < 20) {
+      const slotEndMs = slot.start.getTime() + 10 * 60 * 1000;
+      const windowStart = new Date(slot.start.getTime() - 5 * 60 * 1000);
+      const windowEnd = new Date(slotEndMs + 5 * 60 * 1000);
+      try {
+        const events = await getCalendarEvents(calendarId, windowStart.toISOString(), windowEnd.toISOString());
+        if (!events || events.length === 0) break; // slot is free
+        slot = getNextBusinessHoursSlot(new Date(slot.start.getTime() + 10 * 60 * 1000), agent);
+      } catch {
+        break; // Non-fatal — proceed with current slot
+      }
+      attempts++;
+    }
+
+    const endTime = new Date(slot.start.getTime() + 10 * 60 * 1000);
+    const title = args.title || `Consultation: ${lead.businessName || lead.name || 'Customer'}`;
+
+    const result = await createAppointment({
+      calendarId,
+      contactId: lead.ghlContactId,
+      title,
+      description: args.notes || `Appointment booked by AI assistant for ${lead.name || 'customer'}.`,
+      startTime: toETOffsetString(slot.start),
+      endTime: toETOffsetString(endTime),
+    });
+
+    const appointmentId = result?.id || result?.event?.id || null;
+
+    // Update lead pipeline stage
+    await updateLeadFields(leadId, { pipelineStage: "appointment_scheduled" });
+
+    // Format human-readable slot for the AI to relay to the lead
+    const humanReadableSlot = slot.start.toLocaleString("en-US", {
+      timeZone: "America/New_York",
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }) + " ET";
+
+    return {
+      booked: true,
+      appointmentId,
+      slot: humanReadableSlot,
+      agent,
+      startTime: slot.start.toISOString(),
+      endTime: endTime.toISOString(),
+    };
+  } catch (err: any) {
+    console.error(`[SingleBrain] bookAppointment failed for lead ${leadId}:`, err);
+    return { error: `Failed to book appointment: ${err?.message}` };
   }
 }
 
@@ -619,7 +746,7 @@ export async function runSingleBrain(input: SingleBrainInput): Promise<SingleBra
     messages.push({ role: "assistant", content: assistantMsg.content || "", ...({ tool_calls: assistantMsg.tool_calls } as any) });
 
     for (const toolCall of assistantMsg.tool_calls) {
-      const result = executeTool(toolCall.function.name, toolCall.function.arguments);
+      const result = await executeTool(toolCall.function.name, toolCall.function.arguments, input.leadId);
       toolLog.push({
         name: toolCall.function.name,
         args: toolCall.function.arguments,

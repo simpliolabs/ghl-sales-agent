@@ -738,3 +738,32 @@ export const promptVersions = mysqlTable("prompt_versions", {
 });
 export type PromptVersionRow = typeof promptVersions.$inferSelect;
 export type InsertPromptVersionRow = typeof promptVersions.$inferInsert;
+
+// ─── Phase 4: Quotes (persist getQuote results for tracking + follow-up) ──────
+export const quotes = mysqlTable("quotes", {
+  id: int("id").autoincrement().primaryKey(),
+  leadId: int("leadId").notNull(),
+  product: varchar("product", { length: 128 }).notNull(), // product key e.g. "tshirt_gildan_3000"
+  productName: varchar("productName", { length: 255 }).notNull(), // human-readable name
+  qty: int("qty").notNull(),
+  sides: int("sides").notNull(), // 1 or 2
+  perUnit: int("perUnit"), // cents (null if callForQuote)
+  perUnitRangeLow: int("perUnitRangeLow"), // cents (for range products)
+  perUnitRangeHigh: int("perUnitRangeHigh"), // cents (for range products)
+  subtotal: int("subtotal"), // cents
+  rushFee: int("rushFee"), // cents
+  setupFee: int("setupFee").default(0), // cents
+  total: int("total"), // cents (null if callForQuote)
+  rush: tinyint("rush").default(0), // 1 = rush order
+  status: mysqlEnum("status", ["sent", "approved", "declined", "expired", "call_for_quote"]).default("sent").notNull(),
+  breakdown: text("breakdown"), // human-readable pricing breakdown
+  callForQuote: tinyint("callForQuote").default(0), // 1 = needs manual quote
+  sentAt: timestamp("sentAt").defaultNow().notNull(),
+  expiresAt: timestamp("expiresAt"), // quote validity window
+  approvedAt: timestamp("approvedAt"),
+  declinedAt: timestamp("declinedAt"),
+  decisionLogId: int("decisionLogId"), // link back to the AI decision that generated this quote
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type QuoteRow = typeof quotes.$inferSelect;
+export type InsertQuoteRow = typeof quotes.$inferInsert;
