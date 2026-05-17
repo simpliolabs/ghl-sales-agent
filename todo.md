@@ -1558,3 +1558,8 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [x] BUG: LLM tool definition had numeric enum for `sides` — API rejects non-string enums (removed enum, kept description)
 - [x] BUG: Tool response messages missing `name` field — Gemini requires function_response.name (added toolCall.function.name)
 - [x] BUG: LLM returns unstructured reasoning text instead of JSON after tool calls — added structured follow-up call with response_format
+- [ ] BUG: Email signature not rendering as HTML — shows as plain text dump (Wayne G Foster May 17)
+- [ ] BUG: System sends email to lead who never responds to email — should switch to SMS (Wayne G Foster: SMS Jan, Email Apr 11, Email May 17 — no replies to email)
+- [ ] FIX: Channel escalation logic — if lead never replied to email, next attempt MUST use SMS
+- [ ] FIX: Reactivate 365 Facebook/ghl/fb leads (set reactivatedFromMigration=1) — these are active-source leads blocked only by Gate 2
+- [ ] FIX: Re-engagement for old imported contacts should use SMS, not email (email activation not working)
