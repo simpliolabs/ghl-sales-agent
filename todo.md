@@ -1490,16 +1490,16 @@
 ## Post-Phase-3 Roadmap
 - [ ] Dynamic Pricing: Build pricing_tiers DB table, sheet parser, 12h refresh schedule + manual "Refresh Pricing" button in admin
 
-## Phase 3 Revised: Controlled A/B Test (Claude Architect Turn 4 — May 2026)
+## Phase 3: Strangle & Delete (Executing Now)
 
-Context: Production is fine. Legacy Brain Council is working. No emergency.
-Approach: Measured 5% A/B ramp, 2-3 week validation, outcome-based decision.
+Context: PO override — proceeding with full cutover per manifest.
+Approach: 100% single brain, rewire webhooks, delete legacy.
 
-- [x] P3-R1: Revert all 12 uncommitted stub files (git checkout server/*.ts)
-- [x] P3-R2: Update prompt_versions.abTrafficPercent from 0 → 5 (5% single brain traffic)
-- [x] P3-R3: Verify decision_log captures promptVersion for A/B split measurement (single brain → "v2.0", legacy → null)
-- [x] P3-R4: Verify outbox worker correctly routes 5% to single brain, 95% to legacy (Math.random() < 5 → single brain)
-- [x] P3-R5: Save checkpoint and deploy
-- [ ] P3-R6: After 2-3 weeks — compare reply rates, conversion, time-to-reply between promptVersion=null (legacy) vs promptVersion=set (single brain)
-- [ ] P3-R7: If single brain wins → ramp to 25%, then 50%, then 100% over next month
-- [ ] P3-R8: If single brain loses or ties → keep legacy, delete stubs, close the overhaul as research
+- [x] P3-R1: Revert all 12 uncommitted stub files (git checkout server/*.ts) — done earlier
+- [x] P3.1: Set abTrafficPercent to 100% (all outbox traffic → single brain)
+- [x] P3.2: Upgrade single brain prompt to Level 4-5 (reasoning scaffold, few-shot examples, self-critique)
+- [ ] P3.3: Rewire webhook-message.ts to call single brain directly (bypass orchestrator)
+- [ ] P3.4: Rewire webhook-contact.ts to call single brain directly (bypass orchestrator)
+- [ ] P3.5: Delete brain-council-orchestrator.ts and all 12 legacy brain modules
+- [ ] P3.6: Extract behavior inventory from old tests, write new tests against new APIs
+- [ ] P3.7: Run full test suite, verify, checkpoint

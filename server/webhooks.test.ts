@@ -64,7 +64,7 @@ vi.mock("./scheduling-engine", () => ({
   nextSmsWindowStart: vi.fn().mockReturnValue(new Date(Date.now() + 12 * 60 * 60 * 1000)),
 }));
 
-vi.mock("./brain-council-orchestrator", () => ({
+vi.mock("./brain-adapter", () => ({
   runBrainCouncil: vi.fn().mockResolvedValue({ message: "Hello from Brain Council!", fromName: "Adorb Custom Tees", framework: "PAS", angle: "intro", extractedDates: [], score: 50, segment: "other", nextEngagementHours: 24, qcScore: 85, strategyReasoning: "Test strategy" }),
 }));
 
@@ -421,7 +421,7 @@ describe("Dedup guard and cadence backoff", () => {
     const { sendMessage } = await import("./ghl");
     (getRecentAiOutboundCount as ReturnType<typeof vi.fn>).mockResolvedValue(1);
 
-    const { runBrainCouncil } = await import("./brain-council-orchestrator");
+    const { runBrainCouncil } = await import("./brain-adapter");
 
     const res = await request(app).post("/api/webhooks/ghl").send({
       id: "contact_dedup_1",
@@ -451,7 +451,7 @@ describe("Dedup guard and cadence backoff", () => {
     const { getRecentAiOutboundCount } = await import("./db");
     (getRecentAiOutboundCount as ReturnType<typeof vi.fn>).mockResolvedValue(1);
 
-    const { runBrainCouncil } = await import("./brain-council-orchestrator");
+    const { runBrainCouncil } = await import("./brain-adapter");
 
     const res = await request(app).post("/api/webhooks/ghl/message").send({
       contactId: "contact_123",
@@ -474,7 +474,7 @@ describe("Dedup guard and cadence backoff", () => {
       { direction: "outbound", senderType: "ai", channel: "SMS", messageBody: "First msg", timestamp: new Date(Date.now() - 120000) },
     ]);
 
-    const { runBrainCouncil } = await import("./brain-council-orchestrator");
+    const { runBrainCouncil } = await import("./brain-adapter");
 
     const res = await request(app).post("/api/webhooks/ghl/message").send({
       contactId: "contact_123",
@@ -496,7 +496,7 @@ describe("Dedup guard and cadence backoff", () => {
     // Reset conversation history to empty (no unanswered messages)
     (getConversationHistory as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
-    const { runBrainCouncil } = await import("./brain-council-orchestrator");
+    const { runBrainCouncil } = await import("./brain-adapter");
 
     const res = await request(app).post("/api/webhooks/ghl/message").send({
       contactId: "contact_123",
@@ -544,7 +544,7 @@ describe("Form data extraction in contact webhook", () => {
     await vi.advanceTimersByTimeAsync(50_000);
 
     // Brain Council should now be called (replaced locked template in Layer 2)
-    const { runBrainCouncil } = await import("./brain-council-orchestrator");
+    const { runBrainCouncil } = await import("./brain-adapter");
     expect(runBrainCouncil).toHaveBeenCalled();
   });
 });
@@ -559,7 +559,7 @@ describe("GHL workflow payload normalization", () => {
   });
 
   it("handles workflow-style inbound message with contact_id and nested message.body", async () => {
-    const { runBrainCouncil } = await import("./brain-council-orchestrator");
+    const { runBrainCouncil } = await import("./brain-adapter");
     const { addConversation } = await import("./db");
 
     // This is the exact payload format GHL sends from the "Customer Replied" workflow
@@ -631,7 +631,7 @@ describe("Concurrent message dedup lock", () => {
 
   it("blocks duplicate concurrent message webhooks for the same contact+body", async () => {
     // Add a delay to Brain Council so the lock is held while the second request arrives
-    const { runBrainCouncil } = await import("./brain-council-orchestrator");
+    const { runBrainCouncil } = await import("./brain-adapter");
     (runBrainCouncil as ReturnType<typeof vi.fn>).mockImplementation(async () => {
       await new Promise(r => setTimeout(r, 100)); // simulate processing time
       return { message: "Hello!", fromName: "Adorb", framework: "PAS", angle: "intro", extractedDates: [], score: 50, segment: "other", nextEngagementHours: 24, qcScore: 85, strategyReasoning: "Test" };
@@ -714,7 +714,7 @@ describe("Concurrent message dedup lock", () => {
 
   it("blocks duplicate on legacy /api/webhooks/ghl/message endpoint too", async () => {
     // Add a delay to Brain Council so the lock is held
-    const { runBrainCouncil } = await import("./brain-council-orchestrator");
+    const { runBrainCouncil } = await import("./brain-adapter");
     (runBrainCouncil as ReturnType<typeof vi.fn>).mockImplementation(async () => {
       await new Promise(r => setTimeout(r, 100));
       return { message: "Hello!", fromName: "Adorb", framework: "PAS", angle: "intro", extractedDates: [], score: 50, segment: "other", nextEngagementHours: 24, qcScore: 85, strategyReasoning: "Test" };

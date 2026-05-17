@@ -448,7 +448,7 @@ async function processOutboxRow(row: OutboxRow): Promise<void> {
 
     } else {
       // ── Legacy fallback: Brain Council path ────────────────────────────
-      const { runBrainCouncil } = await import("./brain-council-orchestrator");
+      const { runBrainCouncil } = await import("./brain-adapter");
       const brainInput: BrainCouncilInput = {
         leadId: lead.id,
         incomingMessage: String(payload.incomingMessage || ""),

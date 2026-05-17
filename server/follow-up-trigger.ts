@@ -15,7 +15,7 @@
  */
 
 import { getLeadsDueForFollowUp, getConversationHistory, updateLeadFields, addConversation, upsertAiState, getAiState, getRecentAiOutboundCount, addBrainCouncilAudit, getBrainCouncilAuditForLead, isAiOffline, getLastEmailThreadId, getLastEmailThreadInfo } from "./db";
-import { runBrainCouncil } from "./brain-council-orchestrator";
+import { runBrainCouncil } from "./brain-adapter";
 import { enqueueOutbox, makeIdemKey } from "./outbox-worker";
 import { calculateNextFollowUp, checkRateLimits, capDate, checkDnc } from "./scheduling-engine";
 import { sendMessage, addNote, fetchGhlConversationHistory, getContact } from "./ghl";
