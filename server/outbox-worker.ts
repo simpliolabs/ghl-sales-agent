@@ -526,6 +526,31 @@ async function processOutboxRow(row: OutboxRow): Promise<void> {
     }
 
   } catch (err: any) {
+    // ── Dead-contact guard: GHL says contact no longer exists ─────────────
+    const errStatus = err?.response?.status;
+    const errBody = err?.response?.data;
+    const isContactNotFound =
+      errStatus === 400 &&
+      typeof errBody?.message === "string" &&
+      errBody.message.toLowerCase().includes("contact not found");
+
+    if (isContactNotFound) {
+      await updateLeadFields(leadId, {
+        pipelineStage: "not_qualified",
+        nextFollowUpAt: new Date("2099-01-01"),
+      });
+      await markOutbox(row.id, "failed", "ghl_contact_deleted");
+      console.warn(`[Outbox] Lead ${leadId} marked not_qualified — GHL contact returned "Contact not found" (ghlContactId may be stale or deleted)`);
+      await logDecision({
+        outboxId: row.id, leadId,
+        trigger: String(payload?.trigger || row.source),
+        inputGuardResult: "pass",
+        outputGuardResult: "block:ghl_contact_deleted",
+        durationMs: Date.now() - startTime,
+      });
+      return;
+    }
+
     console.error(`[Outbox] Error processing row ${row.id}:`, err);
     await markOutbox(row.id, "failed", String(err?.message || err));
 

@@ -1563,3 +1563,11 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [ ] FIX: Channel escalation logic — if lead never replied to email, next attempt MUST use SMS
 - [ ] FIX: Reactivate 365 Facebook/ghl/fb leads (set reactivatedFromMigration=1) — these are active-source leads blocked only by Gate 2
 - [ ] FIX: Re-engagement for old imported contacts should use SMS, not email (email activation not working)
+
+## PR #1 (Today — Safety-Critical Fixes)
+- [x] Part A1: Update bookAppointment tool description in single-brain.ts (internal-only, no lead notification)
+- [x] Part A2: Change executeBookAppointment() return shape — remove slot/humanReadableSlot, add _internal wrapper
+- [x] Part A3: Add APPOINTMENT HANDLING hard constraint to system prompt
+- [x] Part B: Add dead-contact retry loop fix in outbox-worker.ts (isContactNotFound → mark not_qualified)
+- [ ] Part C: Run backfill SQL for 5 known dead-contact leads
+- [ ] Part D: Run sweep query and report row count + 10-row sample
