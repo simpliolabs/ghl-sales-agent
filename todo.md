@@ -1569,5 +1569,5 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [x] Part A2: Change executeBookAppointment() return shape — remove slot/humanReadableSlot, add _internal wrapper
 - [x] Part A3: Add APPOINTMENT HANDLING hard constraint to system prompt
 - [x] Part B: Add dead-contact retry loop fix in outbox-worker.ts (isContactNotFound → mark not_qualified)
-- [ ] Part C: Run backfill SQL for 5 known dead-contact leads
-- [ ] Part D: Run sweep query and report row count + 10-row sample
+- [x] Part C: Run backfill SQL for 5 known dead-contact leads
+- [x] Part D: Run sweep query and report row count + 10-row sample
