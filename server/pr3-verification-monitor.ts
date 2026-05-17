@@ -41,7 +41,7 @@ async function checkVerification5(): Promise<void> {
       and(
         eq(outbox.status, "sent"),
         gte(outbox.sentAt, POST_DEPLOY_CUTOFF),
-        like(outbox.payload, "%Email%")
+        sql`CAST(${outbox.payload} AS CHAR) LIKE '%Email%'`
       )
     )
     .orderBy(outbox.sentAt)
@@ -132,7 +132,7 @@ async function checkVerification6(): Promise<void> {
         and(
           eq(outbox.status, "sent"),
           gte(outbox.sentAt, POST_DEPLOY_CUTOFF),
-          like(outbox.payload, "%SMS%")
+          sql`CAST(${outbox.payload} AS CHAR) LIKE '%SMS%'`
         )
       )
       .orderBy(outbox.sentAt)

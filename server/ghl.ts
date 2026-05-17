@@ -282,7 +282,7 @@ export async function sendMessage(contactId: string, opts: {
               )[0];
               const agentMsgTime = new Date(latestAgent.dateAdded);
               const minutesAgo = Math.round((now - agentMsgTime.getTime()) / 60000);
-              console.log(`[SEND-GATE] \u274C BLOCKED send to ${contactId} — GHL shows human agent message (userId=${latestAgent.userId}) ${minutesAgo}min ago: "${String(latestAgent.body || '').substring(0, 80)}"`);
+              console.log(`[SEND-GATE] \u274C BLOCKED send to ${contactId} — GHL shows human agent message (userId=${latestAgent.userId || latestAgent.user?.id}) ${minutesAgo}min ago: "${String(latestAgent.body || '').substring(0, 80)}"`);
               // Update DB so future checks are faster (skip GHL API call)
               await updateLeadFields(lead.id, { humanTakeover: 1, lastAgentActivityAt: agentMsgTime });
               // Undo burst counter since we're not sending
