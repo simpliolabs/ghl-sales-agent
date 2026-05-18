@@ -279,7 +279,7 @@ export async function processOutboxRow(row: OutboxRow): Promise<void> {
     }
 
     // 2. Input guards (lightweight TypeScript checks, no LLM)
-    const guardResult = await runInputGuards(lead);
+    const guardResult = await runInputGuards(lead, row);
     if (guardResult.blocked) {
       await markOutbox(row.id, "skipped", guardResult.reason);
       await logDecision({ outboxId: row.id, leadId, trigger: String(payload.trigger || row.source), inputGuardResult: `block:${guardResult.reason}`, durationMs: Date.now() - startTime });
@@ -668,7 +668,7 @@ const DNC_KEYWORDS = [
   "not interested", "remove my number", "wrong number", "wrong person",
 ];
 
-async function runInputGuards(lead: any): Promise<GuardResult> {
+async function runInputGuards(lead: any, item?: OutboxRow): Promise<GuardResult> {
   // Guard 1: AI offline
   try {
     if (await isAiOffline()) {
@@ -717,16 +717,45 @@ async function runInputGuards(lead: any): Promise<GuardResult> {
     return { blocked: true, deferred: false, reason: `terminal_stage:${lead.pipelineStage}` };
   }
 
-  // Guard 5: TCPA quiet hours (8pm-8am in lead's timezone, default ET)
+  // Guard 5: TCPA quiet hours — PR#3.13: channel-scoped, reply-exempt
   try {
-    const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-    const hour = etNow.getHours();
-    if (hour >= 20 || hour < 8) {
-      // Defer to 8am ET next day
-      const next8am = new Date(etNow);
-      if (hour >= 20) next8am.setDate(next8am.getDate() + 1);
-      next8am.setHours(8, 0, 0, 0);
-      return { blocked: false, deferred: true, reason: "tcpa_quiet_hours", deferUntil: next8am };
+    const itemPayload = item ? (typeof item.payload === "string" ? JSON.parse(item.payload) : item.payload) as Record<string, unknown> : {};
+    const channel = String(itemPayload?.channel || lead?.preferredChannel || "").toLowerCase();
+    const trigger = String(itemPayload?.source || itemPayload?.trigger || "").toLowerCase();
+
+    // PR#3.13: Inbound replies on any channel are exempt from TCPA
+    const REPLY_TRIGGERS = ["inbound_reply", "fast_scan", "message_received", "reply"];
+    const isReply = REPLY_TRIGGERS.some(t => trigger.includes(t));
+
+    // PR#3.13: Only SMS/WhatsApp are TCPA-covered channels
+    const isTcpaCovered = (channel === "sms" || channel === "whatsapp");
+
+    if (isTcpaCovered && !isReply) {
+      const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+      const hour = etNow.getHours();
+      // TCPA quiet hours: 9pm-9am ET (matches industry standard, aligns with other guards)
+      if (hour >= 21 || hour < 9) {
+        const next9am = new Date(etNow);
+        if (hour >= 21) next9am.setDate(next9am.getDate() + 1);
+        next9am.setHours(9, 0, 0, 0);
+        console.log(`[OutboxWorker] PR#3.13: TCPA quiet hours — deferring ${channel} outbox ${item?.id || "?"} until ${next9am.toISOString()}`);
+        return { blocked: false, deferred: true, reason: "tcpa_quiet_hours", deferUntil: next9am };
+      }
+    }
+
+    // PR#3.13: Non-TCPA channels (IG/FB/Email) get human-feel deferral only
+    // for cold outreach, never for replies. Pushes 11 PM - 7 AM sends to 8 AM.
+    if (!isTcpaCovered && !isReply) {
+      const etNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+      const hour = etNow.getHours();
+      // Human-feel: defer 11 PM - 7 AM cold outreach to 8 AM
+      if (hour >= 23 || hour < 7) {
+        const next8am = new Date(etNow);
+        if (hour >= 23) next8am.setDate(next8am.getDate() + 1);
+        next8am.setHours(8, 0, 0, 0);
+        console.log(`[OutboxWorker] PR#3.13: Human-feel deferral — ${channel} outbox ${item?.id || "?"} until ${next8am.toISOString()}`);
+        return { blocked: false, deferred: true, reason: "human_feel_quiet_hours", deferUntil: next8am };
+      }
     }
   } catch (err) {
     console.error(`[Outbox/Guard] TCPA check error:`, err);

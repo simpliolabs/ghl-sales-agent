@@ -1658,3 +1658,24 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [x] Write pr310-first-contact-userid.test.ts — 5 tests (5/5 pass in isolation)
 - [x] Run Gabriela diagnostic query — humanTakeover already 0 (supervisor auto-escalated), no cleanup needed
 - [x] Git commit + push to GitHub
+
+## PR#3.13 — TCPA quiet-hours scoping (URGENT: ship before Monday 9 AM ET)
+
+- [ ] PR#3.13 Fix 1: Replace isBusinessHours() in scheduling-engine.ts — add SMS/WhatsApp TCPA branch + IG/FB/Live_Chat human-feel branch
+- [ ] PR#3.13 Fix 1: Add isHumanFeelHours() helper below isBusinessHours()
+- [ ] PR#3.13 Fix 2: Replace Guard 5 in outbox-worker.ts — channel-scoped TCPA + human-feel deferral + inbound-reply exemption
+- [ ] PR#3.13: Write pr313-tcpa-scoping.test.ts — 8 tests
+- [ ] PR#3.13: Run tests 8/8, commit, push to GitHub, save checkpoint
+- [ ] PR#3.13: Publish and verify IG leads engage within 30 min
+
+## PR#3.12 — Phantom conversations + messageId capture
+
+- [ ] PR#3.12 Change 1: Extend sendMessageWithRetry return type (add messageId, channelDelivered)
+- [ ] PR#3.12 Change 2: Add classifySendOutcome helper in webhook-helpers.ts
+- [ ] PR#3.12 Change 3: Add "no_messageid_returned" to GhlSendErrorType union
+- [ ] PR#3.12 Change 4: Replace 6 success paths in sendMessageWithRetry with classifySendOutcome calls
+- [ ] PR#3.12 Change 5: Update addConversation signature in db.ts (add ghlMessageId param)
+- [ ] PR#3.12 Change 5: Update 9 addConversation caller sites to pass ghlMessageId
+- [ ] PR#3.12: Write pr312-messageid-classification.test.ts — 7 tests
+- [ ] PR#3.12: Run tests 7/7, commit, push to GitHub, save checkpoint
+- [ ] PR#3.12: Mark Christina + Robert phantom rows as unconfirmed (pending PO GHL check)

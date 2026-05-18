@@ -111,15 +111,35 @@ function isBusinessHours(date: Date, channel: string): boolean {
   const et = toET(date);
   const day = et.getDay(); // 0=Sun, 6=Sat
   const hour = et.getHours();
+  const ch = channel.toLowerCase();
 
-  if (channel.toLowerCase() === "email") {
+  if (ch === "email") {
     // Email: respect optimal send windows (6-10 AM, 1-3 PM ET)
     return !isEmailOutsideOptimalWindow(date);
   }
 
-  // SMS/Phone: Mon-Fri 9am-5pm ET only (staff hours)
-  if (day === 0 || day === 6) return false; // No weekends
-  return hour >= 9 && hour < 17; // 9 AM - 5 PM ET
+  // PR#3.13: TCPA strict hours apply ONLY to SMS and WhatsApp cold outreach
+  // (9am-9pm Mon-Sat in lead's timezone enforced elsewhere; this is the
+  // TCPA-applicable channel gate for outbound scheduling).
+  if (ch === "sms" || ch === "whatsapp") {
+    if (day === 0) return false; // No Sundays for SMS/WhatsApp cold outreach
+    return hour >= 9 && hour < 21; // 9 AM - 9 PM ET (TCPA window)
+  }
+
+  // PR#3.13: IG, FB, Live_Chat — use "human-feel" hours, not TCPA.
+  // These channels don't fall under TCPA. Loose hours to avoid 3 AM sends
+  // (which looks like a bot) but still allow weekend + evening engagement.
+  // 8 AM - 10 PM ET, 7 days a week.
+  return hour >= 8 && hour < 22;
+}
+
+// PR#3.13: Human-feel hours for non-TCPA channels (IG, FB, Live_Chat).
+// Used by scheduling logic to push cold outreach out of late-night windows
+// without applying TCPA's stricter weekend/9pm rules.
+function isHumanFeelHours(date: Date): boolean {
+  const et = toET(date);
+  const hour = et.getHours();
+  return hour >= 8 && hour < 22; // 8 AM - 10 PM ET, 7 days
 }
 
 function isHoliday(date: Date): boolean {
