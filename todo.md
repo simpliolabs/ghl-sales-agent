@@ -1586,13 +1586,8 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [x] Reduce log noise: skip or throttle the "Skipping Layer B" info log per Claude's hygiene note
 - [x] Write tests for the userId check in both paths
 - [x] Run full test suite (1189 tests — all passing)
-<<<<<<< HEAD
 - [x] Git commit + checkpoint + push to GitHub (merged: 831b6e8c)
 - [x] Write PR#3.5 verification report for Claude
-=======
-- [ ] Git commit + checkpoint + push to GitHub
-- [ ] Write PR#3.5 verification report for Claude
->>>>>>> github/main
 
 ## PR#5 (Learning System Wiring — Claude-Revised Spec)
 - [ ] Wire getPromotedLearnings() into Single Brain assembleContext() (~400 tokens)
@@ -1611,20 +1606,14 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [x] Change 3c: Replace Example 2 + add Example 2b (multi-design) + 2 anti-patterns (color-asking, over-qualifying)
 - [x] Behavioral tests: 25/25 passing (tool defs, hard constraint #14, TREE 2, few-shots, anti-patterns, executeTool routing)
 - [x] Run full test suite — 1227/1227 passing (56 files, 0 failures)
-<<<<<<< HEAD
 - [x] Git commit + checkpoint + push to GitHub (merged: 6da185e2, PR #4)
 - [x] Write PR#3.6 verification report for Claude (includes PR#3.7 data dump)
-=======
-- [ ] Git commit + checkpoint + push to GitHub
-- [ ] Write PR#3.6 verification report for Claude
->>>>>>> github/main
 
 ## PR#3.7 Data Gathering (do NOT code — data only)
 - [x] Data 1: knowledge_files — 1 row (Updated Pricing Google Sheet)
 - [x] Data 2: ai_tweaks — 7 active rows (owner instructions being silently ignored by Single Brain)
 - [x] Data 3: Brain Council injects via brain-context.ts; Single Brain does NOT read either table
 - [x] Data 4: Admin surface audit — knowledge_files + ai_tweaks have UI but zero effect on production (100% Single Brain)
-<<<<<<< HEAD
 
 ## BUG TRIAGE: Duplicate-send bugs (Tiare Lewis + V) — PR#3.7 PAUSED
 - [x] Query 1: Tiare Lewis outbox rows May 17 (2 rows, both follow_up, 2hrs apart)
@@ -1652,5 +1641,4 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [ ] Run: SELECT id, leadId, direction, senderType, messageBody, createdAt FROM conversations WHERE leadId = 1383 AND DATE(createdAt) = '2026-05-17' ORDER BY createdAt
 - [ ] Paste getRecentAiOutboundCount source to Claude
 - [ ] Deliver pre-work data to Claude for PR#3.9 spec
-=======
->>>>>>> github/main
+- [ ] Vitest full-suite mock contamination: PR#3.9 tests pass in isolation but fail in full suite due to cross-file mock bleed. Needs vitest config / test hygiene cleanup in a separate PR.

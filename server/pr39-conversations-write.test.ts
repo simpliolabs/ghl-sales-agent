@@ -1,25 +1,42 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// ─── Module-level mock variables (hoisted by vitest alongside vi.mock) ────────
-const mockIsAiOffline = vi.fn();
-const mockGetLeadById = vi.fn();
-const mockGetConversationHistory = vi.fn();
-const mockGetRecentAiOutboundCount = vi.fn();
-const mockGetLeadsDueForFollowUp = vi.fn();
-const mockAddConversation = vi.fn();
-const mockUpdateLeadFields = vi.fn();
-const mockGetDb = vi.fn();
-const mockDbExecute = vi.fn();
-const mockDbInsert = vi.fn();
-const mockDbSelect = vi.fn();
+// ─── Hoisted mock variables (required for vi.mock factories to reference them) ─
+const {
+  mockIsAiOffline,
+  mockGetLeadById,
+  mockGetConversationHistory,
+  mockGetRecentAiOutboundCount,
+  mockGetLeadsDueForFollowUp,
+  mockAddConversation,
+  mockUpdateLeadFields,
+  mockGetDb,
+  mockDbExecute,
+  mockDbInsert,
+  mockDbSelect,
+  mockSendMessageWithRetry,
+  mockRunSingleBrain,
+} = vi.hoisted(() => ({
+  mockIsAiOffline: vi.fn(),
+  mockGetLeadById: vi.fn(),
+  mockGetConversationHistory: vi.fn(),
+  mockGetRecentAiOutboundCount: vi.fn(),
+  mockGetLeadsDueForFollowUp: vi.fn(),
+  mockAddConversation: vi.fn(),
+  mockUpdateLeadFields: vi.fn(),
+  mockGetDb: vi.fn(),
+  mockDbExecute: vi.fn(),
+  mockDbInsert: vi.fn(),
+  mockDbSelect: vi.fn(),
+  mockSendMessageWithRetry: vi.fn(),
+  mockRunSingleBrain: vi.fn(),
+}));
+
 const mockDb = {
   execute: (...a: any[]) => mockDbExecute(...a),
   insert: (...a: any[]) => mockDbInsert(...a),
   select: (...a: any[]) => mockDbSelect(...a),
   update: vi.fn().mockReturnValue({ set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) }) }),
 };
-const mockSendMessageWithRetry = vi.fn();
-const mockRunSingleBrain = vi.fn();
 
 vi.mock("./db", () => ({
   getDb: (...a: any[]) => mockGetDb(...a),
@@ -152,6 +169,7 @@ vi.mock("./brain-council-review", () => ({
   runFastMissedReplyScanner: vi.fn().mockResolvedValue(0),
 }));
 
+// Imports — after all vi.mock() calls
 import { processOutboxRow } from "./outbox-worker";
 import { processOverdueFollowUps } from "./follow-up-trigger";
 
@@ -193,6 +211,9 @@ function makeOutboxRow(payloadOverrides: Record<string, any> = {}, rowOverrides:
 // ─── Tests ───────────────────────────────────────────────────────────────────
 describe("PR#3.9 — Conversations Write + lastMessageAt + Dedup", () => {
   beforeEach(() => {
+    // Pin system time to 10am ET (14:00 UTC) so TCPA quiet-hours guard (8pm-8am ET) passes
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-18T14:00:00.000Z"));
     vi.clearAllMocks();
     mockIsAiOffline.mockResolvedValue(false);
     mockGetConversationHistory.mockResolvedValue([]);
@@ -213,12 +234,15 @@ describe("PR#3.9 — Conversations Write + lastMessageAt + Dedup", () => {
     });
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   // ── Test 1: Path A (pre-composed draft) ────────────────────────────────────
   it("Path A: addConversation is called with correct args after successful draft send", async () => {
     mockGetLeadById.mockResolvedValue(makeLead());
     const row = makeOutboxRow({ draftMessage: "Hey! Ready to order your church shirts?" });
     await processOutboxRow(row as any);
-    console.log("DEBUG addConversation calls:", JSON.stringify(mockAddConversation.mock.calls)); console.log("DEBUG updateLeadFields calls:", JSON.stringify(mockUpdateLeadFields.mock.calls)); console.log("DEBUG sendMessageWithRetry calls:", JSON.stringify(mockSendMessageWithRetry.mock.calls.length)); console.log("DEBUG getLeadById calls:", JSON.stringify(mockGetLeadById.mock.calls.length));
     expect(mockAddConversation).toHaveBeenCalledWith(
       expect.objectContaining({
         leadId: 42,
@@ -340,15 +364,22 @@ describe("PR#3.9 — Conversations Write + lastMessageAt + Dedup", () => {
     const mockLead = {
       id: 99,
       name: "Dedup Test Lead",
-      ghlContactId: "contact_dedup_test",
-      assignedAgent: "Abby Bouwer",
+      ghlContactId: "cont_dedup",
+      phone: "+15559998888",
+      email: "dedup@example.com",
       preferredChannel: "SMS",
+      assignedAgent: "Abby Bouwer",
       humanTakeover: 0,
       pipelineStage: "new_lead",
+      aiOffline: 0,
+      nextFollowUpAt: new Date(Date.now() - 60000), // overdue by 1 min
     };
     mockGetLeadsDueForFollowUp.mockResolvedValue([mockLead]);
-    mockGetRecentAiOutboundCount.mockResolvedValue(1);
+    mockGetRecentAiOutboundCount.mockResolvedValue(1); // AI sent recently → should skip
+    mockGetConversationHistory.mockResolvedValue([]);
+
     await processOverdueFollowUps();
+
     expect(mockGetRecentAiOutboundCount).toHaveBeenCalledWith(99, 240);
   });
 });
