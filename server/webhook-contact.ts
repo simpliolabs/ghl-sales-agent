@@ -61,6 +61,47 @@ export function _setFirstContactDelay(ms: number) { FIRST_CONTACT_DELAY_MS = ms;
 /** For testing: clear all first-contact locks. DO NOT use in production. */
 export function _clearFirstContactLocks() { firstContactLocks.clear(); }
 
+/**
+ * PR#3.11: Detect preliminary channel from webhook payload signals.
+ * Lightweight version of the 8-layer detection in sendDelayedFirstContact,
+ * using only payload-level signals available immediately (no GHL API call).
+ * Returns null if no social channel detected — lets sendDelayedFirstContact's
+ * full 8-layer detection handle SMS/Email with conversation history context.
+ */
+export function detectPreliminaryChannel(
+  payload: Record<string, unknown>,
+  lead: { source?: string | null; phone?: string | null; email?: string | null }
+): "SMS" | "Email" | "WhatsApp" | "FB" | "IG" | null {
+  // Layer A: Payload type fields (numeric or string)
+  const payloadType = String(payload.messageType || payload.type || "").toLowerCase();
+  if (payloadType === "18" || payloadType.includes("instagram") || payloadType.includes("ig")) return "IG";
+  if (payloadType === "4" || payloadType === "15" || payloadType.includes("facebook") || payloadType.includes("fb")) return "FB";
+  if (payloadType === "19" || payloadType === "6" || payloadType.includes("whatsapp")) return "WhatsApp";
+
+  // Layer B: Payload source field
+  const src = (payload.source as string || "").toLowerCase();
+  if (src.includes("instagram") || src.includes("ig")) return "IG";
+  if (src.includes("facebook") || src.includes("fb") || src.includes("lead_form")) return "FB";
+  if (src.includes("whatsapp")) return "WhatsApp";
+
+  // Layer C: Lead source field
+  const leadSrc = (lead.source || "").toLowerCase();
+  if (leadSrc.includes("instagram") || leadSrc.includes("ig")) return "IG";
+  if (leadSrc.includes("facebook") || leadSrc.includes("fb")) return "FB";
+  if (leadSrc.includes("whatsapp")) return "WhatsApp";
+
+  // Layer D: Attribution source
+  const contact = payload.contact as Record<string, any> | undefined;
+  const attrMedium = String(contact?.attributionSource?.medium || contact?.lastAttributionSource?.medium || "").toLowerCase();
+  if (attrMedium.includes("instagram") || attrMedium.includes("ig")) return "IG";
+  if (attrMedium.includes("facebook") || attrMedium.includes("fb")) return "FB";
+
+  // Don't guess SMS/Email here — let sendDelayedFirstContact's 8-layer detection
+  // handle that with full conversation history context. Returning null means
+  // "keep whatever preferredChannel was set during upsert."
+  return null;
+}
+
 export async function handleContactWebhook(payload: Record<string, unknown>, res: Response) {
   const contactId = (payload.id || payload.contactId) as string;
   if (!contactId) { res.status(400).json({ error: "No contact ID" }); return; }
@@ -190,6 +231,15 @@ export async function handleContactWebhook(payload: Record<string, unknown>, res
     const initialSchedule = await calculateNextFollowUp({ leadId: lead.id, triggerEvent: "new_lead" });
     await updateLeadFields(lead.id, { nextFollowUpAt: initialSchedule.nextFollowUpAt, cadencePosition: initialSchedule.cadencePosition });
 
+    // PR#3.11: Set preliminary preferredChannel from webhook signals BEFORE the
+    // delayed first-contact. If sendDelayedFirstContact crashes, the follow-up
+    // trigger uses this channel as fallback rather than defaulting to SMS.
+    const preliminaryChannel = detectPreliminaryChannel(payload, lead);
+    if (preliminaryChannel && preliminaryChannel !== lead.preferredChannel) {
+      await updateLeadFields(lead.id, { preferredChannel: preliminaryChannel });
+      console.log(`[Webhook] PR#3.11: Set preliminary preferredChannel=${preliminaryChannel} for lead ${lead.id}`);
+    }
+
     // =================================================================
     // PHASE 1: HEADS-UP NOTIFICATION (fires immediately, before AI message)
     // Creates ONE appointment (10-min, next biz hour) + ONE task + ONE note.
@@ -260,7 +310,12 @@ export async function handleContactWebhook(payload: Record<string, unknown>, res
         return;
       }
       sendDelayedFirstContact(leadId, leadSnapshot, payloadSnapshot, capturedResolvedContactId)
-        .catch(err => console.error(`[Webhook] Delayed first-contact error for lead ${leadId}:`, err))
+        .catch(err => {
+          const msg = err instanceof Error ? err.message : String(err);
+          const stack = err instanceof Error ? err.stack : "";
+          console.error(`[Webhook] ❌ PR#3.11: Delayed first-contact FAILED for lead ${leadId}: ${msg}`);
+          if (stack) console.error(`[Webhook] Stack:\n${stack}`);
+        })
         .finally(() => releaseFirstContactLock(leadId));
     }, FIRST_CONTACT_DELAY_MS);
   }
@@ -424,7 +479,14 @@ export async function sendDelayedFirstContact(
     }
 
     // --- FETCH GHL CONVERSATION HISTORY (shared by form extraction + channel detection) ---
-    const ghlHistory = await fetchGhlConversationHistory(resolvedContactId);
+    let ghlHistory: any[] = [];
+    try {
+      ghlHistory = await fetchGhlConversationHistory(resolvedContactId);
+    } catch (ghlErr) {
+      console.error(`[Webhook] PR#3.11: GHL history fetch failed for lead ${leadId} (non-fatal, proceeding with empty history):`, ghlErr instanceof Error ? ghlErr.message : ghlErr);
+      // Empty array allows channel detection to fall through to Layer 0B / Layer 7B
+      // (form data + payload-based channel detection) instead of crashing
+    }
 
     // --- EXTRACT FORM DATA (3-layer) ---
     // Layer 1: Direct webhook payload fields
