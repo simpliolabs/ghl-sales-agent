@@ -198,11 +198,25 @@ function splitSmsMessage(msg: string): [string, string] | null {
   return [msg.substring(0, bestIdx).trim(), msg.substring(bestIdx).trim()];
 }
 
+// PR#3.12: Classify GHL send outcome — extracts messageId from successful sends
+// GHL returns { messageId: string, ... } on success. This helper ensures we
+// capture it and surface phantom sends (HTTP 200 with no messageId).
+export function classifySendOutcome(result: unknown): { messageId?: string; emailMessageId?: string; isPhantom: boolean } {
+  const data = result as Record<string, unknown> | undefined;
+  const messageId = data?.messageId as string | undefined;
+  const emailMessageId = (data?.emailMessageId || data?.messageId) as string | undefined;
+  const isPhantom = !messageId; // GHL returned 200 but no messageId — phantom send
+  if (isPhantom) {
+    console.warn(`[SendRetry] PR#3.12: Phantom send detected — GHL returned 200 with no messageId. Response keys: ${data ? Object.keys(data).join(", ") : "null"}`);
+  }
+  return { messageId: messageId || undefined, emailMessageId: emailMessageId || undefined, isPhantom };
+}
+
 export async function sendMessageWithRetry(
   contactId: string,
   opts: Parameters<typeof sendMessage>[1],
   lead: { email?: string | null; phone?: string | null; id: number }
-): Promise<{ success: boolean; resolvedContactId: string; error?: string; errorType?: GhlSendErrorType; correctionTaken?: string; emailMessageId?: string }> {
+): Promise<{ success: boolean; resolvedContactId: string; error?: string; errorType?: GhlSendErrorType; correctionTaken?: string; emailMessageId?: string; ghlMessageId?: string; isPhantom?: boolean }> {
   // ── SMS SPLITTING: Send long SMS as 2 natural texts with delay ──────────────
   if ((opts.type === "SMS" || opts.type === "WhatsApp") && opts.message) {
     const parts = splitSmsMessage(opts.message);
@@ -218,8 +232,9 @@ export async function sendMessageWithRetry(
         // Wait 3-5 seconds (feels human)
         await new Promise(r => setTimeout(r, 3000 + Math.random() * 2000));
         // Send part 2
-        await sendMessage(contactId, { ...opts, message: parts[1] });
-        return { success: true, resolvedContactId: contactId, correctionTaken: "split_sms" };
+        const result2 = await sendMessage(contactId, { ...opts, message: parts[1] });
+        const outcome2 = classifySendOutcome(result2);
+        return { success: true, resolvedContactId: contactId, correctionTaken: "split_sms", ghlMessageId: outcome2.messageId, emailMessageId: outcome2.emailMessageId, isPhantom: outcome2.isPhantom };
       } catch (err: unknown) {
         // Fall through to normal error handling below
         const classified = classifyGhlSendError(err);
@@ -240,7 +255,8 @@ export async function sendMessageWithRetry(
       console.warn(`[SendRetry] Send BLOCKED by gate — reason=${reason} channel=${opts.type} lead=${lead.id} contact=${contactId}`);
       return { success: false, resolvedContactId: contactId, error: `Send blocked: ${reason}`, errorType: "unknown" as GhlSendErrorType, correctionTaken: `blocked_by_${reason.toLowerCase()}` };
     }
-    return { success: true, resolvedContactId: contactId, emailMessageId: (result as any)?.emailMessageId };
+    const outcome = classifySendOutcome(result);
+    return { success: true, resolvedContactId: contactId, ghlMessageId: outcome.messageId, emailMessageId: outcome.emailMessageId, isPhantom: outcome.isPhantom };
   } catch (err: unknown) {
     const classified = classifyGhlSendError(err);
     const channel = opts.type;
@@ -256,7 +272,8 @@ export async function sendMessageWithRetry(
         console.log(`[SendRetry] Resolved to ${resolved.resolvedId}, retrying send...`);
         try {
           const retryResult = await sendMessage(resolved.resolvedId, opts);
-          return { success: true, resolvedContactId: resolved.resolvedId, correctionTaken: "resolved_contact_id", emailMessageId: (retryResult as any)?.emailMessageId };
+          const retryOutcome = classifySendOutcome(retryResult);
+          return { success: true, resolvedContactId: resolved.resolvedId, correctionTaken: "resolved_contact_id", ghlMessageId: retryOutcome.messageId, emailMessageId: retryOutcome.emailMessageId, isPhantom: retryOutcome.isPhantom };
         } catch (retryErr: unknown) {
           const retryClassified = classifyGhlSendError(retryErr);
           console.error(`[SendRetry] Retry also failed (${retryClassified.type}):`, retryClassified.message);
@@ -285,7 +302,8 @@ export async function sendMessageWithRetry(
         try {
           const fbSubject = (opts as any)._contextSubject || "Adorb Custom Tees";
           const fbResult = await sendMessage(contactId, { type: "Email", subject: fbSubject, html: opts.message || "", message: opts.message });
-          return { success: true, resolvedContactId: contactId, correctionTaken: "fallback_to_email", emailMessageId: (fbResult as any)?.emailMessageId };
+          const fbOutcome = classifySendOutcome(fbResult);
+          return { success: true, resolvedContactId: contactId, correctionTaken: "fallback_to_email", ghlMessageId: fbOutcome.messageId, emailMessageId: fbOutcome.emailMessageId, isPhantom: fbOutcome.isPhantom };
         } catch (fbErr: unknown) {
           const fbClassified = classifyGhlSendError(fbErr);
           console.error(`[SendRetry] Email fallback also failed (${fbClassified.type}):`, fbClassified.message);
@@ -307,7 +325,8 @@ export async function sendMessageWithRetry(
         console.log(`[SendRetry] ${label} for lead ${lead.id} — attempting SMS fallback`);
         try {
           const smsResult = await sendMessage(contactId, { type: "SMS", message: opts.message || "" });
-          return { success: true, resolvedContactId: contactId, correctionTaken: "fallback_to_sms", emailMessageId: (smsResult as any)?.emailMessageId };
+          const smsOutcome = classifySendOutcome(smsResult);
+          return { success: true, resolvedContactId: contactId, correctionTaken: "fallback_to_sms", ghlMessageId: smsOutcome.messageId, emailMessageId: smsOutcome.emailMessageId, isPhantom: smsOutcome.isPhantom };
         } catch (fbErr: unknown) {
           const fbClassified = classifyGhlSendError(fbErr);
           console.error(`[SendRetry] SMS fallback also failed (${fbClassified.type}):`, fbClassified.message);
@@ -336,7 +355,8 @@ export async function sendMessageWithRetry(
         try {
           const cbSubject = (opts as any)._contextSubject || "Adorb Custom Tees";
           const cbResult = await sendMessage(contactId, { type: "Email", subject: cbSubject, html: opts.message || "", message: opts.message });
-          return { success: true, resolvedContactId: contactId, correctionTaken: "carrier_block_fallback_to_email", emailMessageId: (cbResult as any)?.emailMessageId };
+          const cbOutcome = classifySendOutcome(cbResult);
+          return { success: true, resolvedContactId: contactId, correctionTaken: "carrier_block_fallback_to_email", ghlMessageId: cbOutcome.messageId, emailMessageId: cbOutcome.emailMessageId, isPhantom: cbOutcome.isPhantom };
         } catch (fbErr: unknown) {
           const fbClassified = classifyGhlSendError(fbErr);
           console.error(`[SendRetry] Email fallback after carrier block also failed:`, fbClassified.message);

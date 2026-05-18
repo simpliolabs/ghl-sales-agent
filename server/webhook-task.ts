@@ -55,7 +55,8 @@ export async function handleTaskWebhook(payload: Record<string, unknown>, res: R
       try {
         const proofResult = await sendMessageWithRetry(contactId, { type: "SMS", message: notification.message }, { email: lead.email, phone: lead.phone, id: lead.id });
         if (proofResult.success) {
-          await addConversation({ leadId: lead.id, channel: "SMS", direction: "outbound", messageBody: notification.message, senderType: "ai", senderName: notification.fromName });
+          if (proofResult.isPhantom) console.warn(`[Task] PR#3.12: Phantom proof notification for lead ${lead.id}`);
+          await addConversation({ leadId: lead.id, channel: "SMS", direction: "outbound", messageBody: notification.message, senderType: "ai", senderName: notification.fromName, ghlMessageId: proofResult.ghlMessageId });
         } else {
           console.error(`[Task] Proof notification send FAILED for lead ${lead.id}: ${proofResult.error}`);
         }
@@ -78,7 +79,8 @@ export async function handleTaskWebhook(payload: Record<string, unknown>, res: R
       try {
         const readyResult = await sendMessageWithRetry(contactId, { type: "SMS", message: notification.message }, { email: lead.email, phone: lead.phone, id: lead.id });
         if (readyResult.success) {
-          await addConversation({ leadId: lead.id, channel: "SMS", direction: "outbound", messageBody: notification.message, senderType: "ai", senderName: notification.fromName });
+          if (readyResult.isPhantom) console.warn(`[Task] PR#3.12: Phantom ready notification for lead ${lead.id}`);
+          await addConversation({ leadId: lead.id, channel: "SMS", direction: "outbound", messageBody: notification.message, senderType: "ai", senderName: notification.fromName, ghlMessageId: readyResult.ghlMessageId });
         } else {
           console.error(`[Task] Ready notification send FAILED for lead ${lead.id}: ${readyResult.error}`);
         }

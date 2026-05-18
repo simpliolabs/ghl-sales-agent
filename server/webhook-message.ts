@@ -849,7 +849,8 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
             : { type: ackChannel as "SMS" | "WhatsApp" | "FB" | "IG", message: quickAck };
           const ackResult = await sendMessageWithRetry(resolvedContactId, ackOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
           if (ackResult.success) {
-            await addConversation({ leadId: lead!.id, channel: ackChannel, direction: "outbound", messageBody: `[QUICK-ACK] ${quickAck}`, senderType: "ai", senderName: aiResponse.fromName || lead!.assignedAgent || undefined });
+            if (ackResult.isPhantom) console.warn(`[Webhook/Msg] PR#3.12: Phantom quick-ack for lead ${lead!.id}`);
+            await addConversation({ leadId: lead!.id, channel: ackChannel, direction: "outbound", messageBody: `[QUICK-ACK] ${quickAck}`, senderType: "ai", senderName: aiResponse.fromName || lead!.assignedAgent || undefined, ghlMessageId: ackResult.ghlMessageId });
             console.log(`[Webhook/Msg] \u2705 Quick-ack sent to lead ${lead!.id} after Brain Council block: "${quickAck}"`);
           } else {
             console.warn(`[Webhook/Msg] Quick-ack send FAILED for lead ${lead!.id}: ${ackResult.error}`);
@@ -952,7 +953,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   if (sendChannel !== channel) {
     console.log(`[Webhook/Msg] Channel adjusted for lead ${lead!.id}: inbound=${channel} → send=${sendChannel} (Brain Council recommended: ${aiResponse.channel})`);
   }
-  let normalSendResult: { success: boolean; resolvedContactId: string; emailMessageId?: string; error?: string };
+  let normalSendResult: { success: boolean; resolvedContactId: string; emailMessageId?: string; error?: string; ghlMessageId?: string; isPhantom?: boolean };
   {
     // Email threading: look up prior email thread ID and subject for reply threading
     let emailThreadId: string | null = null;
@@ -976,7 +977,8 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   }
 
   if (normalSendResult.success) {
-    await addConversation({ leadId: lead!.id, channel: sendChannel, direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName, emailMessageId: normalSendResult.emailMessageId || undefined });
+    if (normalSendResult.isPhantom) console.warn(`[Webhook/Msg] PR#3.12: Phantom normal send for lead ${lead!.id}`);
+    await addConversation({ leadId: lead!.id, channel: sendChannel, direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName, emailMessageId: normalSendResult.emailMessageId || undefined, ghlMessageId: normalSendResult.ghlMessageId });
   } else {
     console.error(`[Webhook/Msg] Normal send FAILED for lead ${lead!.id}: ${normalSendResult.error} — conversation NOT stored`);
   }

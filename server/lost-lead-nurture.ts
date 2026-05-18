@@ -292,6 +292,7 @@ async function processNurtureLead(
       lastOutboundChannel: effectiveChannel,
     });
 
+    if (sendResult.isPhantom) console.warn(`${moduleLabel} PR#3.12: Phantom send for lead ${leadId}`);
     await addConversation({
       leadId,
       channel: effectiveChannel,
@@ -300,6 +301,7 @@ async function processNurtureLead(
       senderType: "ai",
       senderName: BRAND.defaultAgentName,
       emailMessageId: sendResult.emailMessageId || undefined,
+      ghlMessageId: sendResult.ghlMessageId,
     });
 
     console.log(`${moduleLabel} ✅ Sent Brain Council nurture ${effectiveChannel} to lead ${leadId} (${leadName}) — subject: "${subject}"`);

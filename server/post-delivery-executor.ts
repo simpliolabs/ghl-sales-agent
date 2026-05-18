@@ -127,6 +127,7 @@ export async function processPostDeliverySteps(): Promise<{ processed: number; s
         });
 
         if (sendResult.success) {
+          if (sendResult.isPhantom) console.warn(`[PostDelivery] PR#3.12: Phantom send for lead ${step.leadId}`);
           const actualChannel = sendResult.correctionTaken?.includes("email") ? "Email"
             : sendResult.correctionTaken?.includes("sms") ? "SMS"
             : channel;
@@ -138,6 +139,7 @@ export async function processPostDeliverySteps(): Promise<{ processed: number; s
             senderType: "ai",
             senderName: aiResponse.fromName,
             emailMessageId: sendResult.emailMessageId || undefined,
+            ghlMessageId: sendResult.ghlMessageId,
           });
           await updateLeadFields(step.leadId, {
             lastMessageAt: new Date(),

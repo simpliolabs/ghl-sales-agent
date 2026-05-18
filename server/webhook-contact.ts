@@ -841,15 +841,18 @@ export async function sendDelayedFirstContact(
     });
 
     let messageSent = false;
+    let sendGhlMessageId: string | undefined;
     if (sendOpts) {
       const sendResult = await sendMessageWithRetry(resolvedContactId, sendOpts, { email: lead.email, phone: lead.phone, id: lead.id });
       if (sendResult.resolvedContactId !== resolvedContactId) resolvedContactId = sendResult.resolvedContactId;
       messageSent = sendResult.success;
+      sendGhlMessageId = sendResult.ghlMessageId;
+      if (sendResult.isPhantom) console.warn(`[Webhook] PR#3.12: Phantom first-contact send for lead ${leadId} — success=true but no ghlMessageId`);
       if (!messageSent) console.error(`[Webhook] Failed to send first-contact to lead ${leadId}: ${sendResult.error}`);
     }
 
     if (messageSent) {
-      await addConversation({ leadId, channel: brainChannel, direction: "outbound", messageBody: composedMessage, senderType: "ai", senderName: fromName });
+      await addConversation({ leadId, channel: brainChannel, direction: "outbound", messageBody: composedMessage, senderType: "ai", senderName: fromName, ghlMessageId: sendGhlMessageId });
     } else {
       console.error(`[Webhook] First-contact message NOT stored in conversations — send failed for lead ${leadId}`);
     }

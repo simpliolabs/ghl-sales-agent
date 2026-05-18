@@ -338,6 +338,7 @@ export async function processOutboxRow(row: OutboxRow): Promise<void> {
         console.log(`[Outbox] Path A send succeeded with correction: ${result.correctionTaken} for lead ${leadId}`);
       }
       await markOutbox(row.id, "sent");
+      if (result.isPhantom) console.warn(`[Outbox] PR#3.12: Phantom Path A send for lead ${leadId}`);
       // PR#3.9: Write conversations row so dedup guard can see this send
       await addConversation({
         leadId,
@@ -346,6 +347,7 @@ export async function processOutboxRow(row: OutboxRow): Promise<void> {
         messageBody: String(payload.draftMessage),
         senderType: "ai",
         senderName: "AI",
+        ghlMessageId: result.ghlMessageId,
       });
       // PR#3.9: Update lastMessageAt on lead
       await updateLeadFields(leadId, { lastMessageAt: new Date() });
@@ -491,6 +493,7 @@ export async function processOutboxRow(row: OutboxRow): Promise<void> {
         console.log(`[Outbox] Path B send succeeded with correction: ${result.correctionTaken} for lead ${leadId}`);
       }
       await markOutbox(row.id, "sent");
+      if (result.isPhantom) console.warn(`[Outbox] PR#3.12: Phantom Path B send for lead ${leadId}`);
       // PR#3.9: Write conversations row so dedup guard can see this send
       await addConversation({
         leadId,
@@ -499,6 +502,7 @@ export async function processOutboxRow(row: OutboxRow): Promise<void> {
         messageBody: finalDecision.message,
         senderType: "ai",
         senderName: "AI",
+        ghlMessageId: result.ghlMessageId,
       });
       // PR#3.9: Update lastMessageAt on lead
       await updateLeadFields(lead.id, { lastMessageAt: new Date() });
