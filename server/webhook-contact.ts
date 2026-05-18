@@ -273,7 +273,7 @@ export async function handleContactWebhook(payload: Record<string, unknown>, res
  * By the time this runs, GHL should have fully indexed the conversation data
  * so channel detection is accurate.
  */
-async function sendDelayedFirstContact(
+export async function sendDelayedFirstContact(
   leadId: number,
   leadSnapshot: Record<string, unknown>,
   payload: Record<string, unknown>,
@@ -335,12 +335,26 @@ async function sendDelayedFirstContact(
           const body = m.body.toLowerCase().trim();
           if (body.length < 10) return false;
           if (SYSTEM_PATTERNS_FC.some(p => body.includes(p))) return false;
-          // Check for userId — messages with userId are from human agents
-          if (m.userId) return true;
-          // Even without userId, if it's a substantial outbound message during the delay,
-          // it's likely a human agent (our AI hasn't sent anything yet for this lead)
-          return true;
+          // PR#3.10: Require userId to classify as human agent activity.
+          // GHL workflows (e.g. "WAIT! You're not done yet..." promo template) produce
+          // outbound messages WITHOUT userId — those are automation, not human agents.
+          // Without this guard, workflow messages during the 45s delay window get
+          // misclassified as agent takeover and block AI first-contact entirely.
+          // This matches the userId requirement enforced in ghl.ts Layer B (PR#3.5).
+          return Boolean(m.userId || (m as any).user?.id);
         });
+
+        // PR#3.10: Diagnostic log for workflow messages that no longer trigger takeover
+        const ignoredOutboundCount = freshGhlHistory.filter(m => 
+          m.direction === "outbound" && 
+          m.body?.trim() && 
+          m.dateAdded &&
+          (now - new Date(m.dateAdded).getTime()) <= DELAY_WINDOW_MS &&
+          !m.userId && !(m as any).user?.id
+        ).length;
+        if (ignoredOutboundCount > 0 && recentAgentMsgs.length === 0) {
+          console.log(`[Webhook] PR#3.10: Ignored ${ignoredOutboundCount} non-user GHL outbound message(s) during first-contact delay window for lead ${leadId} (likely workflow/automation)`);
+        }
 
         if (recentAgentMsgs.length > 0) {
           const latestMsg = recentAgentMsgs.sort((a, b) =>

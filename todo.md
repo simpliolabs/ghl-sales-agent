@@ -1641,4 +1641,20 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [ ] Run: SELECT id, leadId, direction, senderType, messageBody, createdAt FROM conversations WHERE leadId = 1383 AND DATE(createdAt) = '2026-05-17' ORDER BY createdAt
 - [ ] Paste getRecentAiOutboundCount source to Claude
 - [ ] Deliver pre-work data to Claude for PR#3.9 spec
+- [ ] Repo hygiene: .project-config.json is in .gitignore but was tracked in old commits (2ddb455a). File is NOT currently tracked on github/main (confirmed via git show). Historical commits still contain secrets — consider running git-filter-repo to scrub history if repo is ever made public.
+- [ ] Known issue — PR#3.9 tests sensitive to TCPA quiet hours guard. Future cleanup PR should add SKIP_TCPA_GUARD_IN_TESTS env var or extract guard to injectable dependency.
 - [ ] Vitest full-suite mock contamination: PR#3.9 tests pass in isolation but fail in full suite due to cross-file mock bleed. Needs vitest config / test hygiene cleanup in a separate PR.
+- [ ] PR#3.10: Fix first-contact userId requirement — filter recentAgentMsgs to require userId (block workflow false positives)
+- [ ] PR#3.10: Add diagnostic log for ignored non-user outbound messages during delay window
+- [ ] PR#3.10: Export sendDelayedFirstContact for testing
+- [ ] PR#3.10: Write pr310-first-contact-userid.test.ts — 5 tests
+- [ ] PR#3.10: Run Gabriela diagnostic query and conditional cleanup
+
+## PR#3.10 — userId filter for first-contact delay window
+
+- [x] Fix first-contact userId requirement — filter recentAgentMsgs to require userId (block workflow false positives like Gabriela's "WAIT! You're not done yet..." message)
+- [x] Add diagnostic log for ignored non-user outbound messages during delay window
+- [x] Export sendDelayedFirstContact for testing
+- [x] Write pr310-first-contact-userid.test.ts — 5 tests (5/5 pass in isolation)
+- [x] Run Gabriela diagnostic query — humanTakeover already 0 (supervisor auto-escalated), no cleanup needed
+- [x] Git commit + push to GitHub
