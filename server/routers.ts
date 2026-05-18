@@ -248,7 +248,7 @@ export const appRouter = router({
       if (!db) return { messagesSent: 0, replies: 0, quotesSent: 0, dealsClosed: 0, revenue: 0 };
       const { outbox, conversations, quotes, leads } = await import("../drizzle/schema");
       const { sql: sqlFn, count } = await import("drizzle-orm");
-      const [sent] = await db.select({ cnt: count() }).from(outbox).where(sqlFn`status = 'sent'`);
+      const [sent] = await db.select({ cnt: count() }).from(outbox).where(sqlFn`outbox_status = 'sent'`);
       const [replies] = await db.select({ cnt: count() }).from(conversations).where(sqlFn`direction = 'inbound' AND senderType = 'lead'`);
       const [qSent] = await db.select({ cnt: count() }).from(quotes);
       const [closed] = await db.select({ cnt: count() }).from(leads).where(sqlFn`opportunityStatus = 'won'`);
