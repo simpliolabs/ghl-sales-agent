@@ -466,7 +466,7 @@ export function createWebhookRouter(): Router {
         }
         case "message": {
           action = "message_handler";
-          const msgBody = (payload.body || payload.message || "") as string;
+          const msgBody = String(payload.body ?? payload.message ?? "");
           if (!acquireMessageLock(contactId, msgBody)) {
             action = "dedup_blocked";
             res.json({ success: true, action: "dedup_blocked" });
