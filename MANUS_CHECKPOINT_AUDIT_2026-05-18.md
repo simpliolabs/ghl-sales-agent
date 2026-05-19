@@ -203,6 +203,14 @@ After `webdev_save_checkpoint`, verify the deployment succeeded (check the syste
 
 Foundation A1, A2, A2.5 should each have been a separate checkpoint. This ensures each phase is independently deployable and recoverable. No more "batch multiple foundation phases into one eventual checkpoint."
 
+### Rule 6: The Manus Runtime Is Not Customer-Facing Production — Verification Must Run Post-Publish
+
+The Manus sandbox dev server (`localhost:3000`) shares the **same database** as production but is NOT the customer-facing runtime. The customer-facing runtime at `ghl.adorbcustomtees.com` only receives new code after the PO manually clicks **Publish** in the Management UI. 
+
+**Verification queries must run after PO Publish, not after checkpoint save.** A synthetic write from the sandbox proves the DB path works but does NOT prove the published Cloud Run instance has the new code. Post-Publish verification must hit the custom domain directly (e.g., `curl -X POST https://ghl.adorbcustomtees.com/api/trpc/verifyFoundationA ...`).
+
+The +1h and +24h traffic checks only become meaningful after the Publish timestamp, not after the checkpoint timestamp.
+
 ---
 
 ## 4. Foundation A Reapply Decision
