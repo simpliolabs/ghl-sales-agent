@@ -13,6 +13,7 @@ import {
   createInvite, getInviteByToken, markInviteUsed, getActiveInvites, deleteInvite,
   getAllUsers, updateUserRole, getUserByOpenId, purgeGhostUsers,
   getBrainCouncilAuditLog, getBrainCouncilAuditForLead, getRecentWebhookLogs,
+  recordSendAttempt,
 } from "./db";
 import { ENV } from "./_core/env";
 import { storagePut } from "./storage";
@@ -119,6 +120,26 @@ export const appRouter = router({
 
   outbox: router({
     stats: protectedProcedure.query(async () => getOutboxStats()),
+  }),
+
+  // Foundation A verification endpoint — remove after A3 ships or next foundation piece
+  verifyFoundationA: adminProcedure.mutation(async () => {
+    const testRow = {
+      leadId: -1, // negative = sentinel, no real lead can have negative ID
+      channel: "verification_synthetic" as any,
+      outcomeKind: "blocked" as const,
+      reason: "Foundation A reapply post-deploy verification — commit ddec03f",
+      attemptedAt: new Date(),
+      trigger: "post_deploy_verification",
+      payload: {
+        verifyCommit: "ddec03f",
+        verifiedAt: new Date().toISOString(),
+        foundationPhase: "A_reapply_consolidated",
+        isPermanent: true,
+      },
+    };
+    await recordSendAttempt(testRow);
+    return { success: true, message: "Synthetic write to send_attempts succeeded — permanent sentinel row created", row: testRow };
   }),
 
   leads: router({
