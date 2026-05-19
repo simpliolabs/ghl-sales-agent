@@ -876,3 +876,5 @@ export function buildSendOpts(
   }
   return undefined;
 }
+
+// Build 2026-05-19: Earl Wheeler echo fix + D.J.A.Y. DB-persisted first-contact + IG/FB 2-part split
