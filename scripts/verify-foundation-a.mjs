@@ -32,7 +32,7 @@ async function main() {
   console.log("[1] Generated admin session JWT");
 
   // Call the verifyFoundationA endpoint
-  const url = "http://localhost:3000/api/trpc/verifyFoundationA";
+  const url = process.env.VERIFY_URL || "http://localhost:3000/api/trpc/verifyFoundationA";
   const resp = await fetch(url, {
     method: "POST",
     headers: {
