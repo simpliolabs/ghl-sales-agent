@@ -2,7 +2,7 @@
 
 **Date:** May 19, 2026  
 **Author:** Manus AI  
-**Git:** `f93f0a9` on `github/main` (simpliolabs/ghl-sales-agent)  
+**Git:** `365db2e` on `github/main` (simpliolabs/ghl-sales-agent)  
 **Production:** `ghl.adorbcustomtees.com`
 
 ---
@@ -247,7 +247,7 @@ Outbox Worker Guard 5 (TCPA):
 | Production URL | `ghl.adorbcustomtees.com` |
 | Manus domain | `adorboutreach-28achv27.manus.space` |
 | GitHub repo | `simpliolabs/ghl-sales-agent` |
-| Latest commit | `f93f0a9` |
+| Latest commit | `365db2e` |
 | Stack | React 19 + Express 4 + tRPC 11 + Drizzle + MySQL/TiDB |
 | Node version | 22.13.0 |
 | Package manager | pnpm |
