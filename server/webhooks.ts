@@ -427,7 +427,7 @@ export function createWebhookRouter(): Router {
   router.post("/api/webhooks/ghl", async (req: Request, res: Response) => {
     const startTime = Date.now();
     const payload = normalizeWorkflowPayload(req.body);
-    const contactId = (payload.contactId || payload.id || "") as string;
+    const contactId = String(payload.contactId ?? payload.id ?? "");
     let detectedType = "unknown";
     let action = "";
     let logError = "";
@@ -491,7 +491,7 @@ export function createWebhookRouter(): Router {
         }
         case "pipeline": {
           action = "pipeline_handler";
-          const pipelineStage = (payload.currentStage || payload.toStage || payload.stageName || "") as string;
+          const pipelineStage = String(payload.currentStage ?? payload.toStage ?? payload.stageName ?? "");
           if (!acquirePipelineLock(contactId, pipelineStage)) {
             action = "pipeline_dedup_blocked";
             res.json({ success: true, action: "pipeline_dedup_blocked" });
@@ -552,7 +552,7 @@ export function createWebhookRouter(): Router {
             }
           } else if (payload.currentStage || payload.toStage || payload.stageName || payload.pipelineId) {
             action = "fallback_pipeline";
-            const fbPipelineStage = (payload.currentStage || payload.toStage || payload.stageName || "") as string;
+            const fbPipelineStage = String(payload.currentStage ?? payload.toStage ?? payload.stageName ?? "");
             if (!acquirePipelineLock(contactId, fbPipelineStage)) {
               action = "pipeline_dedup_blocked";
               res.json({ success: true, action: "pipeline_dedup_blocked" });
@@ -579,7 +579,7 @@ export function createWebhookRouter(): Router {
       }
 
       addWebhookLog({
-        eventType: (payload.type || payload.event || "unknown") as string,
+        eventType: String(payload.type ?? payload.event ?? "unknown"),
         detectedType,
         contactId: contactId || undefined,
         payloadSummary,
@@ -592,7 +592,7 @@ export function createWebhookRouter(): Router {
       console.error("[Webhook] Error:", err);
 
       addWebhookLog({
-        eventType: (payload?.type || payload?.event || "unknown") as string,
+        eventType: String(payload?.type ?? payload?.event ?? "unknown"),
         detectedType,
         contactId: contactId || undefined,
         action,
@@ -615,8 +615,8 @@ export function createWebhookRouter(): Router {
 
   router.post("/api/webhooks/ghl/message", async (req: Request, res: Response) => {
     const legacyPayload = normalizeWorkflowPayload(req.body);
-    const legacyContactId = (legacyPayload.contactId || legacyPayload.id || "") as string;
-    const legacyMsgBody = (legacyPayload.body || legacyPayload.message || "") as string;
+    const legacyContactId = String(legacyPayload.contactId ?? legacyPayload.id ?? "");
+    const legacyMsgBody = String(legacyPayload.body ?? legacyPayload.message ?? "");
     if (!acquireMessageLock(legacyContactId, legacyMsgBody)) {
       res.json({ success: true, action: "dedup_blocked" });
       return;
@@ -633,8 +633,8 @@ export function createWebhookRouter(): Router {
 
   router.post("/api/webhooks/ghl/pipeline", async (req: Request, res: Response) => {
     const legacyPayload = normalizeWorkflowPayload(req.body);
-    const legacyContactId = (legacyPayload.contactId || legacyPayload.id || "") as string;
-    const legacyStage = (legacyPayload.currentStage || legacyPayload.toStage || legacyPayload.stageName || "") as string;
+    const legacyContactId = String(legacyPayload.contactId ?? legacyPayload.id ?? "");
+    const legacyStage = String(legacyPayload.currentStage ?? legacyPayload.toStage ?? legacyPayload.stageName ?? "");
     if (!acquirePipelineLock(legacyContactId, legacyStage)) {
       res.json({ success: true, action: "pipeline_dedup_blocked" });
       return;
