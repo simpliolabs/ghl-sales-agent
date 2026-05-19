@@ -275,9 +275,12 @@ export async function handlePipelineWebhook(payload: Record<string, unknown>, re
         if (notifResult.success) {
           if (notifResult.isPhantom) console.warn(`[Pipeline] PR#3.12: Phantom stage notification for lead ${lead.id}`);
           await addConversation({
-            leadId: lead.id, channel: lead.phone ? "SMS" : "Email", direction: "outbound",
-            messageBody: notification.message, senderType: "ai", senderName: notification.fromName,
-            ghlMessageId: notifResult.ghlMessageId,
+            leadId: lead.id,
+            direction: 'outbound',
+            senderType: 'ai',
+            messageBody: notification.message,
+            senderName: notification.fromName,
+            outcome: { kind: 'delivered', messageId: notifResult.ghlMessageId ?? '', channel: (lead.phone ? 'SMS' : 'Email') as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: notifResult.resolvedContactId, correctionTaken: notifResult.correctionTaken },
           });
         } else {
           console.error(`[Pipeline] Stage notification send FAILED for lead ${lead.id}: ${notifResult.error} — conversation NOT stored`);

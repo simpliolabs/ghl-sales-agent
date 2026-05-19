@@ -284,13 +284,25 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   // Store the message — capture emailMessageId for threading
   // GHL may provide emailMessageId directly, or we use messageId as fallback for emails
   const inboundEmailMsgId = (payload.emailMessageId as string) || (channel === "Email" ? (payload.messageId as string) : undefined);
-  await addConversation({
-    leadId: lead!.id, channel: correctedChannel,
-    direction: direction === "outbound" ? "outbound" : "inbound",
-    messageBody: effectiveMessageBody, senderType: direction === "outbound" ? "human" : "lead",
-    ghlMessageId: payload.messageId as string,
-    emailMessageId: inboundEmailMsgId || undefined,
-  });
+  if (direction === 'outbound') {
+    // Real-time outbound webhook (rare — GHL doesn't usually fire these)
+    await addConversation({
+      leadId: lead!.id, channel: correctedChannel,
+      direction: 'outbound', senderType: 'human',
+      messageBody: effectiveMessageBody,
+      ghlMessageId: (payload.messageId as string) ?? '',
+      recorded_from: 'ghl_history_sync',
+      observedAt: new Date(),
+    });
+  } else {
+    await addConversation({
+      leadId: lead!.id, channel: correctedChannel,
+      direction: 'inbound', senderType: 'lead',
+      messageBody: effectiveMessageBody,
+      ghlMessageId: payload.messageId as string,
+      emailMessageId: inboundEmailMsgId || undefined,
+    });
+  }
 
   await updateLeadFields(lead!.id, { lastMessageAt: new Date() });
 
@@ -472,11 +484,13 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     await addConversation({
       leadId: lead!.id,
       channel: correctedChannel,
-      direction: "outbound",
+      direction: 'outbound',
+      senderType: 'human',
       messageBody: effectiveMessageBody,
-      senderType: "human",
       senderName: agentName,
-      ghlMessageId: payload.messageId as string,
+      ghlMessageId: (payload.messageId as string) ?? '',
+      recorded_from: 'ghl_history_sync',
+      observedAt: new Date(),
     });
     await updateLeadFields(lead!.id, { humanTakeover: 1, lastAgentActivityAt: new Date(), lastMessageAt: new Date() });
     console.log(`[Webhook] Real human outbound for lead ${lead!.id} by ${agentName}: "${effectiveMessageBody.substring(0, 80)}" — humanTakeover=1, saved to conversations`);
@@ -522,11 +536,22 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
             if (!m.body?.trim()) continue;
             const isFormData = m.body.toLowerCase().includes("full name:") && m.body.toLowerCase().includes("phone number:");
             if (isFormData) continue;
-            await addConversation({
-              leadId: lead!.id, channel: normalizeChannel(m.type || "SMS"),
-              direction: m.direction === "outbound" ? "outbound" : "inbound",
-              messageBody: m.body, senderType: m.direction === "outbound" ? "human" : "lead",
-            });
+            if (m.direction === 'outbound') {
+              await addConversation({
+                leadId: lead!.id, channel: normalizeChannel(m.type || 'SMS'),
+                direction: 'outbound', senderType: 'human',
+                messageBody: m.body,
+                ghlMessageId: (m as any).id ?? '',
+                recorded_from: 'ghl_history_sync',
+                observedAt: m.dateAdded ? new Date(m.dateAdded) : new Date(),
+              });
+            } else {
+              await addConversation({
+                leadId: lead!.id, channel: normalizeChannel(m.type || 'SMS'),
+                direction: 'inbound', senderType: 'lead',
+                messageBody: m.body,
+              });
+            }
           }
           console.log(`[Webhook] Synced ${ghlHistory.filter(m => m.body?.trim()).length} GHL messages for lead ${lead!.id} (${leadAgeDays.toFixed(0)} days old)`);
         }
@@ -850,7 +875,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
           const ackResult = await sendMessageWithRetry(resolvedContactId, ackOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
           if (ackResult.success) {
             if (ackResult.isPhantom) console.warn(`[Webhook/Msg] PR#3.12: Phantom quick-ack for lead ${lead!.id}`);
-            await addConversation({ leadId: lead!.id, channel: ackChannel, direction: "outbound", messageBody: `[QUICK-ACK] ${quickAck}`, senderType: "ai", senderName: aiResponse.fromName || lead!.assignedAgent || undefined, ghlMessageId: ackResult.ghlMessageId });
+            await addConversation({ leadId: lead!.id, direction: 'outbound', senderType: 'ai', messageBody: `[QUICK-ACK] ${quickAck}`, senderName: aiResponse.fromName || lead!.assignedAgent || undefined, outcome: { kind: 'delivered', messageId: ackResult.ghlMessageId ?? '', channel: ackChannel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: ackResult.resolvedContactId, correctionTaken: ackResult.correctionTaken } });
             console.log(`[Webhook/Msg] \u2705 Quick-ack sent to lead ${lead!.id} after Brain Council block: "${quickAck}"`);
           } else {
             console.warn(`[Webhook/Msg] Quick-ack send FAILED for lead ${lead!.id}: ${ackResult.error}`);
@@ -953,7 +978,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   if (sendChannel !== channel) {
     console.log(`[Webhook/Msg] Channel adjusted for lead ${lead!.id}: inbound=${channel} → send=${sendChannel} (Brain Council recommended: ${aiResponse.channel})`);
   }
-  let normalSendResult: { success: boolean; resolvedContactId: string; emailMessageId?: string; error?: string; ghlMessageId?: string; isPhantom?: boolean };
+  let normalSendResult: { success: boolean; resolvedContactId: string; emailMessageId?: string; error?: string; ghlMessageId?: string; isPhantom?: boolean; correctionTaken?: string };
   {
     // Email threading: look up prior email thread ID and subject for reply threading
     let emailThreadId: string | null = null;
@@ -978,7 +1003,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
 
   if (normalSendResult.success) {
     if (normalSendResult.isPhantom) console.warn(`[Webhook/Msg] PR#3.12: Phantom normal send for lead ${lead!.id}`);
-    await addConversation({ leadId: lead!.id, channel: sendChannel, direction: "outbound", messageBody: aiResponse.message, senderType: "ai", senderName: aiResponse.fromName, emailMessageId: normalSendResult.emailMessageId || undefined, ghlMessageId: normalSendResult.ghlMessageId });
+    await addConversation({ leadId: lead!.id, direction: 'outbound', senderType: 'ai', messageBody: aiResponse.message, senderName: aiResponse.fromName, outcome: { kind: 'delivered', messageId: normalSendResult.ghlMessageId ?? '', channel: sendChannel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: normalSendResult.resolvedContactId, correctionTaken: normalSendResult.correctionTaken, emailMessageId: normalSendResult.emailMessageId } });
   } else {
     console.error(`[Webhook/Msg] Normal send FAILED for lead ${lead!.id}: ${normalSendResult.error} — conversation NOT stored`);
   }

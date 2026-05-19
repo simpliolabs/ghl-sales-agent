@@ -416,9 +416,9 @@ describe("Lost Lead Nurture Engine v3 (channel-aware, TCPA, shared send pipeline
       }));
       expect(db.addConversation).toHaveBeenCalledWith(expect.objectContaining({
         leadId: 1,
-        channel: "Email",
         direction: "outbound",
         senderType: "ai",
+        outcome: expect.objectContaining({ kind: "delivered", channel: "Email" }),
       }));
     });
   });

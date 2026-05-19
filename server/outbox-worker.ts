@@ -341,7 +341,7 @@ export async function processOutboxRow(row: OutboxRow): Promise<void> {
       await markOutbox(row.id, "sent");
       if (result.isPhantom) console.warn(`[Outbox] PR#3.12: Phantom Path A send for lead ${leadId}`);
       // PR#3.9: Write conversations row so dedup guard can see this send
-      await addConversation({ leadId, direction: "outbound", messageBody: String(payload.draftMessage), senderType: "ai", senderName: "AI", ghlMessageId: result.ghlMessageId ?? undefined });
+      await addConversation({ leadId, direction: 'outbound', senderType: 'ai', messageBody: String(payload.draftMessage), senderName: 'AI', outcome: { kind: 'delivered', messageId: result.ghlMessageId ?? '', channel: channel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: result.resolvedContactId, correctionTaken: result.correctionTaken, emailMessageId: result.emailMessageId } });
       // PR#3.9: Update lastMessageAt on lead
       await updateLeadFields(leadId, { lastMessageAt: new Date() });
       await logDecision({
@@ -488,7 +488,7 @@ export async function processOutboxRow(row: OutboxRow): Promise<void> {
       await markOutbox(row.id, "sent");
       if (result.isPhantom) console.warn(`[Outbox] PR#3.12: Phantom Path B send for lead ${leadId}`);
       // PR#3.9: Write conversations row so dedup guard can see this send
-      await addConversation({ leadId, direction: "outbound", messageBody: finalDecision.message, senderType: "ai", senderName: "AI", ghlMessageId: result.ghlMessageId ?? undefined });
+      await addConversation({ leadId, direction: 'outbound', senderType: 'ai', messageBody: finalDecision.message, senderName: 'AI', outcome: { kind: 'delivered', messageId: result.ghlMessageId ?? '', channel: finalDecision.channel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: result.resolvedContactId, correctionTaken: result.correctionTaken, emailMessageId: result.emailMessageId } });
       // PR#3.9: Update lastMessageAt on lead
       await updateLeadFields(lead.id, { lastMessageAt: new Date() });
 

@@ -133,13 +133,11 @@ export async function processPostDeliverySteps(): Promise<{ processed: number; s
             : channel;
           await addConversation({
             leadId: step.leadId,
-            channel: actualChannel,
-            direction: "outbound",
+            direction: 'outbound',
+            senderType: 'ai',
             messageBody: aiResponse.message,
-            senderType: "ai",
             senderName: aiResponse.fromName,
-            emailMessageId: sendResult.emailMessageId || undefined,
-            ghlMessageId: sendResult.ghlMessageId,
+            outcome: { kind: 'delivered', messageId: sendResult.ghlMessageId ?? '', channel: actualChannel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: sendResult.resolvedContactId, correctionTaken: sendResult.correctionTaken, emailMessageId: sendResult.emailMessageId },
           });
           await updateLeadFields(step.leadId, {
             lastMessageAt: new Date(),

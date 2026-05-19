@@ -852,7 +852,7 @@ export async function sendDelayedFirstContact(
     }
 
     if (messageSent) {
-      await addConversation({ leadId, channel: brainChannel, direction: "outbound", messageBody: composedMessage, senderType: "ai", senderName: fromName, ghlMessageId: sendGhlMessageId });
+      await addConversation({ leadId, direction: 'outbound', senderType: 'ai', messageBody: composedMessage, senderName: fromName, outcome: { kind: 'delivered', messageId: sendGhlMessageId ?? '', channel: brainChannel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: resolvedContactId } });
     } else {
       console.error(`[Webhook] First-contact message NOT stored in conversations — send failed for lead ${leadId}`);
     }

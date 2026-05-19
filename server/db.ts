@@ -1,6 +1,6 @@
 import { eq, desc, asc, gte, lte, and, or, ne, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, leads, conversations, aiState, pipelineEvents, agentAssignments, knowledgeFiles, aiTweaks, invites, webhookLogs, brainCouncilAudit, systemSettings, hallOfFame, channelPerformance, seasonalCampaigns, postDeliverySequences, messageOutcomes, deferredResponses, quotes, segmentWeights } from "../drizzle/schema";
+import { InsertUser, users, leads, conversations, aiState, pipelineEvents, agentAssignments, knowledgeFiles, aiTweaks, invites, webhookLogs, brainCouncilAudit, systemSettings, hallOfFame, channelPerformance, seasonalCampaigns, postDeliverySequences, messageOutcomes, deferredResponses, quotes, segmentWeights, sendAttempts } from "../drizzle/schema";
 import type { InsertLead } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { cached, conversationCache, contextCache, generalCache, patternCache } from './cache';
@@ -251,13 +251,139 @@ export async function updateLeadFields(leadId: number, fields: Partial<InsertLea
 }
 
 // --- Conversations ---
-export async function addConversation(data: { leadId: number; channel?: string; direction: "inbound" | "outbound"; messageBody?: string; senderType: "ai" | "human" | "lead"; senderName?: string; ghlMessageId?: string; emailMessageId?: string; }) {
+// Foundation A: three-overload addConversation
+import type { SendOutcome } from './send-types';
+type Extract_Delivered = Extract<SendOutcome, { kind: 'delivered' }>;
+
+// Overload 1 — INBOUND (raw fields, no outcome required)
+export async function addConversation(params: {
+  leadId: number;
+  direction: 'inbound';
+  channel: string;
+  messageBody?: string;
+  senderType: 'lead' | 'system';
+  senderName?: string;
+  ghlMessageId?: string;
+  emailMessageId?: string;
+}): Promise<{ id: number } | null>;
+
+// Overload 2 — OUTBOUND AI (requires delivered SendOutcome)
+export async function addConversation(params: {
+  leadId: number;
+  direction: 'outbound';
+  senderType: 'ai';
+  messageBody?: string;
+  senderName?: string;
+  outcome: Extract_Delivered;
+}): Promise<{ id: number } | null>;
+
+// Overload 3 — OUTBOUND HUMAN PASSTHROUGH (ghl_history_sync only, REQUIRED messageId)
+export async function addConversation(params: {
+  leadId: number;
+  direction: 'outbound';
+  senderType: 'human';
+  channel: string;
+  messageBody?: string;
+  senderName?: string;
+  ghlMessageId: string;               // REQUIRED — non-optional
+  recorded_from: 'ghl_history_sync';  // literal type — no other source allowed
+  observedAt: Date;
+}): Promise<{ id: number } | null>;
+
+// Implementation
+export async function addConversation(params: any): Promise<{ id: number } | null> {
   const db = await getDb();
   if (!db) return null;
-  const result = await db.insert(conversations).values(data);
-  // Invalidate conversation cache for this lead
-  conversationCache.invalidatePrefix(`conv`);
-  return { id: result[0].insertId, ...data };
+
+  if (params.direction === 'outbound' && params.senderType === 'ai') {
+    // A2.5 phantom divert: if outcome has no messageId, divert to send_attempts
+    if (!params.outcome?.messageId || params.outcome.messageId.trim() === '') {
+      await recordSendAttempt({
+        leadId: params.leadId,
+        channel: params.outcome?.channel || 'unknown',
+        outcomeKind: 'phantom',
+        reason: 'addConversation outbound AI called with empty messageId in outcome',
+        attemptedAt: params.outcome?.deliveredAt || new Date(),
+        trigger: 'synthetic_delivered_outcome_caller',
+        payload: { messageBodyPreview: params.messageBody?.substring(0, 200), senderType: 'ai' },
+      });
+      console.warn(`[addConversation] Foundation-A-reapply: Diverted phantom outbound AI to send_attempts for lead ${params.leadId}`);
+      return null;
+    }
+    const result = await db.insert(conversations).values({
+      leadId: params.leadId,
+      channel: params.outcome.channel,
+      direction: 'outbound',
+      messageBody: params.messageBody,
+      senderType: 'ai',
+      senderName: params.senderName,
+      ghlMessageId: params.outcome.messageId,
+      emailMessageId: params.outcome.emailMessageId || null,
+      timestamp: params.outcome.deliveredAt,
+    });
+    conversationCache.invalidatePrefix('conv');
+    return { id: result[0].insertId };
+  }
+
+  if (params.direction === 'outbound' && params.senderType === 'human') {
+    // Overload 3: human outbound observed in GHL history sync.
+    // ghlMessageId is REQUIRED in the overload signature — no NULL path possible.
+    const result = await db.insert(conversations).values({
+      leadId: params.leadId,
+      channel: params.channel,
+      direction: 'outbound',
+      messageBody: params.messageBody,
+      senderType: 'human',
+      senderName: params.senderName,
+      ghlMessageId: params.ghlMessageId,
+      timestamp: params.observedAt || new Date(),
+    });
+    conversationCache.invalidatePrefix('conv');
+    return { id: result[0].insertId };
+  }
+
+  // Overload 1: Inbound (raw fields)
+  const result = await db.insert(conversations).values({
+    leadId: params.leadId,
+    channel: params.channel,
+    direction: 'inbound',
+    messageBody: params.messageBody,
+    senderType: params.senderType,
+    senderName: params.senderName,
+    ghlMessageId: params.ghlMessageId || null,
+    emailMessageId: params.emailMessageId || null,
+    timestamp: new Date(),
+  });
+  conversationCache.invalidatePrefix('conv');
+  return { id: result[0].insertId };
+}
+
+/**
+ * Foundation A: record a non-delivered send attempt.
+ * Writes to send_attempts table for audit. Does NOT write to conversations.
+ */
+export async function recordSendAttempt(params: {
+  leadId: number;
+  channel: string;
+  outcomeKind: 'phantom' | 'failed' | 'blocked';
+  reason: string;
+  errorType?: string;
+  attemptedAt: Date;
+  trigger: string;
+  payload?: Record<string, unknown>;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(sendAttempts).values({
+    leadId: params.leadId,
+    channel: params.channel,
+    outcomeKind: params.outcomeKind,
+    reason: params.reason,
+    errorType: params.errorType || null,
+    attemptedAt: params.attemptedAt,
+    trigger: params.trigger,
+    payload: params.payload ? JSON.stringify(params.payload) : null,
+  });
 }
 
 export async function getConversationHistory(leadId: number, limit = 50) {

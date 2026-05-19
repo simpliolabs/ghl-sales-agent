@@ -26,6 +26,9 @@ import {
   isAiOffline,
   getDb,
 } from "./db";
+import { attemptSend } from "./attempt-send";
+import { isDelivered } from "./send-types";
+import type { Channel } from "./send-types";
 import { decisionLog } from "../drizzle/schema";
 import { eq, desc } from "drizzle-orm";
 
@@ -123,49 +126,54 @@ export async function sendAutoCorrection(params: {
 
     const fullCorrection = `${apology}\n\n${correct}`;
 
-    // Send the correction via the same channel
-    const sendOpts = buildSendOpts(channel, apology, agentName, { name: lead.name, businessName: lead.businessName });
-    if (!sendOpts) return { success: false, error: `Cannot send via channel: ${channel}` };
+    // Send apology via attemptSend (Foundation A2.5 — phantom-aware)
+    const apologyOutcome = await attemptSend({
+      leadId,
+      ghlContactId: contactId,
+      channel: channel as Channel,
+      message: apology,
+      trigger: 'auto_correction',
+    });
 
-    // Send apology
-    try {
-      await sendMessage(contactId, sendOpts);
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      console.error(`[AutoCorrect] Failed to send apology to ${contactId}:`, errMsg);
-      return { success: false, error: errMsg };
+    if (!isDelivered(apologyOutcome)) {
+      console.error(`[AutoCorrect] Apology send failed/phantom for lead ${leadId}: ${apologyOutcome.kind}`);
+      return { success: false, error: `apology ${apologyOutcome.kind}: ${(apologyOutcome as any).reason || 'unknown'}` };
     }
+
+    // Log apology conversation (Overload 2 — outcome is confirmed delivered)
+    await addConversation({
+      leadId,
+      direction: 'outbound',
+      senderType: 'ai',
+      messageBody: `[AUTO-CORRECTION] ${apology}`,
+      senderName: agentName,
+      outcome: apologyOutcome,
+    });
 
     // Small delay for natural feel
     await new Promise(resolve => setTimeout(resolve, 2000));
 
-    // Send correct message
-    const correctOpts = buildSendOpts(channel, correct, agentName, { name: lead.name, businessName: lead.businessName });
-    if (correctOpts) {
-      try {
-        await sendMessage(contactId, correctOpts);
-      } catch (err) {
-        console.error(`[AutoCorrect] Failed to send correction to ${contactId}:`, err);
-      }
-    }
+    // Send correct message via attemptSend
+    const correctOutcome = await attemptSend({
+      leadId,
+      ghlContactId: contactId,
+      channel: channel as Channel,
+      message: correct,
+      trigger: 'auto_correction',
+    });
 
-    // Log conversations
-    await addConversation({
-      leadId,
-      channel,
-      direction: "outbound",
-      messageBody: `[AUTO-CORRECTION] ${apology}`,
-      senderType: "ai",
-      senderName: agentName,
-    });
-    await addConversation({
-      leadId,
-      channel,
-      direction: "outbound",
-      messageBody: `[AUTO-CORRECTION] ${correct}`,
-      senderType: "ai",
-      senderName: agentName,
-    });
+    if (isDelivered(correctOutcome)) {
+      await addConversation({
+        leadId,
+        direction: 'outbound',
+        senderType: 'ai',
+        messageBody: `[AUTO-CORRECTION] ${correct}`,
+        senderName: agentName,
+        outcome: correctOutcome,
+      });
+    } else {
+      console.warn(`[AutoCorrect] Correction send failed/phantom for lead ${leadId}: ${correctOutcome.kind}`);
+    }
 
     // Update audit entry
     await updateAuditCorrection(auditId, {

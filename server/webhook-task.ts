@@ -56,7 +56,7 @@ export async function handleTaskWebhook(payload: Record<string, unknown>, res: R
         const proofResult = await sendMessageWithRetry(contactId, { type: "SMS", message: notification.message }, { email: lead.email, phone: lead.phone, id: lead.id });
         if (proofResult.success) {
           if (proofResult.isPhantom) console.warn(`[Task] PR#3.12: Phantom proof notification for lead ${lead.id}`);
-          await addConversation({ leadId: lead.id, channel: "SMS", direction: "outbound", messageBody: notification.message, senderType: "ai", senderName: notification.fromName, ghlMessageId: proofResult.ghlMessageId });
+          await addConversation({ leadId: lead.id, direction: 'outbound', senderType: 'ai', messageBody: notification.message, senderName: notification.fromName, outcome: { kind: 'delivered', messageId: proofResult.ghlMessageId ?? '', channel: 'SMS', deliveredAt: new Date(), resolvedContactId: proofResult.resolvedContactId, correctionTaken: proofResult.correctionTaken } });
         } else {
           console.error(`[Task] Proof notification send FAILED for lead ${lead.id}: ${proofResult.error}`);
         }
@@ -80,7 +80,7 @@ export async function handleTaskWebhook(payload: Record<string, unknown>, res: R
         const readyResult = await sendMessageWithRetry(contactId, { type: "SMS", message: notification.message }, { email: lead.email, phone: lead.phone, id: lead.id });
         if (readyResult.success) {
           if (readyResult.isPhantom) console.warn(`[Task] PR#3.12: Phantom ready notification for lead ${lead.id}`);
-          await addConversation({ leadId: lead.id, channel: "SMS", direction: "outbound", messageBody: notification.message, senderType: "ai", senderName: notification.fromName, ghlMessageId: readyResult.ghlMessageId });
+          await addConversation({ leadId: lead.id, direction: 'outbound', senderType: 'ai', messageBody: notification.message, senderName: notification.fromName, outcome: { kind: 'delivered', messageId: readyResult.ghlMessageId ?? '', channel: 'SMS', deliveredAt: new Date(), resolvedContactId: readyResult.resolvedContactId, correctionTaken: readyResult.correctionTaken } });
         } else {
           console.error(`[Task] Ready notification send FAILED for lead ${lead.id}: ${readyResult.error}`);
         }

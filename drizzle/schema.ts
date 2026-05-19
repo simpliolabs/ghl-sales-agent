@@ -788,3 +788,20 @@ export const segmentWeights = mysqlTable("segment_weights", {
 }));
 export type SegmentWeightRow = typeof segmentWeights.$inferSelect;
 export type InsertSegmentWeightRow = typeof segmentWeights.$inferInsert;
+
+// Foundation A: send_attempts table for audit-logging non-delivered send attempts.
+// See ARCHITECTURAL_DEBT_INVENTORY_2026-05-18.md Section 2 item 2.
+export const sendAttempts = mysqlTable("send_attempts", {
+  id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
+  leadId: int("leadId").notNull(),
+  channel: varchar("channel", { length: 32 }).notNull(),
+  outcomeKind: varchar("outcomeKind", { length: 32 }).notNull(), // 'phantom' | 'failed' | 'blocked'
+  reason: text("reason").notNull(),
+  errorType: varchar("errorType", { length: 64 }),
+  attemptedAt: timestamp("attemptedAt").notNull().defaultNow(),
+  trigger: varchar("trigger", { length: 64 }).notNull(),
+  payload: text("payload"), // JSON string with request/response/error details
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+});
+export type SendAttemptRow = typeof sendAttempts.$inferSelect;
+export type InsertSendAttemptRow = typeof sendAttempts.$inferInsert;
