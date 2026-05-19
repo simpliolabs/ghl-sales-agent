@@ -931,3 +931,4 @@ export async function getOutboxStats(): Promise<{
     recentDecisions: decisions as any[],
   };
 }
+Adding a force-diff comment to trigger checkpoint
