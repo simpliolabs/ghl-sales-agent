@@ -37,6 +37,7 @@ const MAX_RETRIES = 3;
 const CLAIM_BATCH_SIZE = 5;
 const CLAIM_EXPIRY_MS = 120_000; // 2 min — reclaim if worker dies
 const DRAIN_INTERVAL_MS = 5_000; // 5 seconds between drain cycles
+const PROCESSING_TIMEOUT_MS = 60_000; // 60s — mark as failed if Brain call hangs
 
 // ── A/B Routing: Single Brain vs Legacy Brain Council ─────────────────────────
 /**
@@ -340,15 +341,7 @@ export async function processOutboxRow(row: OutboxRow): Promise<void> {
       await markOutbox(row.id, "sent");
       if (result.isPhantom) console.warn(`[Outbox] PR#3.12: Phantom Path A send for lead ${leadId}`);
       // PR#3.9: Write conversations row so dedup guard can see this send
-      await addConversation({
-        leadId,
-        channel,
-        direction: "outbound",
-        messageBody: String(payload.draftMessage),
-        senderType: "ai",
-        senderName: "AI",
-        ghlMessageId: result.ghlMessageId,
-      });
+      await addConversation({ leadId, direction: "outbound", messageBody: String(payload.draftMessage), senderType: "ai", senderName: "AI", ghlMessageId: result.ghlMessageId ?? undefined });
       // PR#3.9: Update lastMessageAt on lead
       await updateLeadFields(leadId, { lastMessageAt: new Date() });
       await logDecision({
@@ -495,15 +488,7 @@ export async function processOutboxRow(row: OutboxRow): Promise<void> {
       await markOutbox(row.id, "sent");
       if (result.isPhantom) console.warn(`[Outbox] PR#3.12: Phantom Path B send for lead ${leadId}`);
       // PR#3.9: Write conversations row so dedup guard can see this send
-      await addConversation({
-        leadId,
-        channel: finalDecision.channel || String(payload.channelHint || lead.preferredChannel || "SMS"),
-        direction: "outbound",
-        messageBody: finalDecision.message,
-        senderType: "ai",
-        senderName: "AI",
-        ghlMessageId: result.ghlMessageId,
-      });
+      await addConversation({ leadId, direction: "outbound", messageBody: finalDecision.message, senderType: "ai", senderName: "AI", ghlMessageId: result.ghlMessageId ?? undefined });
       // PR#3.9: Update lastMessageAt on lead
       await updateLeadFields(lead.id, { lastMessageAt: new Date() });
 
@@ -672,7 +657,7 @@ const DNC_KEYWORDS = [
   "not interested", "remove my number", "wrong number", "wrong person",
 ];
 
-async function runInputGuards(lead: any, item?: OutboxRow): Promise<GuardResult> {
+export async function runInputGuards(lead: any, item?: OutboxRow): Promise<GuardResult> {
   // Guard 1: AI offline
   try {
     if (await isAiOffline()) {
@@ -724,12 +709,18 @@ async function runInputGuards(lead: any, item?: OutboxRow): Promise<GuardResult>
   // Guard 5: TCPA quiet hours — PR#3.13: channel-scoped, reply-exempt
   try {
     const itemPayload = item ? (typeof item.payload === "string" ? JSON.parse(item.payload) : item.payload) as Record<string, unknown> : {};
-    const channel = String(itemPayload?.channel || lead?.preferredChannel || "").toLowerCase();
+    // FIX: Read channelHint (used by follow-up-trigger and fast_scan) in addition to channel
+    const channel = String(itemPayload?.channelHint || itemPayload?.channel || lead?.preferredChannel || "").toLowerCase();
     const trigger = String(itemPayload?.source || itemPayload?.trigger || "").toLowerCase();
 
     // PR#3.13: Inbound replies on any channel are exempt from TCPA
+    // FIX: Stale replies (>30 min old) lose their reply exemption — a 6-hour-old
+    // "reply" is no longer timely and must respect TCPA quiet hours.
     const REPLY_TRIGGERS = ["inbound_reply", "fast_scan", "message_received", "reply"];
-    const isReply = REPLY_TRIGGERS.some(t => trigger.includes(t));
+    const isReplyTrigger = REPLY_TRIGGERS.some(t => trigger.includes(t));
+    const STALE_REPLY_MS = 30 * 60 * 1000; // 30 minutes
+    const itemAge = item?.scheduledAt ? Date.now() - new Date(item.scheduledAt).getTime() : 0;
+    const isReply = isReplyTrigger && itemAge < STALE_REPLY_MS;
 
     // PR#3.13: Only SMS/WhatsApp are TCPA-covered channels
     const isTcpaCovered = (channel === "sms" || channel === "whatsapp");
@@ -846,7 +837,12 @@ export async function drainOutbox(): Promise<{ processed: number; sent: number; 
     for (const row of rows) {
       stats.processed++;
       try {
-        await processOutboxRow(row);
+        // FIX: Processing timeout — if Brain call hangs beyond 60s, mark as failed
+        // instead of leaving the row in 'claimed' state indefinitely.
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error(`processing_timeout:${PROCESSING_TIMEOUT_MS}ms`)), PROCESSING_TIMEOUT_MS);
+        });
+        await Promise.race([processOutboxRow(row), timeoutPromise]);
         // Check the final status
         const db = await getDb();
         if (db) {
@@ -857,9 +853,15 @@ export async function drainOutbox(): Promise<{ processed: number; sent: number; 
           else if (status === "skipped") stats.skipped++;
           else if (status === "failed") stats.failed++;
         }
-      } catch (err) {
+      } catch (err: any) {
         stats.failed++;
-        console.error(`[Outbox] Unhandled error in row ${row.id}:`, err);
+        // If timeout fired, explicitly mark the row as failed so it doesn't stay 'claimed'
+        if (err?.message?.startsWith("processing_timeout:")) {
+          console.error(`[Outbox] TIMEOUT: Row ${row.id} exceeded ${PROCESSING_TIMEOUT_MS}ms — marking as failed`);
+          try { await markOutbox(row.id, "failed", "processing_timeout_60s"); } catch {}
+        } else {
+          console.error(`[Outbox] Unhandled error in row ${row.id}:`, err);
+        }
       }
     }
 
@@ -931,4 +933,3 @@ export async function getOutboxStats(): Promise<{
     recentDecisions: decisions as any[],
   };
 }
-Adding a force-diff comment to trigger checkpoint

@@ -1679,3 +1679,16 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [ ] PR#3.12: Write pr312-messageid-classification.test.ts — 7 tests
 - [ ] PR#3.12: Run tests 7/7, commit, push to GitHub, save checkpoint
 - [ ] PR#3.12: Mark Christina + Robert phantom rows as unconfirmed (pending PO GHL check)
+
+## PR#3.14 — Vladislav TCPA violation fix + outbox worker hang fix
+
+- [x] PR#3.14 Fix 1: TCPA gate reads channelHint first (channelHint → channel → lead.preferredChannel)
+- [x] PR#3.14 Fix 2: Stale reply exemption — items >30 min old lose reply-exempt status
+- [x] PR#3.14 Fix 3: Processing timeout (60s) — hung Brain calls marked as failed, not left claimed
+- [x] PR#3.14: Export runInputGuards for testability
+- [x] PR#3.14: Write tcpa-fix-and-timeout.test.ts — 23 tests
+- [x] PR#3.14: Clean up stuck outbox rows (D.J.A.Y. 240003, Vladislav 240004/240007)
+- [x] PR#3.14: Set Vladislav humanTakeover=1 to stop fast_scan re-enqueuing
+- [x] PR#3.14: Run tests 23/23 pass, TypeScript clean, commit f93f0a9, push to GitHub
+- [x] PR#3.14: Write CLAUDE-HANDOFF-REPORT.md
+- [ ] PR#3.14: Save checkpoint + publish to production
