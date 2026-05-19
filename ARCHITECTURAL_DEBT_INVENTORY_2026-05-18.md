@@ -1,7 +1,7 @@
 # Architectural Debt Inventory
 
 **Created:** 2026-05-18  
-**Last Updated:** 2026-05-19 (Step A verification complete — id=30001 sentinel written at 16:07:43 UTC)
+**Last Updated:** 2026-05-19 20:12 UTC (BANNED PHRASES patch c5333bfb live — id=30036 sentinel written; Foundation A.1 and A.2 staged)
 
 ---
 
@@ -78,3 +78,24 @@ const legacyMsgBody = String(legacyPayload.body ?? legacyPayload.message ?? "");
 ```
 
 All other hits are staged for Foundation B receive-side hardening. Do not fix in bulk tonight — each file needs individual review to ensure the String() coercion doesn't change downstream behavior (e.g., `JSON.stringify` on an object body may be intentional in some paths).
+
+---
+
+## Section 5: Foundation A Follow-On Work (A.1 and A.2)
+
+**Context:** Foundation A's Step B verification (2026-05-19 17:36 UTC) revealed 31 phantom rows in `send_attempts` for the bulk-import lead cohort (1020023–1020070). GHL check on lead 1020023 (Terrence Note) confirmed: GHL returned HTTP 200 with no `messageId` because Twilio returned Error 30003 (number unreachable/dead). Foundation A correctly diverted these to `send_attempts` instead of writing false-success `conversations` rows. Pre-Foundation-A, these were written as NULL-`ghlMessageId` conversation rows — invisible failures.
+
+**Historical baseline:** 7-day pre-Foundation-A null-`ghlMessageId` rate in `conversations` was 30–100% per day (366 sends, ~300+ null IDs). The cold reactivation strategy has been operating against a largely dead lead list for months.
+
+### Foundation A.1 — Carrier-Failure Sub-Classification
+
+| # | Item | Priority | Notes |
+|---|------|----------|-------|
+| 13 | **Phantom sub-classification by carrier error code.** Currently all empty-messageId outcomes are `outcomeKind: "phantom"`. GHL's response body often contains Twilio error codes (30003 = unreachable, 30004 = blacklisted, 30005 = unknown destination, etc.) that would allow us to distinguish "dead number" from "GHL being weird" from "genuine unknown." The `sendMessage` function in `ghl.ts` should capture the full GHL response body when `messageId` is absent and store it in `send_attempts.payload`. The `classifySendOutcome` function should then sub-classify: `failed_carrier_unreachable`, `failed_dnd_set`, `failed_blacklisted`, vs residual `phantom`. | **MEDIUM** — Improves audit data quality. Enables Foundation A.2 automation. Does not fix a crash. | Requires reading the full GHL response shape when `messageId` is absent. Current payload only stores `messageBodyPreview` and `senderType`. |
+
+### Foundation A.2 — Dead-Number Outbox Handling
+
+| # | Item | Priority | Notes |
+|---|------|----------|-------|
+| 14 | **Outbox should stop retrying leads with confirmed dead phone numbers.** Currently a lead with a dead number (Twilio 30003) will be re-queued by the follow-up scheduler and the outbox will attempt the same dead send again. After Foundation A.1 classifies the failure as `failed_carrier_unreachable`, the outbox decision logic should: (a) set `humanTakeover = 1` with reason `carrier_unreachable` after N confirmed carrier failures on the same lead, and (b) optionally push `nextFollowUpAt` out 30+ days to prevent immediate re-queue. **Scope:** 33 leads identified with phantom sends in the 7-day window post-Foundation-A deploy. The full historical cohort (bulk Jan 2025 import, `reactivationCount=3`, `cadencePosition=4`) is estimated at 300+ leads. | **HIGH** — Prevents continued API waste and customer-facing damage (sending to dead numbers). Requires Foundation A.1 first. | Do not implement tonight. Requires A.1 carrier classification to be accurate before A.2 automation acts on it. |
+| 15 | **Lead list hygiene for the Jan 2025 bulk import cohort.** ~300+ leads with `createdAt` between 2025-01-01 and 2025-02-28, `reactivationCount >= 2`, `cadencePosition >= 4` should be audited for phone number validity before the next reactivation cycle. Options: (a) run a phone number validation service (Twilio Lookup, NumVerify) against the cohort before the next send, (b) mark them `humanTakeover = 1` pending manual review, (c) simply stop reactivating leads with `reactivationCount >= 3` until a human reviews. | **MEDIUM** — Business decision, not a code fix. Recommend PO review. | The 89% phantom rate on the 16:38–18:36 UTC window (31/35 sends) is the clearest signal of cohort-level data rot. |
