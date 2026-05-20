@@ -260,6 +260,13 @@
       "when": 1779303300822,
       "tag": "0036_normal_nightcrawler",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "5",
+      "when": 1779311231705,
+      "tag": "0037_nifty_stryfe",
+      "breakpoints": true
     }
   ]
 }

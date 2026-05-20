@@ -16,7 +16,7 @@
 import { getPendingDeferredResponses, updateDeferredResponseStatus, getLeadById, updateLeadFields, addConversation, getConversationHistory, getDb } from "./db";
 import { sql } from "drizzle-orm";
 import { sendMessage, fetchGhlConversationHistory } from "./ghl";
-import { sendMessageWithRetry, formatEmailHtml, normalizeChannel, buildContextSubject } from "./webhook-helpers";
+import { formatEmailHtml, normalizeChannel, buildContextSubject } from "./webhook-helpers";
 import { calculateNextFollowUp } from "./scheduling-engine";
 import { upsertAiState, getAiState } from "./db";
 import { enqueueOutbox, makeIdemKey } from "./outbox-worker";

@@ -20,7 +20,7 @@ import { runBrainCouncil } from "./brain-adapter";
 import { enqueueOutbox, makeIdemKey } from "./outbox-worker";
 import { calculateNextFollowUp, checkRateLimits, capDate, checkDnc } from "./scheduling-engine";
 import { sendMessage, addNote, fetchGhlConversationHistory, getContact } from "./ghl";
-import { sendMessageWithRetry, normalizeChannel, extractFormData, isLlmExhausted, LLM_RETRY_DELAY_MS, formatEmailHtml, buildContextSubject, sourceToChannel, ensureEmailSignature } from "./webhook-helpers";
+import { normalizeChannel, extractFormData, isLlmExhausted, LLM_RETRY_DELAY_MS, formatEmailHtml, buildContextSubject, sourceToChannel, ensureEmailSignature } from "./webhook-helpers";
 import { shouldHandoffToAgent, estimateOrderValue, generateContactNotes } from "./ai-brain";
 import { notifyOwner } from "./_core/notification";
 import { handleChannelDnc, detectDncChannel } from "./channel-fallback";

@@ -27,10 +27,10 @@ import { sendMessage, updateContactCustomField, addNote, fetchGhlConversationHis
 import { detectConfusion, handleConfusionReply, postSendValidation } from "./auto-correction";
 import { attributeReply } from "./outcome-engine";
 import { notifyOwner } from "./_core/notification";
+import { attemptSend, isDelivered } from "./attempt-send";
 import {
   resolveGhlContactId,
   extractContactData,
-  sendMessageWithRetry,
   normalizeChannel,
   extractFormData,
   isLlmExhausted,
@@ -1007,16 +1007,24 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
 
         if (quickAck) {
           const ackChannel = normalizeChannel(aiResponse.channel || channel);
-          const ackOpts: Parameters<typeof sendMessage>[1] = ackChannel === "Email"
-            ? { type: "Email", subject: `Re: Your inquiry`, html: formatEmailHtml(quickAck), fromName: aiResponse.fromName || lead!.assignedAgent || "Adorb Custom Tees" }
-            : { type: ackChannel as "SMS" | "WhatsApp" | "FB" | "IG", message: quickAck };
-          const ackResult = await sendMessageWithRetry(resolvedContactId, ackOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
-          if (ackResult.success) {
-            if (ackResult.isPhantom) console.warn(`[Webhook/Msg] PR#3.12: Phantom quick-ack for lead ${lead!.id}`);
-            await addConversation({ leadId: lead!.id, direction: 'outbound', senderType: 'ai', messageBody: `[QUICK-ACK] ${quickAck}`, senderName: aiResponse.fromName || lead!.assignedAgent || undefined, outcome: { kind: 'delivered', messageId: ackResult.ghlMessageId ?? '', channel: ackChannel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: ackResult.resolvedContactId, correctionTaken: ackResult.correctionTaken } });
-            console.log(`[Webhook/Msg] \u2705 Quick-ack sent to lead ${lead!.id} after Brain Council block: "${quickAck}"`);
+          // Foundation A.5: use typed attemptSend wrapper
+          const ackOutcome = await attemptSend({
+            leadId: lead!.id,
+            ghlContactId: resolvedContactId,
+            channel: ackChannel as import('./send-types').Channel,
+            message: quickAck,
+            emailSubject: ackChannel === 'Email' ? 'Re: Your inquiry' : undefined,
+            emailHtmlBody: ackChannel === 'Email' ? formatEmailHtml(quickAck) : undefined,
+            fromName: aiResponse.fromName || lead!.assignedAgent || 'Adorb Custom Tees',
+            trigger: 'quick_ack',
+          });
+          if (isDelivered(ackOutcome)) {
+            await addConversation({ leadId: lead!.id, direction: 'outbound', senderType: 'ai', messageBody: `[QUICK-ACK] ${quickAck}`, senderName: aiResponse.fromName || lead!.assignedAgent || undefined, outcome: { kind: 'delivered', messageId: ackOutcome.messageId ?? '', channel: ackChannel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: ackOutcome.resolvedContactId } });
+            console.log(`[Webhook/Msg] ✅ Quick-ack sent to lead ${lead!.id} after Brain Council block: "${quickAck}"`);
+          } else if (ackOutcome.kind === 'phantom') {
+            console.warn(`[Webhook/Msg] PR#3.12: Phantom quick-ack for lead ${lead!.id}`);
           } else {
-            console.warn(`[Webhook/Msg] Quick-ack send FAILED for lead ${lead!.id}: ${ackResult.error}`);
+            console.warn(`[Webhook/Msg] Quick-ack send FAILED for lead ${lead!.id}: ${(ackOutcome as any).reason || ackOutcome.kind}`);
           }
         }
       } catch (ackErr) {
@@ -1116,7 +1124,8 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   if (sendChannel !== channel) {
     console.log(`[Webhook/Msg] Channel adjusted for lead ${lead!.id}: inbound=${channel} → send=${sendChannel} (Brain Council recommended: ${aiResponse.channel})`);
   }
-  let normalSendResult: { success: boolean; resolvedContactId: string; emailMessageId?: string; error?: string; ghlMessageId?: string; isPhantom?: boolean; correctionTaken?: string };
+  // Foundation A.5: use typed attemptSend wrapper for normal Brain Council send
+  let normalSendOutcome: import('./send-types').SendOutcome | null = null;
   {
     // Email threading: look up prior email thread ID and subject for reply threading
     let emailThreadId: string | null = null;
@@ -1131,19 +1140,41 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     if (emailThreadId && priorEmailSubject) {
       normalSubject = priorEmailSubject.startsWith("Re:") ? priorEmailSubject : `Re: ${priorEmailSubject}`;
     }
-    const normalOpts: Parameters<typeof sendMessage>[1] = sendChannel === "Email"
-      ? { type: "Email", subject: normalSubject, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName, ...(emailThreadId ? { threadId: emailThreadId, replyMessageId: emailThreadId } : {}) }
-      : { type: sendChannel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
-    normalSendResult = await sendMessageWithRetry(resolvedContactId, normalOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
-    if (normalSendResult.resolvedContactId !== resolvedContactId) resolvedContactId = normalSendResult.resolvedContactId;
-    if (!normalSendResult.success) console.error(`[Webhook/Msg] Normal send failed for lead ${lead!.id}: ${normalSendResult.error}`);
+    normalSendOutcome = await attemptSend({
+      leadId: lead!.id,
+      ghlContactId: resolvedContactId,
+      channel: sendChannel as import('./send-types').Channel,
+      message: aiResponse.message,
+      emailSubject: sendChannel === 'Email' ? normalSubject : undefined,
+      emailHtmlBody: sendChannel === 'Email' ? formatEmailHtml(aiResponse.message) : undefined,
+      fromName: aiResponse.fromName,
+      emailThreadId: emailThreadId || undefined,
+      trigger: 'brain_council_response',
+    });
+    if (isDelivered(normalSendOutcome)) {
+      resolvedContactId = normalSendOutcome.resolvedContactId;
+    } else if (normalSendOutcome.kind === 'phantom') {
+      resolvedContactId = normalSendOutcome.resolvedContactId;
+    } else if (normalSendOutcome.kind !== 'blocked') {
+      console.error(`[Webhook/Msg] Normal send failed for lead ${lead!.id}: ${(normalSendOutcome as any).reason || normalSendOutcome.kind}`);
+    }
   }
 
-  if (normalSendResult.success) {
-    if (normalSendResult.isPhantom) console.warn(`[Webhook/Msg] PR#3.12: Phantom normal send for lead ${lead!.id}`);
-    await addConversation({ leadId: lead!.id, direction: 'outbound', senderType: 'ai', messageBody: aiResponse.message, senderName: aiResponse.fromName, outcome: { kind: 'delivered', messageId: normalSendResult.ghlMessageId ?? '', channel: sendChannel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: normalSendResult.resolvedContactId, correctionTaken: normalSendResult.correctionTaken, emailMessageId: normalSendResult.emailMessageId } });
+  if (normalSendOutcome && isDelivered(normalSendOutcome)) {
+    await addConversation({ leadId: lead!.id, direction: 'outbound', senderType: 'ai', messageBody: aiResponse.message, senderName: aiResponse.fromName, outcome: { kind: 'delivered', messageId: normalSendOutcome.messageId ?? '', channel: sendChannel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: normalSendOutcome.resolvedContactId, emailMessageId: normalSendOutcome.emailMessageId } });
+  } else if (normalSendOutcome && normalSendOutcome.kind === 'phantom') {
+    console.warn(`[Webhook/Msg] PR#3.12: Phantom normal send for lead ${lead!.id} — not storing conversation`);
   } else {
-    console.error(`[Webhook/Msg] Normal send FAILED for lead ${lead!.id}: ${normalSendResult.error} — conversation NOT stored`);
+    console.error(`[Webhook/Msg] Normal send FAILED for lead ${lead!.id}: ${normalSendOutcome ? (normalSendOutcome as any).reason : 'null outcome'} — conversation NOT stored`);
+  }
+  // Foundation A.5: update audit row with actual send outcome
+  if (normalSendOutcome && aiResponse.auditId) {
+    const { updateBrainCouncilAuditSendOutcome } = await import('./db');
+    await updateBrainCouncilAuditSendOutcome(aiResponse.auditId, {
+      messageSent: (normalSendOutcome.kind === 'delivered' || normalSendOutcome.kind === 'phantom') ? 1 : 0,
+      sendOutcomeKind: normalSendOutcome.kind,
+      sendError: normalSendOutcome.kind === 'failed' ? (normalSendOutcome as any).reason : undefined,
+    }).catch(() => {});
   }
   // Increment messageCount so cadence backoff works correctly
   const currentAiStateForCount = await getAiState(lead!.id);

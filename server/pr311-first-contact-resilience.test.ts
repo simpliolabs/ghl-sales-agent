@@ -74,6 +74,9 @@ vi.mock("./db", () => ({
   acquireDbBrainCouncilLock: vi.fn().mockResolvedValue(true),
   releaseDbBrainCouncilLock: vi.fn().mockResolvedValue(undefined),
   getLeadsDueForFollowUp: vi.fn().mockResolvedValue([]),
+  recordSendAttempt: vi.fn().mockResolvedValue(undefined),
+  updateBrainCouncilAuditSendOutcome: vi.fn().mockResolvedValue(undefined),
+  logDecision: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./ghl", () => ({

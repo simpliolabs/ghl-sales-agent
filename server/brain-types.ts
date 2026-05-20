@@ -144,6 +144,8 @@ export interface BrainCouncilOutput {
   // Module 4: Multi-Agent Deliberation
   deliberationUsed?: boolean;
   deliberationNote?: string;
+  // Foundation A.5: audit row ID so callers can update messageSent/sendOutcomeKind post-send
+  auditId?: number;
 }
 
 export type ViolationCategory = "irrelevant_research" | "form_data_ignored" | "wrong_business" | "generic_opener" | "missing_framework" | "safety_violation" | "unanswered_question" | "info_not_acknowledged" | "repeated_question" | "repeated_opener" | "ignored_request" | "channel_mismatch" | "unverified_claim" | "context_free_subject" | "passive_reactivation" | "email_formatting" | "channel_switch_unacknowledged" | "referral_ask_in_inquiry" | "fresh_outreach_on_aged_lead" | "wrong_hours" | "sms_too_long";

@@ -241,6 +241,7 @@ export const brainCouncilAudit = mysqlTable("brain_council_audit", {
   finalMessage: text("finalMessage"), // the message that was actually sent
   // Outcome
   messageSent: tinyint("messageSent").default(0),
+  sendOutcomeKind: varchar("sendOutcomeKind", { length: 16 }), // 'delivered' | 'phantom' | 'failed' | 'blocked' — mirrors SendOutcome.kind, written AFTER actual send
   sendError: text("sendError"),
   // Accountability
   blocked: tinyint("blocked").default(0), // 1 = message was blocked, never sent

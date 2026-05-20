@@ -13,6 +13,7 @@
 
 import { Response } from "express";
 import { upsertLead, updateLeadFields, getLeadById, getLeadByGhlContactId, getRecentAiOutboundCount, addConversation, upsertAiState, addAgentAssignment, getAgentWorkload, getConversationHistory, syncGhlDnd, insertDeferredResponse, hasPendingDeferredResponse, findExistingLeadByIdentity } from "./db";
+import { attemptSend, isDelivered } from "./attempt-send";
 import { classifySegment } from "./ai-brain";
 import { researchLead } from "./lead-researcher";
 import { calculateNextFollowUp, checkRateLimits, checkLeadRateLimit, checkDnc } from "./scheduling-engine";
@@ -25,7 +26,6 @@ import {
   STAGES,
   resolveGhlContactId,
   extractContactData,
-  sendMessageWithRetry,
   extractFormData,
   parseFormDataFromMessageBody,
   extractContactFieldsFromFormData,
@@ -843,12 +843,36 @@ export async function sendDelayedFirstContact(
     let messageSent = false;
     let sendGhlMessageId: string | undefined;
     if (sendOpts) {
-      const sendResult = await sendMessageWithRetry(resolvedContactId, sendOpts, { email: lead.email, phone: lead.phone, id: lead.id });
-      if (sendResult.resolvedContactId !== resolvedContactId) resolvedContactId = sendResult.resolvedContactId;
-      messageSent = sendResult.success;
-      sendGhlMessageId = sendResult.ghlMessageId;
-      if (sendResult.isPhantom) console.warn(`[Webhook] PR#3.12: Phantom first-contact send for lead ${leadId} — success=true but no ghlMessageId`);
-      if (!messageSent) console.error(`[Webhook] Failed to send first-contact to lead ${leadId}: ${sendResult.error}`);
+      // Foundation A.5: typed attemptSend wrapper (migrated from sendMessageWithRetry)
+      const sendOutcome = await attemptSend({
+        leadId,
+        ghlContactId: resolvedContactId,
+        channel: brainChannel as import('./send-types').Channel,
+        message: composedMessage,
+        emailSubject: sendOpts.type === 'Email' ? (sendOpts as any).subject : undefined,
+        emailHtmlBody: sendOpts.type === 'Email' ? (sendOpts as any).html : undefined,
+        fromUserId: (sendOpts as any).fromUserId,
+        trigger: 'first_contact',
+      });
+      if (isDelivered(sendOutcome)) {
+        resolvedContactId = sendOutcome.resolvedContactId;
+        messageSent = true;
+        sendGhlMessageId = sendOutcome.messageId;
+      } else if (sendOutcome.kind === 'phantom') {
+        resolvedContactId = sendOutcome.resolvedContactId;
+        console.warn(`[Webhook] PR#3.12: Phantom first-contact send for lead ${leadId}`);
+      } else {
+        console.error(`[Webhook] Failed to send first-contact to lead ${leadId}: ${sendOutcome.kind} — ${(sendOutcome as any).reason || ''}`);
+      }
+      // Foundation A.5: update audit row with actual send outcome
+      if (brainResult.auditId) {
+        const { updateBrainCouncilAuditSendOutcome } = await import('./db');
+        await updateBrainCouncilAuditSendOutcome(brainResult.auditId, {
+          messageSent: (sendOutcome.kind === 'delivered' || sendOutcome.kind === 'phantom') ? 1 : 0,
+          sendOutcomeKind: sendOutcome.kind,
+          sendError: sendOutcome.kind === 'failed' ? (sendOutcome as any).reason : undefined,
+        }).catch(() => {});
+      }
     }
 
     if (messageSent) {

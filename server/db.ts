@@ -787,13 +787,41 @@ export async function addBrainCouncilAudit(data: {
   fineTuningJobId?: number | null;
   // Email subject tracking
   emailSubject?: string;
+  // Foundation A.5: actual send outcome kind (written AFTER send returns)
+  sendOutcomeKind?: string;
 }) {
   const db = await getDb();
   if (!db) return;
   try {
-    await db.insert(brainCouncilAudit).values(data);
+    const result = await db.insert(brainCouncilAudit).values(data);
+    // Return the inserted ID so callers can update messageSent/sendOutcomeKind post-send
+    const insertId = (result as any)?.[0]?.insertId ?? (result as any)?.insertId;
+    return typeof insertId === 'number' ? insertId : undefined;
   } catch (err) {
     console.error('[DB] Failed to log brain council audit:', err);
+    return undefined;
+  }
+}
+
+/**
+ * Foundation A.5: Update brain_council_audit with actual send outcome AFTER the send returns.
+ * Called by every callsite that previously set messageSent=1 pre-send.
+ * auditId = 0 is a no-op (used when audit write was skipped or failed).
+ */
+export async function updateBrainCouncilAuditSendOutcome(auditId: number, data: {
+  messageSent: number;       // 1 = delivered, 0 = not delivered
+  sendOutcomeKind: string;   // 'delivered' | 'phantom' | 'failed' | 'blocked'
+  sendError?: string;        // error message if failed
+}) {
+  if (!auditId || auditId <= 0) return; // sentinel / no-op
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await db.update(brainCouncilAudit)
+      .set(data)
+      .where(eq(brainCouncilAudit.id, auditId));
+  } catch (err) {
+    console.error('[DB] Failed to update brain council audit send outcome:', err);
   }
 }
 

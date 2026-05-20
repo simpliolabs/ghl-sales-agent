@@ -1705,3 +1705,23 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [x] FD.8: Write server/compose-lock.test.ts — 8 tests: makeEventKey (bucket, stability, uniqueness, truncation), acquireComposeLock (first=true, second=false, different-leads, different-messages), afterEach(vi.restoreAllMocks) guard
 - [x] FD.9: Fix affectedRows extraction bug — result is [resultObj, null] from Drizzle/MySQL, not flat object
 - [x] FD.10: TypeScript check clean (0 errors), full test suite passing
+
+## Foundation A.5 — Complete Foundation A Migration — May 20, 2026
+- [x] FA5.1: Schema — add `sendOutcomeKind` column to `brain_council_audit` in drizzle/schema.ts + apply migration
+- [x] FA5.2: Schema — add `contact_not_found` to `SendErrorType` in send-types.ts + add `updateBrainCouncilAuditSendOutcome()` to db.ts
+- [x] FA5.3: Migrate webhook-contact.ts:846 (first-contact direct send) to attemptSend
+- [x] FA5.4: Migrate webhook-message.ts:1013 (ack send) to attemptSend
+- [x] FA5.5: Migrate webhook-message.ts:1137 (normal Brain Council send) to attemptSend
+- [x] FA5.6: Migrate outbox-worker.ts:310 (Path A pre-composed) to attemptSend
+- [x] FA5.7: Migrate outbox-worker.ts:448 (Path B Brain Council Single Brain) to attemptSend
+- [x] FA5.8: Migrate lost-lead-nurture.ts:274 to attemptSend
+- [x] FA5.9: Migrate post-delivery-executor.ts:123 to attemptSend
+- [x] FA5.10: Migrate webhook-pipeline.ts:274 to attemptSend
+- [x] FA5.11: Migrate webhook-task.ts:56 to attemptSend
+- [x] FA5.12: Migrate webhook-task.ts:80 to attemptSend
+- [x] FA5.13: Fix brain_council_audit semantics — write audit AFTER send in brain-adapter.ts, messageSent reflects sendResult.success
+- [x] FA5.14: Fix brain_council_audit semantics — write audit AFTER send in brain-council.ts
+- [x] FA5.15: sendMessageWithRetry is now internal-only to attempt-send.ts (no longer exported to callers)
+- [x] FA5.16: Add verifyFoundationA5 endpoint (sentinel leadId = -3) in routers.ts
+- [x] FA5.17: Write foundation-a5-audit-semantics.test.ts — 8 tests covering all outcome kinds + audit contract
+- [x] FA5.18: TypeScript clean (0 errors), 1335/1336 tests pass (1 pre-existing openai-key.test.ts credential failure unrelated to A.5)

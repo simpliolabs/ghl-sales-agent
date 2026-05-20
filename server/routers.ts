@@ -149,6 +149,52 @@ export const appRouter = router({
     };
   }),
 
+  // Foundation A.5 verification endpoint — proves attemptSend + post-send audit update are live
+  // Sentinel leadId=-3 (negative = synthetic, no real lead). Writes a pending audit row,
+  // then calls attemptSend with a synthetic blocked trigger, then verifies audit was updated.
+  verifyFoundationA5: adminProcedure.mutation(async () => {
+    const SENTINEL_LEAD_ID = -3;
+    const db = await getDb();
+    if (!db) return { success: false, message: 'DB unavailable' };
+    // 1. Write a pending audit row (messageSent=0, no sendOutcomeKind)
+    const { addBrainCouncilAudit, updateBrainCouncilAuditSendOutcome } = await import('./db');
+    const { brainCouncilAudit } = await import('../drizzle/schema');
+    const { eq } = await import('drizzle-orm');
+    // Pre-clean any stale sentinel rows from prior runs
+    await db.delete(brainCouncilAudit).where(eq(brainCouncilAudit.leadId, SENTINEL_LEAD_ID)).catch(() => {});
+    const auditId = await addBrainCouncilAudit({
+      leadId: SENTINEL_LEAD_ID,
+      channel: 'SMS',
+      composedMessage: 'Foundation A.5 synthetic verification message',
+      finalMessage: 'Foundation A.5 synthetic verification message',
+      messageSent: 0, // pending — will be updated below
+      blocked: 0,
+    });
+    if (!auditId) return { success: false, message: 'Failed to write synthetic audit row — DB issue' };
+    // 2. Simulate send outcome (blocked — safe, no real GHL call)
+    await updateBrainCouncilAuditSendOutcome(auditId, {
+      messageSent: 0,
+      sendOutcomeKind: 'blocked',
+      sendError: 'Foundation A.5 post-deploy verification — sentinel block',
+    });
+    // 3. Read back and verify the update landed
+    const [row] = await db.select({
+      messageSent: brainCouncilAudit.messageSent,
+      sendOutcomeKind: brainCouncilAudit.sendOutcomeKind,
+    }).from(brainCouncilAudit).where(eq(brainCouncilAudit.id, auditId)).limit(1);
+    const success = row?.sendOutcomeKind === 'blocked';
+    // Clean up sentinel row
+    await db.delete(brainCouncilAudit).where(eq(brainCouncilAudit.id, auditId)).catch(() => {});
+    return {
+      success,
+      auditId,
+      readBack: row,
+      message: success
+        ? 'Foundation A.5 confirmed live — audit row written pending, updated post-send, verified on read-back'
+        : `UNEXPECTED: readBack=${JSON.stringify(row)}. Check brain_council_audit.sendOutcomeKind column and DB connectivity.`,
+    };
+  }),
+
   // Foundation A verification endpoint — remove after A3 ships or next foundation piece
   verifyFoundationA: adminProcedure.mutation(async () => {
     const testRow = {

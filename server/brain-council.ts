@@ -87,6 +87,8 @@ export interface BrainCouncilOutput {
   violationCategory?: string;
   fallbackUsed: boolean;
   fallbackMessage?: string;
+  // Foundation A.5: audit row ID so callers can update messageSent/sendOutcomeKind post-send
+  auditId?: number;
 }
 
 // ============================================================
@@ -1265,9 +1267,10 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
   const allText = input.incomingMessage + " " + composed.message;
   const extractedDates = Array.from(allText.matchAll(datePattern)).map(m => m[0]);
 
-  // --- AUDIT LOG: Record the full Brain Council decision trail ---
+  // --- AUDIT LOG: Foundation A.5: write messageSent=0 (pending); caller updates after send ---
+  let auditId: number | undefined;
   try {
-    await addBrainCouncilAudit({
+    auditId = await addBrainCouncilAudit({
       leadId: input.leadId,
       leadName: context.lead.name || undefined,
       channel: input.channel,
@@ -1286,7 +1289,7 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
       wasRecomposed: wasRecomposed ? 1 : 0,
       recomposeScore: wasRecomposed ? recomposeQcScore : undefined,
       finalMessage: composed.message,
-      messageSent: 1, // will be updated by webhook handler if send fails
+      messageSent: 0, // A.5: pending — caller sets to 1 after confirmed send
       blocked: 0,
       violationCategory: undefined,
       ownerNotified: 0,
@@ -1311,5 +1314,6 @@ export async function runBrainCouncil(input: BrainCouncilInput): Promise<BrainCo
     researchSummary: research.summary,
     blocked: false,
     fallbackUsed: false,
+    auditId, // Foundation A.5: caller updates messageSent/sendOutcomeKind post-send
   };
 }
