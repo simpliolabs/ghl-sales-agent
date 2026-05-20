@@ -232,7 +232,7 @@ export async function runBrainCouncilSelfReview(): Promise<{
         // Fetch GHL external history so Brain Council has full conversation context
         let externalHistory = "";
         try {
-          const localHistory = await getConversationHistory(issue.leadId, 20);
+          const localHistory = await getConversationHistory(issue.leadId, 20, { excludeNonReal: true }); // Foundation C.2
           externalHistory = localHistory.map((c: any) => `[${c.senderType}/${c.channel}] ${c.messageBody}`).join("\n");
           if (issue.contactId) {
             const ghlHistory = await fetchGhlConversationHistory(issue.contactId);
@@ -397,7 +397,7 @@ export async function runFastMissedReplyScanner(): Promise<number> {
       // Fetch GHL external history so Brain Council has full conversation context
       let externalHistory = "";
       try {
-        const localHistory = await getConversationHistory(row.leadId, 20);
+        const localHistory = await getConversationHistory(row.leadId, 20, { excludeNonReal: true }); // Foundation C.2
         externalHistory = localHistory.map((c: any) => `[${c.senderType}/${c.channel}] ${c.messageBody}`).join("\n");
         if (row.ghlContactId) {
           const ghlHistory = await fetchGhlConversationHistory(row.ghlContactId);

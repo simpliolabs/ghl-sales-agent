@@ -265,6 +265,7 @@ export async function addConversation(params: {
   senderName?: string;
   ghlMessageId?: string;
   emailMessageId?: string;
+  contentKind?: string; // Foundation C.2: content classification (NULL = pre-migration / real_message)
 }): Promise<{ id: number } | null>;
 
 // Overload 2 — OUTBOUND AI (requires delivered SendOutcome)
@@ -352,6 +353,7 @@ export async function addConversation(params: any): Promise<{ id: number } | nul
     senderName: params.senderName,
     ghlMessageId: params.ghlMessageId || null,
     emailMessageId: params.emailMessageId || null,
+    contentKind: params.contentKind || null, // Foundation C.2: NULL = real_message (backward compat)
     timestamp: new Date(),
   });
   conversationCache.invalidatePrefix('conv');
@@ -386,7 +388,28 @@ export async function recordSendAttempt(params: {
   });
 }
 
-export async function getConversationHistory(leadId: number, limit = 50) {
+export async function getConversationHistory(
+  leadId: number,
+  limit = 50,
+  options?: { excludeNonReal?: boolean }
+) {
+  // Foundation C.2: When excludeNonReal=true, filter out non-real-message rows
+  // (channel_promo, sticker_or_reaction, auto_generated, etc.) from brain prompt context.
+  // NULL contentKind = pre-migration row, treated as real_message for backward compat.
+  // Audit callers (DNC scan, admin UI, lookback, etc.) omit this option to see all rows.
+  if (options?.excludeNonReal) {
+    return cached(conversationCache, `convH:${leadId}:${limit}:noNonReal`, async () => {
+      const db = await getDb();
+      if (!db) return [];
+      return db.select().from(conversations)
+        .where(and(
+          eq(conversations.leadId, leadId),
+          or(isNull(conversations.contentKind), eq(conversations.contentKind, 'real_message'))
+        ))
+        .orderBy(desc(conversations.timestamp))
+        .limit(limit);
+    });
+  }
   return cached(conversationCache, `convH:${leadId}:${limit}`, async () => {
     const db = await getDb();
     if (!db) return [];

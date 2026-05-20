@@ -253,6 +253,13 @@
       "when": 1779287327329,
       "tag": "0035_flashy_anthem",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "5",
+      "when": 1779303300822,
+      "tag": "0036_normal_nightcrawler",
+      "breakpoints": true
     }
   ]
 }

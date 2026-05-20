@@ -569,7 +569,7 @@ async function buildAdaptiveLearningContext(aiStateRow: any, lead: any): Promise
 
 async function assembleContext(leadId: number): Promise<LeadContext> {
   const [history, memory, aiStateRow, lead] = await Promise.all([
-    getConversationHistory(leadId, 20),
+    getConversationHistory(leadId, 20, { excludeNonReal: true }), // Foundation C.2: brain context only
     getLeadMemory(leadId),
     getAiState(leadId),
     getLeadById(leadId),

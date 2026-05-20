@@ -59,6 +59,71 @@ export function coerceWebhookBody(raw: unknown): string {
   return String(raw);
 }
 
+/**
+ * Foundation C.2: Classify the content of an inbound webhook message.
+ * Real customer messages → brain processes them.
+ * System/promo/auto-generated content → stored for audit but excluded from brain context.
+ */
+export type InboundContentKind =
+  | "real_message"        // Genuine customer message — brain processes normally
+  | "channel_promo"       // WhatsApp channel share, group invite, etc.
+  | "form_data"           // FB lead form submission
+  | "link_only"           // Message body is just a URL with no real text
+  | "sticker_or_reaction" // Empty/whitespace body with only attachment
+  | "auto_generated";     // System-generated content from the messaging platform
+
+export function classifyInboundContent(
+  body: string,
+  channel: string,
+  payload: Record<string, unknown>
+): { kind: InboundContentKind; reason: string } {
+  const trimmed = body.trim();
+  const lower = trimmed.toLowerCase();
+
+  // 1. Empty/whitespace + has attachment → sticker/reaction
+  const hasAttachment = Array.isArray(payload.attachments) && (payload.attachments as string[]).length > 0;
+  if (!trimmed && hasAttachment) {
+    return { kind: "sticker_or_reaction", reason: "empty body with attachment" };
+  }
+
+  // 2. WhatsApp channel promo / group invite
+  const WHATSAPP_PROMO_PATTERNS = [
+    /follow the .{1,80} channel on whatsapp\s*:?\s*https:\/\/whatsapp\.com\/channel\//i,
+    /join (my |our |the )?(group|channel)\s*:?\s*https:\/\/chat\.whatsapp\.com\//i,
+    /https:\/\/whatsapp\.com\/channel\/[a-z0-9]+/i,
+  ];
+  if (channel === "WhatsApp" && WHATSAPP_PROMO_PATTERNS.some(p => p.test(trimmed))) {
+    return { kind: "channel_promo", reason: "WhatsApp channel/group share detected" };
+  }
+
+  // 3. FB form data (existing pattern, formalized)
+  const isFormData = (lower.includes("full name:") || lower.includes("company name:")) &&
+    (lower.includes("phone number:") || lower.includes("email:") || lower.includes("what type of products"));
+  if (isFormData) {
+    return { kind: "form_data", reason: "FB lead form structured data" };
+  }
+
+  // 4. Link-only message (URL with no real text around it)
+  const withoutUrls = trimmed.replace(/https?:\/\/\S+/g, "").trim();
+  if (trimmed.match(/https?:\/\//) && withoutUrls.length < 5) {
+    return { kind: "link_only", reason: "URL with no surrounding text" };
+  }
+
+  // 5. Generic auto-generated patterns (extensible)
+  const AUTO_GENERATED_PATTERNS = [
+    /^(joined|left) the (group|channel)$/i,
+    /^.{1,30} (joined|left|added you)$/i,
+    /^missed (call|video call)$/i,
+    /^this message was deleted$/i,
+  ];
+  if (AUTO_GENERATED_PATTERNS.some(p => p.test(trimmed))) {
+    return { kind: "auto_generated", reason: "platform-generated system message" };
+  }
+
+  // Default: real customer message
+  return { kind: "real_message", reason: "passed all classifiers" };
+}
+
 export async function handleMessageWebhook(payload: Record<string, unknown>, res: Response) {
   // Foundation C.1.1: Synthetic verification short-circuit.
   // Payloads with contactId starting with "__synth__" bypass all real processing
@@ -67,11 +132,18 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   if (typeof payload.contactId === "string" && payload.contactId.startsWith("__synth__")) {
     const synthRaw = payload.body ?? payload.message ?? "";
     const synthBody = coerceWebhookBody(synthRaw);
+    const synthChannel = (payload.messageType as string) || "SMS";
     console.log(`[Webhook/Msg] Synthetic test webhook for ${payload.contactId} — short-circuiting`);
     if (!synthBody.trim()) {
       res.json({ success: true, action: "empty_body_skipped", synthetic: true });
     } else {
-      res.json({ success: true, action: "synthetic_real_content_accepted", synthetic: true, bodyLength: synthBody.length });
+      // Foundation C.2: also run classifier in synthetic path so Tests 6+7 can verify it
+      const synthClass = classifyInboundContent(synthBody, synthChannel, payload);
+      if (synthClass.kind !== "real_message") {
+        res.json({ success: true, action: "non_real_message_skipped", contentKind: synthClass.kind, reason: synthClass.reason, synthetic: true });
+      } else {
+        res.json({ success: true, action: "synthetic_real_content_accepted", contentKind: "real_message", synthetic: true, bodyLength: synthBody.length });
+      }
     }
     return;
   }
@@ -136,6 +208,16 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     console.warn(`[Webhook/Msg] Empty body for contact ${contactId} direction=${direction} (likely GHL metadata/activity webhook). Payload keys: ${Object.keys(payload).join(",")}`);
     res.json({ success: true, action: "empty_body_skipped" });
     return;
+  }
+
+  // Foundation C.2: Classify inbound content before lead resolution.
+  // Non-real-message rows are still stored for audit but excluded from brain context.
+  let contentClass: { kind: InboundContentKind; reason: string } = { kind: "real_message", reason: "default" };
+  if (direction === "inbound") {
+    contentClass = classifyInboundContent(effectiveMessageBody, channel, payload);
+    if (contentClass.kind !== "real_message") {
+      console.warn(`[Webhook/Msg] C.2: classified as '${contentClass.kind}' (${contentClass.reason}) for contact ${contactId} — storing for audit, skipping brain`);
+    }
   }
 
   let lead = await getLeadByGhlContactId(contactId);
@@ -343,6 +425,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
       messageBody: effectiveMessageBody,
       ghlMessageId: payload.messageId as string,
       emailMessageId: inboundEmailMsgId || undefined,
+      contentKind: contentClass.kind, // Foundation C.2: persist classification for brain filter
     });
   }
 
@@ -561,7 +644,9 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     lastAgentHoursAgo = (Date.now() - agentTime) / (1000 * 60 * 60);
   }
 
-  const convHistory = await getConversationHistory(lead!.id, 50);
+  // Foundation C.2: Exclude non-real-message rows from brain context.
+  // NULL contentKind = pre-migration rows, treated as real_message for backward compat.
+  const convHistory = await getConversationHistory(lead!.id, 50, { excludeNonReal: true });
   let historyStr = convHistory.map((c: any) => `[${c.senderType}/${c.channel}] ${c.messageBody}`).join("\n");
 
   // MANDATORY CONTEXT: For contacts older than 3 days, ALWAYS pull GHL history
@@ -823,6 +908,15 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     console.log(`[Webhook] ⚠️ TCPA quiet hours (recipient TZ) — deferring SMS response for lead ${lead!.id}`);
     await updateLeadFields(lead!.id, { nextFollowUpAt: nextTcpaWindowForRecipient(lead!.phone) });
     res.json({ success: true, action: "tcpa_deferred", leadId: lead!.id });
+    return;
+  }
+
+  // --- FOUNDATION C.2: NON-REAL-MESSAGE SKIP GATE ---
+  // If the inbound content is not a genuine customer message (promo, sticker, form data, etc.),
+  // skip the brain entirely. The row is already stored for audit (with contentKind set).
+  if (direction === "inbound" && contentClass.kind !== "real_message") {
+    console.log(`[Webhook/C.2] Skipping brain for lead ${lead!.id} — contentKind='${contentClass.kind}' (${contentClass.reason})`);
+    res.json({ success: true, action: "non_real_message_skipped", contentKind: contentClass.kind });
     return;
   }
 

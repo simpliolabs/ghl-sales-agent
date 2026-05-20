@@ -169,7 +169,8 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
         }
 
         // Build conversation context
-        const convHistory = await getConversationHistory(leadId, 50);
+        // Foundation C.2: Exclude non-real-message rows from brain context.
+        const convHistory = await getConversationHistory(leadId, 50, { excludeNonReal: true });
         let historyStr = convHistory.map((c: any) =>
           `[${c.senderType === "ai" ? "ai" : c.direction === "inbound" ? "lead" : "agent"}/${c.channel}] ${c.messageBody}`
         ).join("\n");

@@ -112,6 +112,8 @@ export const conversations = mysqlTable("conversations", {
   direction: mysqlEnum("direction", ["inbound", "outbound"]).notNull(),
   messageBody: text("messageBody"),
   senderType: mysqlEnum("senderType", ["ai", "human", "lead"]).notNull(),
+  // Foundation C.2: Content classification. NULL = pre-migration row (treated as real_message).
+  contentKind: varchar("contentKind", { length: 32 }),
   senderName: varchar("senderName", { length: 128 }),
   ghlMessageId: varchar("ghlMessageId", { length: 128 }),
   emailMessageId: varchar("emailMessageId", { length: 128 }), // GHL email thread ID for reply threading
