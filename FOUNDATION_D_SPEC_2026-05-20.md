@@ -1,5 +1,5 @@
 # Foundation D — Multi-Fire Deduplication Spec
-**Status:** APPROVED FOR BUILD  
+**Status:** APPROVED FOR BUILD — 3 required mods applied 2026-05-20  
 **Date:** 2026-05-20  
 **Author:** Manus (spec from live codebase read)  
 **Checkpoint base:** `96183d24`  
@@ -133,28 +133,18 @@ export async function acquireComposeLock(
   } catch { /* non-fatal */ }
 
   try {
-    await db.execute(sql`
+    // MOD 1: Use affectedRows — one query, no race window, canonical INSERT IGNORE pattern
+    const result = await db.execute(sql`
       INSERT IGNORE INTO compose_locks (leadId, eventKey, source, lockedAt, expiresAt)
       VALUES (${leadId}, ${eventKey}, ${source}, ${now}, ${expiresAt})
     `);
+    const affectedRows = (result as any).affectedRows ?? (result as any).rowsAffected ?? 0;
+    const acquired = affectedRows > 0;
 
-    // Check if we inserted (rows affected = 1) or were blocked (rows affected = 0)
-    // Since INSERT IGNORE doesn't throw on duplicate, we verify by reading back
-    const result = await db.execute(sql`
-      SELECT source FROM compose_locks
-      WHERE leadId = ${leadId} AND eventKey = ${eventKey}
-    `);
-    const rows = Array.isArray(result) && Array.isArray(result[0]) ? result[0] : [];
-    const holder = rows.length > 0 ? (rows[0] as any).source : null;
-
-    if (holder === source) {
-      // We own the lock
-      return true;
-    } else {
-      // Another path holds the lock
-      console.log(`[ComposeLock] Lead ${leadId}: lock held by '${holder}', skipping '${source}' enqueue`);
-      return false;
+    if (!acquired) {
+      console.log(`[ComposeLock] Lead ${leadId}: lock already held, skipping '${source}' enqueue`);
     }
+    return acquired;
   } catch (err) {
     console.error(`[ComposeLock] Error acquiring lock for lead ${leadId}:`, err);
     return true; // Fail open
@@ -331,7 +321,24 @@ All four wiring changes + schema migration in one PR. The changes are mechanical
 ## 7. Verification Protocol
 
 ### Step A (immediate post-deploy)
-Run `verifyFoundationA` to confirm Foundation A sentinel still writes (regression check).
+
+**1. Foundation A regression check:** Run `verifyFoundationA` to confirm Foundation A sentinel still writes.
+
+**2. Foundation D synthetic verification (MOD 2):** Call `verifyFoundationD` endpoint:
+
+```bash
+curl -X POST https://ghl.adorbcustomtees.com/api/trpc/verifyFoundationD \
+  -H "Content-Type: application/json" \
+  -H "Cookie: <valid admin session cookie>" \
+  -d '{}'
+```
+
+Expected response:
+```json
+{"success": true, "first_acquired": true, "second_acquired": false, "message": "Compose lock dedup confirmed live"}
+```
+
+This proves the lock acquires correctly AND that the dedup blocks the second call in the live customer-facing runtime. Do not declare Foundation D shipped without this response.
 
 ### Step B (+1h)
 ```sql
@@ -384,6 +391,7 @@ The following are related but explicitly deferred:
 | Compose lock blocks a legitimate second send (lead replied twice in 5 min) | Low | Event key includes message content — different messages = different keys |
 | Pending-fast_scan check blocks follow_up for a lead that fast_scan already processed | Low | Check is `IN ('pending', 'claimed')` — once fast_scan completes (sent/skipped/failed), follow_up proceeds normally |
 | Migration fails on production TiDB | Very low | `CREATE TABLE ... IF NOT EXISTS` + `INSERT IGNORE` are both idempotent |
+| Bucket-boundary multi-fire (webhooks 1–2 seconds apart spanning a 5-min boundary, e.g. 13:59:59 and 14:00:01) | Very low — webhook duplicates typically arrive within milliseconds of each other, not across minute boundaries | Acceptable for Foundation D. If observed in production, replace fixed-window buckets with sliding-window check (`lockedAt > NOW() - INTERVAL 5 MINUTE`) in a future foundation iteration. This is a known limitation of fixed-window bucketing and is explicitly documented here so it is not a surprise. |
 
 ---
 
@@ -397,6 +405,7 @@ The following are related but explicitly deferred:
 - [ ] `server/deferred-response-processor.ts` patched with pending-fast_scan check
 - [ ] TypeScript: zero errors (`pnpm tsc --noEmit`)
 - [ ] Vitest: regression test added and passing
-- [ ] Step A sentinel written post-deploy
+- [ ] Step A: `verifyFoundationA` sentinel written post-deploy (Foundation A regression)
+- [ ] Step A: `verifyFoundationD` returns `{success: true, first_acquired: true, second_acquired: false}` (Foundation D synthetic proof)
 - [ ] Step B query returns 0 multi-fire rows
 - [ ] Step C query confirms compose_locks table is active
