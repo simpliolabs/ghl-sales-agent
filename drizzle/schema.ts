@@ -1,4 +1,5 @@
-import { int, bigint, mysqlEnum, mysqlTable, text, timestamp, varchar, json, tinyint, uniqueIndex, decimal } from "drizzle-orm/mysql-core";
+import { int, bigint, mysqlEnum, mysqlTable, text, timestamp, varchar, json, tinyint, uniqueIndex, index, decimal, datetime } from "drizzle-orm/mysql-core";
+import { sql } from "drizzle-orm";
 
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
@@ -805,3 +806,18 @@ export const sendAttempts = mysqlTable("send_attempts", {
 });
 export type SendAttemptRow = typeof sendAttempts.$inferSelect;
 export type InsertSendAttemptRow = typeof sendAttempts.$inferInsert;
+
+// Foundation D: compose lock table for multi-fire deduplication
+export const composeLocks = mysqlTable("compose_locks", {
+  id:        bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
+  leadId:    int("leadId").notNull(),
+  eventKey:  varchar("eventKey", { length: 64 }).notNull(),
+  source:    varchar("source", { length: 50 }).notNull(),
+  lockedAt:  datetime("lockedAt", { fsp: 3 }).notNull().default(sql`CURRENT_TIMESTAMP(3)`),
+  expiresAt: datetime("expiresAt", { fsp: 3 }).notNull(),
+}, (t) => ({
+  uqLock:    uniqueIndex("uq_compose_lock").on(t.leadId, t.eventKey),
+  idxExpiry: index("idx_compose_expires").on(t.expiresAt),
+}));
+
+export type ComposeLock = typeof composeLocks.$inferSelect;

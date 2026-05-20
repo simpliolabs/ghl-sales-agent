@@ -246,6 +246,13 @@
       "when": 1779019435618,
       "tag": "0034_amusing_korvac",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "5",
+      "when": 1779287327329,
+      "tag": "0035_flashy_anthem",
+      "breakpoints": true
     }
   ]
 }

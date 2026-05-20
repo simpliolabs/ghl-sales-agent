@@ -1692,3 +1692,16 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [x] PR#3.14: Run tests 23/23 pass, TypeScript clean, commit f93f0a9, push to GitHub
 - [x] PR#3.14: Write CLAUDE-HANDOFF-REPORT.md
 - [ ] PR#3.14: Save checkpoint + publish to production
+
+## Foundation D — Compose Lock (Multi-Fire Deduplication) — May 20, 2026
+
+- [x] FD.1: Create compose_locks table (leadId, eventKey, acquiredAt) with UNIQUE(leadId, eventKey) + migration applied
+- [x] FD.2: Build acquireComposeLock(leadId, message, source) in server/compose-lock.ts — INSERT IGNORE + affectedRows check, 5-min TTL purge, result[0].affectedRows fix
+- [x] FD.3: Patch brain-council-review.ts fast_scan enqueue site — acquireComposeLock guard before enqueueOutbox
+- [x] FD.4: Patch brain-council-review.ts self_review enqueue site — pending-fast_scan check before enqueueOutbox
+- [x] FD.5: Patch follow-up-trigger.ts enqueue site — pending-fast_scan check before enqueueOutbox
+- [x] FD.6: Patch deferred-response-processor.ts enqueue site — pending-fast_scan check before enqueueOutbox
+- [x] FD.7: Add verifyFoundationD tRPC endpoint in routers.ts (admin-only, checks compose_locks table + acquireComposeLock round-trip)
+- [x] FD.8: Write server/compose-lock.test.ts — 8 tests: makeEventKey (bucket, stability, uniqueness, truncation), acquireComposeLock (first=true, second=false, different-leads, different-messages), afterEach(vi.restoreAllMocks) guard
+- [x] FD.9: Fix affectedRows extraction bug — result is [resultObj, null] from Drizzle/MySQL, not flat object
+- [x] FD.10: TypeScript check clean (0 errors), full test suite passing

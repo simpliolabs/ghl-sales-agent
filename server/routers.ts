@@ -40,6 +40,7 @@ import { getLeadMemoryFacts } from "./lead-memory";
 import { runStrategyReview, getStrategyAdjustmentHistory } from "./strategy-autopilot";
 import { extractAgentPatterns, recordAgentLearning } from "./learning-loop";
 import { getOutboxStats, enqueueOutbox, makeIdemKey } from "./outbox-worker";
+import { acquireComposeLock } from "./compose-lock";
 import { createTrainingExport, listTrainingExports, getTrainingExport } from "./training-export";
 
 // Auto-synthesize uploaded content using LLM
@@ -120,6 +121,27 @@ export const appRouter = router({
 
   outbox: router({
     stats: protectedProcedure.query(async () => getOutboxStats()),
+  }),
+
+  // Foundation A verification endpoint — remove after A3 ships or next foundation piece
+  verifyFoundationD: adminProcedure.mutation(async () => {
+    // Synthetic proof that compose lock dedup is live.
+    // Uses sentinel leadId=-2 (negative = synthetic, no real lead).
+    // First call must acquire the lock; second call must be blocked.
+    const VERIFY_LEAD_ID = -2;
+    const VERIFY_MSG = "VERIFY_TEST_MSG_FOUNDATION_D";
+    const VERIFY_SOURCE = "verify_d";
+    const first_acquired = await acquireComposeLock(VERIFY_LEAD_ID, VERIFY_MSG, VERIFY_SOURCE);
+    const second_acquired = await acquireComposeLock(VERIFY_LEAD_ID, VERIFY_MSG, VERIFY_SOURCE);
+    const success = first_acquired === true && second_acquired === false;
+    return {
+      success,
+      first_acquired,
+      second_acquired,
+      message: success
+        ? "Compose lock dedup confirmed live — Foundation D active"
+        : `UNEXPECTED: first=${first_acquired}, second=${second_acquired}. Check compose_locks table and DB connectivity.`,
+    };
   }),
 
   // Foundation A verification endpoint — remove after A3 ships or next foundation piece
