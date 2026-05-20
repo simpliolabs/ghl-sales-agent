@@ -44,11 +44,27 @@ import { dispatchStateActions, buildDispatchContext } from "./action-dispatcher"
 import { shouldDeferResponse, getDeferredSendAt } from "./deferred-response-processor";
 import { insertDeferredResponse, hasPendingDeferredResponse } from "./db";
 
+/**
+ * Foundation C.1: Coerce a GHL payload body field to a meaningful string.
+ * Returns empty string for null/undefined/empty-object/empty-array inputs
+ * so they don't poison the conversations table as literal "{}" rows.
+ */
+export function coerceWebhookBody(raw: unknown): string {
+  if (raw == null) return "";
+  if (typeof raw === "string") return raw;
+  if (typeof raw === "object") {
+    const stringified = JSON.stringify(raw);
+    return (stringified === "{}" || stringified === "[]" || stringified === "null") ? "" : stringified;
+  }
+  return String(raw);
+}
+
 export async function handleMessageWebhook(payload: Record<string, unknown>, res: Response) {
   const contactId = payload.contactId as string;
-  // Safely coerce body to string — GHL sometimes sends objects/arrays for FB form data
+  // Foundation C.1: Safely coerce body to string — GHL sometimes sends objects/arrays.
+  // coerceWebhookBody returns empty string for {}/{}/null so they don't poison conversations.
   const rawBody = payload.body ?? payload.message ?? "";
-  const messageBody = typeof rawBody === "string" ? rawBody : (typeof rawBody === "object" ? JSON.stringify(rawBody) : String(rawBody));
+  const messageBody = coerceWebhookBody(rawBody);
   // Channel detection: check multiple GHL payload fields for the message type.
   // GHL sends messageType (string), messageTypeId (number), or nests it in message.type (workflow webhooks).
   const rawChannel = (
@@ -94,7 +110,15 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     effectiveMessageBody = attachmentDesc;
     console.log(`[Webhook/Attachment] AI in control — routing attachment to Brain Council: ${attachmentDesc}`);
   }
-  if (!effectiveMessageBody) { res.status(400).json({ error: "Missing data" }); return; }
+  if (!effectiveMessageBody || !effectiveMessageBody.trim()) {
+    // Foundation C.1: Empty body after coercion typically means GHL sent a
+    // metadata/activity webhook (note, opportunity update, etc.) where the
+    // meaningful content lives elsewhere in the payload. Don't write a
+    // conversation row — silently acknowledge so GHL doesn't retry.
+    console.warn(`[Webhook/Msg] Empty body for contact ${contactId} direction=${direction} (likely GHL metadata/activity webhook). Payload keys: ${Object.keys(payload).join(",")}`);
+    res.json({ success: true, action: "empty_body_skipped" });
+    return;
+  }
 
   let lead = await getLeadByGhlContactId(contactId);
   if (!lead) {
@@ -533,14 +557,16 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
       if (ghlHistory.length > 0) {
         if (convHistory.length === 0) {
           for (const m of ghlHistory) {
-            if (!m.body?.trim()) continue;
-            const isFormData = m.body.toLowerCase().includes("full name:") && m.body.toLowerCase().includes("phone number:");
+            // Foundation C.1: Coerce m.body using the same logic as the top-of-handler coercion.
+            const histBody = coerceWebhookBody(m.body);
+            if (!histBody.trim()) continue;
+            const isFormData = histBody.toLowerCase().includes("full name:") && histBody.toLowerCase().includes("phone number:");
             if (isFormData) continue;
             if (m.direction === 'outbound') {
               await addConversation({
                 leadId: lead!.id, channel: normalizeChannel(m.type || 'SMS'),
                 direction: 'outbound', senderType: 'human',
-                messageBody: m.body,
+                messageBody: histBody,
                 ghlMessageId: (m as any).id ?? '',
                 recorded_from: 'ghl_history_sync',
                 observedAt: m.dateAdded ? new Date(m.dateAdded) : new Date(),
@@ -549,11 +575,11 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
               await addConversation({
                 leadId: lead!.id, channel: normalizeChannel(m.type || 'SMS'),
                 direction: 'inbound', senderType: 'lead',
-                messageBody: m.body,
+                messageBody: histBody,
               });
             }
           }
-          console.log(`[Webhook] Synced ${ghlHistory.filter(m => m.body?.trim()).length} GHL messages for lead ${lead!.id} (${leadAgeDays.toFixed(0)} days old)`);
+          console.log(`[Webhook] Synced ${ghlHistory.filter(m => coerceWebhookBody(m.body).trim()).length} GHL messages for lead ${lead!.id} (${leadAgeDays.toFixed(0)} days old)`);
         }
 
         // FIX: Detect human agent outbound messages from GHL history (bypasses webhook gap)
