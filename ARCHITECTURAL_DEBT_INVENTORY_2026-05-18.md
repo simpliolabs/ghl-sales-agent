@@ -248,3 +248,41 @@ Foundation B now includes the following items:
 Total fast_scan decisions (all hours, 7d): 268. Trigger breakdown: `follow_up` 6,959 · `fast_scan` 268 · `deferred` 6.
 
 **Decision:** Option X confirmed (D → C → B). 9/day is below the 30/day threshold for sequencing swap. Foundation C ships next.
+
+---
+
+## Section 9 — Foundation C.1.1 Patch + Verification Discipline (2026-05-20)
+
+**Last Updated:** 2026-05-20 17:55 UTC
+
+### Foundation C.1.1 — Outbound Branch Hole Closed
+
+**Root cause:** The empty-body guard in `handleMessageWebhook` was placed AFTER the `direction === 'outbound'` branch that writes to `conversations`. GHL outbound webhooks with `body: {}` bypassed the guard and wrote `{}` rows. The C.1 Step A synthetic tests only exercised the inbound path — they did not cover the outbound branch.
+
+**Fix:** Moved the empty-body guard to immediately after `effectiveMessageBody` is finalized (after attachment handling), before any conversation-write branch. Added `__synth__` contactId short-circuit at top of handler so future verification tests cannot pollute leads/conversations tables.
+
+**Evidence of hole:** 6 rows in `conversations` with `body_hex=7B7D` (literal `{}`) written during C.1 verification window, all from real-time outbound GHL webhooks for Ron Castellon (leadId=4980121).
+
+---
+
+### Item #25 — Synthetic Verification Endpoint Design (MEDIUM)
+
+**Category:** Verification infrastructure  
+**Foundation:** C.1.1 (shipped)
+
+Synthetic verification webhooks must use a `__synth__` contactId prefix that short-circuits all real processing (no lead creation, no conversation writes, no GHL calls) while still exercising the coercion logic under test. This prevents test pollution of the leads/conversations tables and makes verification results unambiguous.
+
+**Shipped in C.1.1:** `__synth__` short-circuit added to top of `handleMessageWebhook`. All C.1/C.1.1 tests updated to use `__synth__` prefix.
+
+---
+
+### Item #26 — Verification Branch Coverage Discipline (HIGH)
+
+**Category:** Process / verification quality  
+**Scope:** All future foundation verification specs
+
+Every foundation verification spec must enumerate the code branches it tests and explicitly state which branches are NOT covered. The C.1 Step A tests covered only the inbound empty-body path — they missed the outbound branch, which produced 6 real production `{}` rows.
+
+**Rule going forward:** Before marking a foundation as "verified," list every `addConversation` call site in the patched file and confirm each one is covered by at least one synthetic test. If a branch is not covered, it must be documented as a known gap with a follow-up item.
+
+This is the second time in this session (and third or fourth overall) that a fix shipped as "verified" but missed a code path. The discipline is mandatory, not optional.

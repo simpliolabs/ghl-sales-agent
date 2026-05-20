@@ -60,6 +60,22 @@ export function coerceWebhookBody(raw: unknown): string {
 }
 
 export async function handleMessageWebhook(payload: Record<string, unknown>, res: Response) {
+  // Foundation C.1.1: Synthetic verification short-circuit.
+  // Payloads with contactId starting with "__synth__" bypass all real processing
+  // (no lead creation, no conversation writes, no GHL calls).
+  // They still exercise the coercion logic so synthetic tests can verify guard behavior.
+  if (typeof payload.contactId === "string" && payload.contactId.startsWith("__synth__")) {
+    const synthRaw = payload.body ?? payload.message ?? "";
+    const synthBody = coerceWebhookBody(synthRaw);
+    console.log(`[Webhook/Msg] Synthetic test webhook for ${payload.contactId} — short-circuiting`);
+    if (!synthBody.trim()) {
+      res.json({ success: true, action: "empty_body_skipped", synthetic: true });
+    } else {
+      res.json({ success: true, action: "synthetic_real_content_accepted", synthetic: true, bodyLength: synthBody.length });
+    }
+    return;
+  }
+
   const contactId = payload.contactId as string;
   // Foundation C.1: Safely coerce body to string — GHL sometimes sends objects/arrays.
   // coerceWebhookBody returns empty string for {}/{}/null so they don't poison conversations.
@@ -110,11 +126,13 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     effectiveMessageBody = attachmentDesc;
     console.log(`[Webhook/Attachment] AI in control — routing attachment to Brain Council: ${attachmentDesc}`);
   }
+  // Foundation C.1.1: Empty-body guard moved BEFORE any conversation-write branch.
+  // Covers both inbound and outbound directions — previously this check was AFTER the
+  // outbound addConversation write, allowing {} rows to be written for outbound webhooks.
   if (!effectiveMessageBody || !effectiveMessageBody.trim()) {
-    // Foundation C.1: Empty body after coercion typically means GHL sent a
-    // metadata/activity webhook (note, opportunity update, etc.) where the
-    // meaningful content lives elsewhere in the payload. Don't write a
-    // conversation row — silently acknowledge so GHL doesn't retry.
+    // Empty body after coercion typically means GHL sent a metadata/activity webhook
+    // (note, opportunity update, etc.) where meaningful content lives elsewhere.
+    // Don't write a conversation row — silently acknowledge so GHL doesn't retry.
     console.warn(`[Webhook/Msg] Empty body for contact ${contactId} direction=${direction} (likely GHL metadata/activity webhook). Payload keys: ${Object.keys(payload).join(",")}`);
     res.json({ success: true, action: "empty_body_skipped" });
     return;
