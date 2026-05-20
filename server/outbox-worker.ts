@@ -155,13 +155,16 @@ async function claimOutboxRows(workerId: string, limit: number): Promise<OutboxR
       LIMIT ${limit}
     `);
 
-    // Step 2: Fetch what we just claimed (rows where claimedBy = workerId AND claimedAt = now).
+    // Step 2: Fetch what we just claimed (rows where claimedBy = workerId AND status = claimed).
+    // NOTE: Do NOT filter by claimedAt = now — MySQL/TiDB datetime precision can cause the exact
+    // timestamp match to return 0 rows if the stored value rounds differently from the JS Date.
+    // The claimedBy worker ID is the correct discriminator.
     const fetchResult = await db.execute(sql`
       SELECT * FROM outbox
       WHERE claimedBy = ${workerId}
-        AND claimedAt = ${now}
         AND outbox_status = 'claimed'
       ORDER BY scheduledAt ASC
+      LIMIT ${limit * 2}
     `);
     const fetchData = Array.isArray(fetchResult) && Array.isArray(fetchResult[0]) ? fetchResult[0] : [];
     const claimed = fetchData as unknown as OutboxRow[];
