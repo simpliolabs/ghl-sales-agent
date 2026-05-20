@@ -1,7 +1,7 @@
 # Architectural Debt Inventory
 
 **Created:** 2026-05-18  
-**Last Updated:** 2026-05-19 20:12 UTC (BANNED PHRASES patch c5333bfb live — id=30036 sentinel written; Foundation A.1 and A.2 staged)
+**Last Updated:** 2026-05-19 23:45 UTC (Item #16 added — human-outbound empty-body scope quantified: 288 rows, all `{}`, all today)
 
 ---
 
@@ -99,3 +99,12 @@ All other hits are staged for Foundation B receive-side hardening. Do not fix in
 |---|------|----------|-------|
 | 14 | **Outbox should stop retrying leads with confirmed dead phone numbers.** Currently a lead with a dead number (Twilio 30003) will be re-queued by the follow-up scheduler and the outbox will attempt the same dead send again. After Foundation A.1 classifies the failure as `failed_carrier_unreachable`, the outbox decision logic should: (a) set `humanTakeover = 1` with reason `carrier_unreachable` after N confirmed carrier failures on the same lead, and (b) optionally push `nextFollowUpAt` out 30+ days to prevent immediate re-queue. **Scope:** 33 leads identified with phantom sends in the 7-day window post-Foundation-A deploy. The full historical cohort (bulk Jan 2025 import, `reactivationCount=3`, `cadencePosition=4`) is estimated at 300+ leads. | **HIGH** — Prevents continued API waste and customer-facing damage (sending to dead numbers). Requires Foundation A.1 first. | Do not implement tonight. Requires A.1 carrier classification to be accurate before A.2 automation acts on it. |
 | 15 | **Lead list hygiene for the Jan 2025 bulk import cohort.** ~300+ leads with `createdAt` between 2025-01-01 and 2025-02-28, `reactivationCount >= 2`, `cadencePosition >= 4` should be audited for phone number validity before the next reactivation cycle. Options: (a) run a phone number validation service (Twilio Lookup, NumVerify) against the cohort before the next send, (b) mark them `humanTakeover = 1` pending manual review, (c) simply stop reactivating leads with `reactivationCount >= 3` until a human reviews. | **MEDIUM** — Business decision, not a code fix. Recommend PO review. | The 89% phantom rate on the 16:38–18:36 UTC window (31/35 sends) is the clearest signal of cohort-level data rot. |
+
+---
+
+## Section 6: Human-Agent Outbound Recording Bug (Item #16)
+
+| # | Item | Priority | Notes |
+|---|------|----------|-------|
+| 16 | **Human-agent outbound recording path stores empty body (`{}`) when webhook payload is non-string.** When a human agent (e.g., Nir) sends an SMS via GHL, the inbound webhook delivers the message body in a format that the recording path coerces to `{}` instead of the actual text. The row is written to `conversations` with `senderType='human'`, `direction='outbound'`, and `messageBody='{}'`. The AI's Safety Net sees the row (human sent *something*) but cannot read the content — so it does not classify the send as a real human engagement. This caused the AI to fire on Dang HM 4 hours after Nir had already engaged, because Nir's message appeared as an empty system event rather than a real outbound. **Scope quantified (2026-05-19):** 288 rows in the last 30 days with `messageBody='{}'`, all from today (earliest: 16:05 UTC, latest: 23:42 UTC). Affected leads include Dang HM (id=1059), David DeBrule (id=630), Andrea Allen Radford (id=5130043), Adebola Esther Adesina (id=4860035), and others. This is the same `as string` TypeScript assertion shape as the `webhooks.ts` line 469 crash, but manifesting as silent data corruption rather than a crash. The receiving file is likely `webhook-message.ts` or the Earl Wheeler fix path at commit `66ffd0c`. | **HIGH** — Directly causes the AI to fire on leads where a human agent has already engaged, because the Safety Net cannot read the human outbound body. The Dang HM incident is the confirmed case. Unknown number of additional affected leads in the last 30 days. | **Do not fix tonight.** Include in the medium-tier `as string` cleanup already staged for Foundation B receive-hardening. Before fixing: (a) locate the exact write path in `webhook-message.ts` or the Earl Wheeler commit, (b) apply `String()` coercion at the body extraction point, (c) verify the Safety Net re-reads the corrected body correctly. The 288-row scope is entirely from today — the bug was introduced or became active on 2026-05-19. Pre-today rows are unaffected (no `{}` body rows before 16:05 UTC today). |
+
