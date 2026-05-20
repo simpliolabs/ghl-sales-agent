@@ -41,6 +41,8 @@ import { runStrategyReview, getStrategyAdjustmentHistory } from "./strategy-auto
 import { extractAgentPatterns, recordAgentLearning } from "./learning-loop";
 import { getOutboxStats, enqueueOutbox, makeIdemKey } from "./outbox-worker";
 import { acquireComposeLock } from "./compose-lock";
+import { getDb } from "./db";
+import { sql } from "drizzle-orm";
 import { createTrainingExport, listTrainingExports, getTrainingExport } from "./training-export";
 
 // Auto-synthesize uploaded content using LLM
@@ -128,9 +130,12 @@ export const appRouter = router({
     // Synthetic proof that compose lock dedup is live.
     // Uses sentinel leadId=-2 (negative = synthetic, no real lead).
     // First call must acquire the lock; second call must be blocked.
+    // Pre-clean: delete any stale sentinel row so this endpoint is idempotent.
     const VERIFY_LEAD_ID = -2;
     const VERIFY_MSG = "VERIFY_TEST_MSG_FOUNDATION_D";
-    const VERIFY_SOURCE = "verify_d";
+    const VERIFY_SOURCE = "post_deploy_verification";
+    const db = await getDb();
+    if (db) await db.execute(sql`DELETE FROM compose_locks WHERE leadId = ${VERIFY_LEAD_ID}`);
     const first_acquired = await acquireComposeLock(VERIFY_LEAD_ID, VERIFY_MSG, VERIFY_SOURCE);
     const second_acquired = await acquireComposeLock(VERIFY_LEAD_ID, VERIFY_MSG, VERIFY_SOURCE);
     const success = first_acquired === true && second_acquired === false;
