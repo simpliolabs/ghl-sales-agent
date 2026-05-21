@@ -42,6 +42,7 @@ import { extractAgentPatterns, recordAgentLearning } from "./learning-loop";
 import { getOutboxStats, enqueueOutbox, makeIdemKey } from "./outbox-worker";
 import { acquireComposeLock } from "./compose-lock";
 import { SINGLE_BRAIN_PROMPT_MARKERS } from "./single-brain";
+import { checkContentGuard, CONTENT_GUARD_TOKENS } from "./output-guards";
 import { getDb } from "./db";
 import { sql } from "drizzle-orm";
 import { createTrainingExport, listTrainingExports, getTrainingExport } from "./training-export";
@@ -295,6 +296,54 @@ Respond with JSON: { "message": string | null, "reason": string }`;
       message: success
         ? 'Foundation C.3 confirmed live — guardrail rules present in deployed bundle, LLM output clean of forbidden tokens'
         : `FAILED: promptIntegrity=${promptIntegrityPass}${promptIntegrityError ? ' (' + promptIntegrityError + ')' : ''}, liveOutputPass=${liveOutputPass}, forbiddenFound=${JSON.stringify(forbiddenFound)}, llmError=${llmError ?? 'none'}`,
+    };
+  }),
+
+  // Content Guard verification endpoint — Step A check after Patch 1 publish
+  verifyContentGuard: adminProcedure.mutation(async () => {
+    // Test 1: Each banned token should return blocked:true
+    const tokenTests: Array<{ token: string; channel: string; expectedBlocked: boolean }> = [
+      // Filler phrases (all channels)
+      { token: "circle back",            channel: "SMS",   expectedBlocked: true },
+      { token: "just checking in",       channel: "SMS",   expectedBlocked: true },
+      { token: "just wanted to",         channel: "Email", expectedBlocked: true },
+      { token: "touching base",          channel: "SMS",   expectedBlocked: true },
+      { token: "just thinking about",    channel: "IG",    expectedBlocked: true },
+      // Fabricated infrastructure (all channels)
+      { token: "calendar invite",        channel: "SMS",   expectedBlocked: true },
+      { token: "confirming you got",     channel: "Email", expectedBlocked: true },
+      { token: "tracking number",        channel: "SMS",   expectedBlocked: true },
+      // Sign-offs (SMS/IG only)
+      { token: "thanks, adorb custom printing", channel: "SMS",   expectedBlocked: true },
+      { token: "thanks, adorb custom printing", channel: "Email", expectedBlocked: false }, // email exempt
+      { token: "best regards",           channel: "IG",    expectedBlocked: true },
+      { token: "best regards",           channel: "Email", expectedBlocked: false }, // email exempt
+      // Clean messages should pass
+      { token: "Hi Lynnette, just following up on your order for custom shirts.", channel: "SMS", expectedBlocked: false },
+    ];
+
+    const failures: Array<{ token: string; channel: string; expected: boolean; got: boolean; reasonCode?: string }> = [];
+    for (const t of tokenTests) {
+      const result = checkContentGuard(t.token, t.channel);
+      if (result.blocked !== t.expectedBlocked) {
+        failures.push({ token: t.token, channel: t.channel, expected: t.expectedBlocked, got: result.blocked, reasonCode: result.reasonCode });
+      }
+    }
+
+    // Test 2: Verify token count matches expected
+    const tokenCount = CONTENT_GUARD_TOKENS.length;
+    const expectedMinTokens = 19; // 7 fabricated + 9 filler + 4 sign-offs (some may grow)
+
+    const success = failures.length === 0 && tokenCount >= expectedMinTokens;
+    return {
+      success,
+      tokenCount,
+      expectedMinTokens,
+      testsRun: tokenTests.length,
+      failures,
+      message: success
+        ? `Content guard verified: ${tokenCount} tokens, ${tokenTests.length} tests passed`
+        : `FAILED: ${failures.length} test failures, tokenCount=${tokenCount}`,
     };
   }),
 

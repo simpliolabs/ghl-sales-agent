@@ -50,6 +50,7 @@ export default function Settings() {
   // Foundation verification
   const [verifyA5Result, setVerifyA5Result] = useState<string | null>(null);
   const [verifyC3Result, setVerifyC3Result] = useState<string | null>(null);
+  const [verifyContentGuardResult, setVerifyContentGuardResult] = useState<string | null>(null);
   const verifyA5 = trpc.verifyFoundationA5.useMutation({
     onSuccess: (data: unknown) => { setVerifyA5Result(JSON.stringify(data, null, 2)); toast.success('A.5 verification complete'); },
     onError: (e: { message: string }) => { setVerifyA5Result('ERROR: ' + e.message); toast.error('A.5 verification failed'); },
@@ -57,6 +58,10 @@ export default function Settings() {
   const verifyC3 = trpc.verifyFoundationC3.useMutation({
     onSuccess: (data: unknown) => { setVerifyC3Result(JSON.stringify(data, null, 2)); toast.success('C.3 verification complete'); },
     onError: (e: { message: string }) => { setVerifyC3Result('ERROR: ' + e.message); toast.error('C.3 verification failed'); },
+  });
+  const verifyContentGuard = trpc.verifyContentGuard.useMutation({
+    onSuccess: (data: unknown) => { setVerifyContentGuardResult(JSON.stringify(data, null, 2)); toast.success('Content guard verification complete'); },
+    onError: (e: { message: string }) => { setVerifyContentGuardResult('ERROR: ' + e.message); toast.error('Content guard verification failed'); },
   });
 
   return (
@@ -192,6 +197,15 @@ export default function Settings() {
                     </Button>
                     {verifyC3Result && (
                       <pre className="mt-2 p-3 bg-black/90 text-green-400 text-xs rounded overflow-auto max-h-64 whitespace-pre-wrap">{verifyC3Result}</pre>
+                    )}
+                  </div>
+                  <div>
+                    <Button onClick={() => { setVerifyContentGuardResult(null); verifyContentGuard.mutate(); }} disabled={verifyContentGuard.isPending} variant="outline" className="w-full border-purple-300">
+                      <Shield className={`h-4 w-4 mr-2 ${verifyContentGuard.isPending ? 'animate-spin' : ''}`} />
+                      {verifyContentGuard.isPending ? 'Running Patch 1 content guard...' : 'Run verifyContentGuard (Patch 1)'}
+                    </Button>
+                    {verifyContentGuardResult && (
+                      <pre className="mt-2 p-3 bg-black/90 text-green-400 text-xs rounded overflow-auto max-h-64 whitespace-pre-wrap">{verifyContentGuardResult}</pre>
                     )}
                   </div>
                 </div>

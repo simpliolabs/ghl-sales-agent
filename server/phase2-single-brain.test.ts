@@ -233,6 +233,88 @@ describe("Output Guards — runOutputGuards", () => {
     const result = runOutputGuards(decision, baseLead, baseInput);
     expect(result.passed).toBe(true);
   });
+
+  // Guard 7: Content guard — banned phrases
+  it("blocks messages containing 'circle back' (Rule 15 filler)", () => {
+    const decision = { ...baseDecision, message: "Hey! Just wanted to circle back on your shirt order." };
+    const result = runOutputGuards(decision, baseLead, baseInput);
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain("filler_circle_back");
+  });
+
+  it("blocks messages containing 'just wanted to' (Rule 15 filler)", () => {
+    const decision = { ...baseDecision, message: "Hi Lynnette! Just wanted to follow up on your order." };
+    const result = runOutputGuards(decision, baseLead, baseInput);
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain("filler_just_wanted_to");
+  });
+
+  it("blocks messages containing 'just checking in' (Rule 15 filler)", () => {
+    const decision = { ...baseDecision, message: "Hey, just checking in to see if you're still interested." };
+    const result = runOutputGuards(decision, baseLead, baseInput);
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain("filler_checking_in");
+  });
+
+  it("blocks messages containing 'touching base' (Rule 15 filler)", () => {
+    const decision = { ...baseDecision, message: "Touching base about your custom order!" };
+    const result = runOutputGuards(decision, baseLead, baseInput);
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain("filler_touching_base");
+  });
+
+  it("blocks messages containing 'calendar invite' (Rule 18 fabricated infra)", () => {
+    const decision = { ...baseDecision, message: "I sent you a calendar invite for our call tomorrow." };
+    const result = runOutputGuards(decision, baseLead, baseInput);
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain("fabricated_calendar_invite");
+  });
+
+  it("blocks messages containing 'confirming you got' (Rule 18 fabricated infra)", () => {
+    const decision = { ...baseDecision, message: "Just confirming you got the details I sent over." };
+    const result = runOutputGuards(decision, baseLead, baseInput);
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain("fabricated_confirmation");
+  });
+
+  it("blocks SMS messages containing 'thanks, adorb custom printing' (Rule 17 sign-off)", () => {
+    const decision = { ...baseDecision, channel: "SMS" as const, message: "Let me know! Thanks, ADORB CUSTOM PRINTING" };
+    const result = runOutputGuards(decision, baseLead, { ...baseInput, channel: "SMS" });
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain("banned_signoff_caps");
+  });
+
+  it("does NOT block Email messages containing 'thanks, adorb custom printing' (sign-off exempt on Email)", () => {
+    const decision = { ...baseDecision, channel: "Email" as const, message: "Looking forward to working with you! Thanks, Adorb Custom Printing" };
+    const result = runOutputGuards(decision, baseLead, { ...baseInput, channel: "Email" });
+    expect(result.passed).toBe(true);
+  });
+
+  it("blocks SMS messages containing 'best regards' (Rule 17 sign-off)", () => {
+    const decision = { ...baseDecision, channel: "SMS" as const, message: "Let me know if you have questions. Best regards, Adorb" };
+    const result = runOutputGuards(decision, baseLead, { ...baseInput, channel: "SMS" });
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain("banned_signoff_formal");
+  });
+
+  it("does NOT block Email messages containing 'best regards' (sign-off exempt on Email)", () => {
+    const decision = { ...baseDecision, channel: "Email" as const, message: "Best regards, the Adorb team" };
+    const result = runOutputGuards(decision, baseLead, { ...baseInput, channel: "Email" });
+    expect(result.passed).toBe(true);
+  });
+
+  it("is case-insensitive for banned phrase matching", () => {
+    const decision = { ...baseDecision, message: "CIRCLE BACK with you soon!" };
+    const result = runOutputGuards(decision, baseLead, baseInput);
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain("filler_circle_back");
+  });
+
+  it("passes clean messages that don't contain any banned phrases", () => {
+    const decision = { ...baseDecision, message: "Hi Lynnette! Did you get a chance to check out the shirt options for Mt Olive?" };
+    const result = runOutputGuards(decision, baseLead, baseInput);
+    expect(result.passed).toBe(true);
+  });
 });
 
 // ─── Stage Behavior JSON Tests ────────────────────────────────────────────────

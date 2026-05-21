@@ -1748,3 +1748,18 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 
 - [x] Thuy Huynh (lead 5100068): humanTakeover=1, nextFollowUpAt=NULL — blocked from AI re-queue (was 40min from firing at 16:00 UTC)
 - [x] Arlene Jeffers (lead 360007): humanTakeover=1 (already set), nextFollowUpAt=NULL — do-not-contact sentinel
+- [ ] Item #32 (HIGH): Do-not-contact state is not atomic. humanTakeover=1 and nextFollowUpAt=NULL must always be set together — currently they can drift (Thuy and Arlene both required manual SQL fixes). Foundation B should expose a single setDoNotContact(leadId, reason) function that all paths call atomically. No path should set one without the other.
+
+## Patch 1 — Output Guard Content Scan (2026-05-21)
+
+- [x] Patch 1: Guard 7 (content scan) added to `server/output-guards.ts` — `checkContentGuard()` + `CONTENT_GUARD_TOKENS` (19 tokens: Rule 15 filler, Rule 17 sign-offs SMS/IG-only, Rule 18 fabricated infra)
+- [x] Patch 1: `verifyContentGuard` tRPC endpoint added to `server/routers.ts` — 13 synthetic token tests, token count check
+- [x] Patch 1: "Run verifyContentGuard (Patch 1)" button added to Settings > Foundation Verification panel
+- [x] Patch 1: 12 new vitest tests added to `server/phase2-single-brain.test.ts` — all passing (1377/1378 total, 1 pre-existing OpenAI key test unrelated)
+- [x] Patch 1: TypeScript clean — `pnpm tsc --noEmit` passes with zero errors
+- [x] Lynnette Clark (lead 4230002): humanTakeover=1, nextFollowUpAt=NULL — paused after multi-fire + "circle back" + "just wanted to" violations
+- [x] Tabitha Chambers (lead 1020205): humanTakeover=1, nextFollowUpAt=NULL — paused after Rule 11 generic opener violation
+- [ ] Patch 1 Step A: Run verifyContentGuard post-publish — confirm all 13 tests pass in deployed bundle
+- [ ] Patch 1 Step B (+30 min post-publish): Query decision_log for rows with outputGuardResult LIKE 'block:output_guard:content:%' to confirm guard is firing on real traffic
+- [ ] Patch 2: Fix timeout-but-sent ghost send path — 30 rows in 30 days, zero audit trail. outbox-worker.ts timeout path must write brain_council_audit row even on 60s timeout
+- [ ] Patch 3: Compose-lock for follow-up-only events (no inbound ID) — use leadId + scheduledAt bucket as event key

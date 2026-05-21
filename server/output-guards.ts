@@ -11,6 +11,7 @@
  * 4. DNC keyword in outbound message
  * 5. Null message with advance action (strip the action)
  * 6. Message length sanity check
+ * 7. Content guard — banned phrases (Rule 15 filler, Rule 17 sign-offs, Rule 18 fabricated infrastructure)
  */
 
 import type { SingleBrainInput } from "./single-brain";
@@ -51,6 +52,67 @@ interface LeadLike {
 const SYSTEM_LEAK_PATTERNS = /brain\s*council|strategist|composer|qc\s*brain|expert\s*panel|deliberation|json\s*\{.*"message"|"channel"\s*:\s*"|outbox|drain\s*worker|single\s*brain|output\s*guard/i;
 
 const DNC_KEYWORDS = ["stop", "unsubscribe", "opt out", "do not contact", "remove me", "take me off", "opt-out"];
+
+// ── Guard 7: Content guard — banned phrases ─────────────────────────────
+// Full union of Rule 15 (filler phrases), Rule 17 (sign-offs), Rule 18 (fabricated infrastructure).
+// Sign-off entries are SMS/IG-only; all others apply to every channel.
+//
+// reasonCode format: <category>:<slug>
+//   filler_*          — Rule 15 banned filler phrases
+//   banned_signoff_*  — Rule 17 banned sign-offs (SMS/IG only)
+//   fabricated_*      — Rule 18 fabricated infrastructure
+export const CONTENT_GUARD_TOKENS: Array<{
+  token: string;
+  reasonCode: string;
+  smsIgOnly?: boolean;
+}> = [
+  // Rule 18 — fabricated infrastructure
+  { token: "calendar invite",       reasonCode: "fabricated_calendar_invite" },
+  { token: "confirming you got",     reasonCode: "fabricated_confirmation" },
+  { token: "from our call",          reasonCode: "fabricated_meeting_history" },
+  { token: "as we discussed",        reasonCode: "fabricated_discussion" },
+  { token: "tracking number",        reasonCode: "fabricated_tracking" },
+  { token: "customer portal",        reasonCode: "fabricated_portal" },
+  { token: "account dashboard",      reasonCode: "fabricated_dashboard" },
+
+  // Rule 15 — banned filler phrases
+  { token: "just thinking about",    reasonCode: "filler_just_thinking" },
+  { token: "just checking in",       reasonCode: "filler_checking_in" },
+  { token: "circle back",            reasonCode: "filler_circle_back" },
+  { token: "circling back",          reasonCode: "filler_circling_back" },
+  { token: "touching base",          reasonCode: "filler_touching_base" },
+  { token: "i wanted to reach out",  reasonCode: "filler_wanted_to_reach_out" },
+  { token: "just wanted to",         reasonCode: "filler_just_wanted_to" },
+  { token: "make your brand pop",    reasonCode: "filler_make_pop" },
+  { token: "elevate your brand",     reasonCode: "filler_elevate" },
+
+  // Rule 17 — banned sign-offs (SMS/IG only)
+  { token: "thanks, adorb custom printing", reasonCode: "banned_signoff_caps",  smsIgOnly: true },
+  { token: "thanks, adorb",                 reasonCode: "banned_signoff_short", smsIgOnly: true },
+  { token: "best regards",                  reasonCode: "banned_signoff_formal", smsIgOnly: true },
+  { token: "warm regards",                  reasonCode: "banned_signoff_warm",  smsIgOnly: true },
+];
+
+/**
+ * Check a composed message against the banned-phrase list.
+ * Returns blocked:true + reasonCode + matchedToken if any token is found.
+ * Sign-off rules only apply when channel is SMS or IG.
+ */
+export function checkContentGuard(
+  message: string,
+  channel: string
+): { blocked: boolean; reasonCode?: string; matchedToken?: string } {
+  const lower = message.toLowerCase();
+  const isSmsOrIg = channel === "SMS" || channel === "IG";
+
+  for (const entry of CONTENT_GUARD_TOKENS) {
+    if (entry.smsIgOnly && !isSmsOrIg) continue;
+    if (lower.includes(entry.token)) {
+      return { blocked: true, reasonCode: entry.reasonCode, matchedToken: entry.token };
+    }
+  }
+  return { blocked: false };
+}
 
 // ── Main guard runner ───────────────────────────────────────────────────
 
@@ -125,6 +187,17 @@ export function runOutputGuards(
   // Guard 6: Message length sanity — block absurdly long messages
   if (decision.message && decision.message.length > 2000) {
     return block("message_too_long", `Message is ${decision.message.length} chars (max 2000)`);
+  }
+
+  // Guard 7: Content guard — banned phrases (Rule 15 filler, Rule 17 sign-offs, Rule 18 fabricated infrastructure)
+  if (decision.message) {
+    const contentCheck = checkContentGuard(decision.message, decision.channel);
+    if (contentCheck.blocked) {
+      return block(
+        `output_guard:content:${contentCheck.reasonCode}`,
+        `Banned phrase detected: "${contentCheck.matchedToken}" (${contentCheck.reasonCode})`
+      );
+    }
   }
 
   return pass();
