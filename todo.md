@@ -1734,4 +1734,5 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [x] FC3.4: Add equivalent FABRICATED INFRASTRUCTURE + FOLLOW-UP HOOK DISCIPLINE + REALITY CHECK to brain-council.ts COMPOSER_PROMPT
 - [x] FC3.5: Write foundation-c3-guardrail.test.ts (30 tests verifying all three rules in both files)
 - [x] FC3.6: TypeScript clean (0 errors), 1365/1366 tests pass, commit 86e567d + checkpoint
-- [x] FC3.7: Fix Arlene Jeffers nextFollowUpAt to 2038-01-18 (far-future sentinel, 1 row touched)
+- [x] FC3.7: Fix Arlene Jeffers nextFollowUpAt to NULL (do-not-contact sentinel, 1 row touched, commit 62eee6f)
+- [x] FC3.8: Add verifyFoundationC3 endpoint to routers.ts — promptIntegrity + live LLM output check against 9 forbidden tokens
