@@ -41,6 +41,7 @@ import { runStrategyReview, getStrategyAdjustmentHistory } from "./strategy-auto
 import { extractAgentPatterns, recordAgentLearning } from "./learning-loop";
 import { getOutboxStats, enqueueOutbox, makeIdemKey } from "./outbox-worker";
 import { acquireComposeLock } from "./compose-lock";
+import { SINGLE_BRAIN_PROMPT_MARKERS } from "./single-brain";
 import { getDb } from "./db";
 import { sql } from "drizzle-orm";
 import { createTrainingExport, listTrainingExports, getTrainingExport } from "./training-export";
@@ -211,19 +212,22 @@ export const appRouter = router({
       'as discussed in our meeting',
       'from our meeting',
     ];
-    // Build a synthetic scenario: 5 unanswered outbound messages, no real artifacts in history.
-    // We call invokeLLM directly with the same system prompt that single-brain.ts uses,
-    // rather than calling runSingleBrain (which requires a real leadId in the DB).
-    // This tests the prompt content in the deployed runtime.
-    const { readFileSync } = await import('fs');
-    const { join } = await import('path');
-    const singleBrainSrc = readFileSync(join(__dirname, 'single-brain.ts'), 'utf-8');
-    // Extract the HARD CONSTRAINTS block to verify it's present in deployed code
-    const hasRule18 = singleBrainSrc.includes('18. NEVER FABRICATE INFRASTRUCTURE');
-    const hasRule19 = singleBrainSrc.includes('19. TIGHTEN THE FOLLOW-UP HOOK');
-    const hasRule20 = singleBrainSrc.includes('20. REALITY CHECK BEFORE COMPOSING');
-    const hasCalendarBan = singleBrainSrc.includes('Calendar invites (Adorb does NOT send calendar invites');
-    const hasPortalBan = singleBrainSrc.includes('Customer portals, account dashboards, login links (these do not exist)');
+    // Prompt integrity check: verify C.3 guardrail markers are present in the deployed bundle.
+    // SINGLE_BRAIN_PROMPT_MARKERS is exported from single-brain.ts and bundled into dist/index.js.
+    // This is ESM-safe: no file reading, no __dirname, no path resolution needed.
+    // The markers are the exact strings that Rules 18-20 introduce in buildSystemPrompt().
+    // If any marker is missing, the guardrail was stripped or the wrong bundle was deployed.
+    let promptIntegrityError: string | undefined;
+    let hasRule18 = false, hasRule19 = false, hasRule20 = false, hasCalendarBan = false, hasPortalBan = false;
+    try {
+      hasRule18 = SINGLE_BRAIN_PROMPT_MARKERS.rule18 === '18. NEVER FABRICATE INFRASTRUCTURE';
+      hasRule19 = SINGLE_BRAIN_PROMPT_MARKERS.rule19 === '19. TIGHTEN THE FOLLOW-UP HOOK';
+      hasRule20 = SINGLE_BRAIN_PROMPT_MARKERS.rule20 === '20. REALITY CHECK BEFORE COMPOSING';
+      hasCalendarBan = SINGLE_BRAIN_PROMPT_MARKERS.calendarBan === 'Calendar invites (Adorb does NOT send calendar invites';
+      hasPortalBan = SINGLE_BRAIN_PROMPT_MARKERS.portalBan === 'Customer portals, account dashboards, login links (these do not exist)';
+    } catch (e: any) {
+      promptIntegrityError = e?.message || 'Failed to read SINGLE_BRAIN_PROMPT_MARKERS';
+    }
     // Call the LLM with a minimal system prompt that includes the guardrail rules + a 5-unanswered scenario
     const syntheticSystemPrompt = `You are an AI outreach assistant for Adorb Custom Tees.
 
@@ -277,16 +281,20 @@ Respond with JSON: { "message": string | null, "reason": string }`;
     } catch (e: any) {
       llmError = e?.message || 'LLM call failed';
     }
-    const promptIntegrityPass = hasRule18 && hasRule19 && hasRule20 && hasCalendarBan && hasPortalBan;
+    const promptIntegrityPass = !promptIntegrityError && hasRule18 && hasRule19 && hasRule20 && hasCalendarBan && hasPortalBan;
     const liveOutputPass = !llmError && forbiddenFound.length === 0;
     const success = promptIntegrityPass && liveOutputPass;
     return {
       success,
-      promptIntegrity: { hasRule18, hasRule19, hasRule20, hasCalendarBan, hasPortalBan, pass: promptIntegrityPass },
-      liveOutput: { message: llmOutput, forbiddenFound, error: llmError, pass: liveOutputPass },
+      promptIntegrity: {
+        hasRule18, hasRule19, hasRule20, hasCalendarBan, hasPortalBan,
+        pass: promptIntegrityPass,
+        error: promptIntegrityError ?? null,
+      },
+      liveOutput: { message: llmOutput, forbiddenFound, error: llmError ?? null, pass: liveOutputPass },
       message: success
-        ? 'Foundation C.3 confirmed live — guardrail rules present in deployed code, LLM output clean of forbidden tokens'
-        : `FAILED: promptIntegrity=${promptIntegrityPass}, liveOutputPass=${liveOutputPass}, forbiddenFound=${JSON.stringify(forbiddenFound)}, llmError=${llmError}`,
+        ? 'Foundation C.3 confirmed live — guardrail rules present in deployed bundle, LLM output clean of forbidden tokens'
+        : `FAILED: promptIntegrity=${promptIntegrityPass}${promptIntegrityError ? ' (' + promptIntegrityError + ')' : ''}, liveOutputPass=${liveOutputPass}, forbiddenFound=${JSON.stringify(forbiddenFound)}, llmError=${llmError ?? 'none'}`,
     };
   }),
 

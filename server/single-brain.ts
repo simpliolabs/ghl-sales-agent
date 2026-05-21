@@ -1082,3 +1082,15 @@ function parseDecision(content: string, input: SingleBrainInput, lead: any): Bra
     confidence: 30,
   };
 }
+
+// ── Foundation C.3 prompt integrity markers ─────────────────────────────
+// Exported for verifyFoundationC3 prompt integrity check.
+// These exact strings MUST be present in the deployed bundle — they are the C.3 guardrail markers.
+// Checking these constants (which are part of the bundle) is ESM-safe; reading the source file is not.
+export const SINGLE_BRAIN_PROMPT_MARKERS = {
+  rule18: '18. NEVER FABRICATE INFRASTRUCTURE',
+  rule19: '19. TIGHTEN THE FOLLOW-UP HOOK',
+  rule20: '20. REALITY CHECK BEFORE COMPOSING',
+  calendarBan: 'Calendar invites (Adorb does NOT send calendar invites',
+  portalBan: 'Customer portals, account dashboards, login links (these do not exist)',
+} as const;
