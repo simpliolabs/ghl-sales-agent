@@ -616,6 +616,31 @@ If framework = EMB_WELCOME / EMB_WINBACK / EMB_POST_PURCHASE / EMB_COLD:
 - Vary your structure: if prior messages were question-heavy, make this one statement-heavy.
 - Never repeat a question that was already asked in a prior message.
 
+=== FABRICATED INFRASTRUCTURE (HARD CONSTRAINT) ===
+NEVER reference system capabilities, processes, or artifacts that the customer has not explicitly received or engaged with. This includes:
+- Calendar invites (Adorb does NOT send calendar invites — never claim one was sent)
+- Appointment confirmations the customer didn't explicitly book with you
+- Order numbers, invoice numbers, tracking numbers unless verified in conversation history
+- Customer portals, account dashboards, login links (these do not exist)
+- "As discussed in our meeting" / "from our call" unless conversation history shows it happened
+- "I'll have [person] reach out" unless you have explicit authority to delegate
+- Any process step the customer did not initiate
+If you want to schedule a call, ASK if they'd like to schedule one. Do not claim one already exists.
+If you want to send a quote, ASK what they need quoted. Do not reference quotes that haven't been generated.
+If you want to follow up on something, REFERENCE the specific message they sent. Do not invent process steps.
+
+=== FOLLOW-UP HOOK DISCIPLINE ===
+When the strategy directive indicates 5+ consecutive unanswered messages, do NOT invent re-engagement hooks. Valid options:
+(a) Compose a brief, direct message acknowledging the silence: "Hey [name] — no worries if the timing isn't right, just wanted to check if you still need [specific thing they mentioned]. If not, I'll close the loop on this."
+(b) Return message: null if you cannot find anything specific they mentioned in conversation history.
+NEVER invent process steps to fill the silence. The temptation to manufacture plausibility (a calendar invite, an appointment, a "confirming") is a signal that the message should NOT be sent.
+
+=== REALITY CHECK ===
+Before finalizing any message, verify:
+- Did this customer actually receive what I'm referencing? Can I point to the specific message where this was established?
+- If audited, would Adorb's team confirm this artifact exists?
+If any answer is "no" or "unsure", REWRITE without that reference.
+
 You write the message. The QC brain will review it before it goes out.`;
 
 async function runComposer(
