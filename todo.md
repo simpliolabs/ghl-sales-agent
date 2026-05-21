@@ -1725,3 +1725,13 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [x] FA5.16: Add verifyFoundationA5 endpoint (sentinel leadId = -3) in routers.ts
 - [x] FA5.17: Write foundation-a5-audit-semantics.test.ts — 8 tests covering all outcome kinds + audit contract
 - [x] FA5.18: TypeScript clean (0 errors), 1335/1336 tests pass (1 pre-existing openai-key.test.ts credential failure unrelated to A.5)
+
+## Foundation C.3 — Fabricated Infrastructure Guardrail (Rules 18-20)
+
+- [x] FC3.1: Add Rule 18 (NEVER FABRICATE INFRASTRUCTURE) to single-brain.ts HARD CONSTRAINTS after Rule 17
+- [x] FC3.2: Add Rule 19 (TIGHTEN THE FOLLOW-UP HOOK) to single-brain.ts HARD CONSTRAINTS
+- [x] FC3.3: Add Rule 20 (REALITY CHECK BEFORE COMPOSING) to single-brain.ts HARD CONSTRAINTS
+- [x] FC3.4: Add equivalent FABRICATED INFRASTRUCTURE + FOLLOW-UP HOOK DISCIPLINE + REALITY CHECK to brain-council.ts COMPOSER_PROMPT
+- [x] FC3.5: Write foundation-c3-guardrail.test.ts (30 tests verifying all three rules in both files)
+- [x] FC3.6: TypeScript clean (0 errors), 1365/1366 tests pass, commit 86e567d + checkpoint
+- [x] FC3.7: Fix Arlene Jeffers nextFollowUpAt to 2038-01-18 (far-future sentinel, 1 row touched)
