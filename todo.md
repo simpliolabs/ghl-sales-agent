@@ -1736,3 +1736,15 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [x] FC3.6: TypeScript clean (0 errors), 1365/1366 tests pass, commit 86e567d + checkpoint
 - [x] FC3.7: Fix Arlene Jeffers nextFollowUpAt to NULL (do-not-contact sentinel, 1 row touched, commit 62eee6f)
 - [x] FC3.8: Add verifyFoundationC3 endpoint to routers.ts — promptIntegrity + live LLM output check against 9 forbidden tokens
+
+## Architectural Debt Inventory — New Items (2026-05-21)
+
+- [ ] Item #28 (HIGH) — UPGRADED TO TWICE-OBSERVED: First-contact dedup gap (Foundation D not covering first-contact paths). Observed: Terrance (May 20) + Thuy Huynh lead 5100068 (May 19 13:30/13:31 UTC — two identical "Chris here from Adorb" messages 1 min apart). Foundation B scope (compose-lock extension to first-contact paths).
+- [ ] Item #29 (HIGH): Timestamp corruption in pre-C.1 first-contact write path. Conversations rows 5400117/5400118 (Thuy lead 5100068) have timestamp=2612-01-12 (year 2612 — overflow). Source: `{}` body write before C.1 coercion fix. Actions: (a) query for all rows with timestamp > current year+1, (b) confirm C.1 fixed source for new traffic, (c) data hygiene query for legacy rows. Do not backfill — log and move on.
+- [ ] Item #30 (HIGH): humanTakeover NOT auto-set when human engages via GHL UI. Thuy lead 5100068: Abby sent manually at 13:15 UTC May 19. lastAgentActivityAt updated correctly. humanTakeover stayed 0. AI fired multi-fire follow-ups at 13:30+13:31. Inventory item #18 confirmed in production. Foundation B scope.
+- [ ] Item #31 (MEDIUM): Pre-A.5 audit gap larger than estimated. 7 of 9 send callsites had no audit trail before A.5. Estimated hundreds of sends/week with no record. A.5 closes going forward. Historical reconstruction impossible — do not attempt backfill.
+
+## Emergency Lead Fixes Applied (2026-05-21)
+
+- [x] Thuy Huynh (lead 5100068): humanTakeover=1, nextFollowUpAt=NULL — blocked from AI re-queue (was 40min from firing at 16:00 UTC)
+- [x] Arlene Jeffers (lead 360007): humanTakeover=1 (already set), nextFollowUpAt=NULL — do-not-contact sentinel

@@ -47,6 +47,18 @@ export default function Settings() {
     onError: (e) => toast.error(e.message),
   });
 
+  // Foundation verification
+  const [verifyA5Result, setVerifyA5Result] = useState<string | null>(null);
+  const [verifyC3Result, setVerifyC3Result] = useState<string | null>(null);
+  const verifyA5 = trpc.verifyFoundationA5.useMutation({
+    onSuccess: (data: unknown) => { setVerifyA5Result(JSON.stringify(data, null, 2)); toast.success('A.5 verification complete'); },
+    onError: (e: { message: string }) => { setVerifyA5Result('ERROR: ' + e.message); toast.error('A.5 verification failed'); },
+  });
+  const verifyC3 = trpc.verifyFoundationC3.useMutation({
+    onSuccess: (data: unknown) => { setVerifyC3Result(JSON.stringify(data, null, 2)); toast.success('C.3 verification complete'); },
+    onError: (e: { message: string }) => { setVerifyC3Result('ERROR: ' + e.message); toast.error('C.3 verification failed'); },
+  });
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -151,6 +163,38 @@ export default function Settings() {
                   <RefreshCw className={`h-4 w-4 mr-2 ${syncMutation.isPending ? "animate-spin" : ""}`} />
                   {syncMutation.isPending ? "Syncing..." : "Sync Contacts from GHL"}
                 </Button>
+              </CardContent>
+            </Card>
+
+            {/* Foundation Verification */}
+            <Card className="border-purple-200 bg-purple-50/30">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Shield className="h-4 w-4 text-purple-600" /> Foundation Verification
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">Run live integration tests against the deployed runtime. Results appear below each button.</p>
+                <div className="space-y-3">
+                  <div>
+                    <Button onClick={() => { setVerifyA5Result(null); verifyA5.mutate(); }} disabled={verifyA5.isPending} variant="outline" className="w-full border-purple-300">
+                      <Shield className={`h-4 w-4 mr-2 ${verifyA5.isPending ? 'animate-spin' : ''}`} />
+                      {verifyA5.isPending ? 'Running A.5...' : 'Run verifyFoundationA5'}
+                    </Button>
+                    {verifyA5Result && (
+                      <pre className="mt-2 p-3 bg-black/90 text-green-400 text-xs rounded overflow-auto max-h-64 whitespace-pre-wrap">{verifyA5Result}</pre>
+                    )}
+                  </div>
+                  <div>
+                    <Button onClick={() => { setVerifyC3Result(null); verifyC3.mutate(); }} disabled={verifyC3.isPending} variant="outline" className="w-full border-purple-300">
+                      <Shield className={`h-4 w-4 mr-2 ${verifyC3.isPending ? 'animate-spin' : ''}`} />
+                      {verifyC3.isPending ? 'Running C.3 (LLM call ~15s)...' : 'Run verifyFoundationC3'}
+                    </Button>
+                    {verifyC3Result && (
+                      <pre className="mt-2 p-3 bg-black/90 text-green-400 text-xs rounded overflow-auto max-h-64 whitespace-pre-wrap">{verifyC3Result}</pre>
+                    )}
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
