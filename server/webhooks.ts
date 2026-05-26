@@ -108,13 +108,16 @@ export function _resetPipelineLockForTests(): void {
 }
 
 function acquireMessageLock(contactId: string, messageBody: string): boolean {
+  // Defensive: ensure messageBody is a string (GHL sometimes sends objects/arrays)
+  const safeMessageBody = typeof messageBody === 'string' ? messageBody : String(messageBody ?? '');
+  
   // Clean expired locks
   const now = Date.now();
   Array.from(MESSAGE_DEDUP_LOCK.entries()).forEach(([key, ts]) => {
     if (now - ts > DEDUP_LOCK_TTL_MS) MESSAGE_DEDUP_LOCK.delete(key);
   });
   // Create a simple hash key from contactId + first 100 chars of message body
-  const lockKey = `${contactId}:${(messageBody || "").substring(0, 100)}`;
+  const lockKey = `${contactId}:${(safeMessageBody || "").substring(0, 100)}`;
   if (MESSAGE_DEDUP_LOCK.has(lockKey)) {
     console.log(`[Webhook/Dedup] Duplicate message webhook blocked: ${lockKey.substring(0, 60)}...`);
     return false; // Lock already held — this is a duplicate
@@ -124,7 +127,9 @@ function acquireMessageLock(contactId: string, messageBody: string): boolean {
 }
 
 function releaseMessageLock(contactId: string, messageBody: string): void {
-  const lockKey = `${contactId}:${(messageBody || "").substring(0, 100)}`;
+  // Defensive: ensure messageBody is a string
+  const safeMessageBody = typeof messageBody === 'string' ? messageBody : String(messageBody ?? '');
+  const lockKey = `${contactId}:${(safeMessageBody || "").substring(0, 100)}`;
   MESSAGE_DEDUP_LOCK.delete(lockKey);
 }
 
