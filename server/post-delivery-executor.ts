@@ -17,7 +17,8 @@ import { postDeliverySequences } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { runBrainCouncil } from "./brain-adapter";
 import { sendMessage, addNote } from "./ghl";
-import { sendMessageWithRetry, normalizeChannel, formatEmailHtml, buildContextSubject } from "./webhook-helpers";
+import { normalizeChannel, formatEmailHtml, buildContextSubject } from "./webhook-helpers";
+import { attemptSend, isDelivered } from "./attempt-send";
 import { notifyOwner } from "./_core/notification";
 
 const MAX_PER_CYCLE = 5;
@@ -120,24 +121,29 @@ export async function processPostDeliverySteps(): Promise<{ processed: number; s
             }
           : { type: channel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
 
-        const sendResult = await sendMessageWithRetry(ghlContactId, msgOpts, {
-          email: lead.email,
-          phone: lead.phone,
-          id: step.leadId,
+        // Foundation A.5: use typed attemptSend wrapper
+        const sendOutcome = await attemptSend({
+          leadId: step.leadId,
+          ghlContactId,
+          channel: channel as import('./send-types').Channel,
+          message: aiResponse.message,
+          emailSubject: channel === 'Email' ? emailSubject : undefined,
+          emailHtmlBody: channel === 'Email' ? formatEmailHtml(aiResponse.message) : undefined,
+          fromName: aiResponse.fromName,
+          emailThreadId: emailThreadId || undefined,
+          trigger: `post_delivery_${step.stepType}`,
         });
 
-        if (sendResult.success) {
-          if (sendResult.isPhantom) console.warn(`[PostDelivery] PR#3.12: Phantom send for lead ${step.leadId}`);
-          const actualChannel = sendResult.correctionTaken?.includes("email") ? "Email"
-            : sendResult.correctionTaken?.includes("sms") ? "SMS"
-            : channel;
+        if (isDelivered(sendOutcome) || sendOutcome.kind === 'phantom') {
+          if (sendOutcome.kind === 'phantom') console.warn(`[PostDelivery] PR#3.12: Phantom send for lead ${step.leadId}`);
+          const actualChannel = channel;
           await addConversation({
             leadId: step.leadId,
             direction: 'outbound',
             senderType: 'ai',
             messageBody: aiResponse.message,
             senderName: aiResponse.fromName,
-            outcome: { kind: 'delivered', messageId: sendResult.ghlMessageId ?? '', channel: actualChannel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: sendResult.resolvedContactId, correctionTaken: sendResult.correctionTaken, emailMessageId: sendResult.emailMessageId },
+            outcome: { kind: 'delivered', messageId: isDelivered(sendOutcome) ? sendOutcome.messageId : '', channel: actualChannel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: sendOutcome.resolvedContactId, emailMessageId: isDelivered(sendOutcome) ? sendOutcome.emailMessageId : undefined },
           });
           await updateLeadFields(step.leadId, {
             lastMessageAt: new Date(),
@@ -148,17 +154,18 @@ export async function processPostDeliverySteps(): Promise<{ processed: number; s
           stats.sent++;
         } else {
           await skipPostDeliveryStep(step.id); // mark as skipped on failure
-          console.error(`[PostDelivery] ❌ Failed to send ${step.stepType} to lead ${step.leadId}: ${sendResult.error}`);
+          const failReason = sendOutcome.kind === 'failed' ? (sendOutcome as any).reason : sendOutcome.kind;
+          console.error(`[PostDelivery] ❌ Failed to send ${step.stepType} to lead ${step.leadId}: ${failReason}`);
           stats.errors++;
           // Self-healing: record send failure into error-memory
           try {
             const { recordError, tryApplyKnownFix } = await import("./error-memory");
             await recordError({
               errorType: "post_delivery_error",
-              errorMessage: `Post-delivery ${step.stepType} send failed for lead ${step.leadId}: ${sendResult.error}`,
-              context: `leadId=${step.leadId} stepType=${step.stepType} channel=${channel} error=${sendResult.error}`,
+              errorMessage: `Post-delivery ${step.stepType} send failed for lead ${step.leadId}: ${failReason}`,
+              context: `leadId=${step.leadId} stepType=${step.stepType} channel=${channel} error=${failReason}`,
             });
-            const heal = await tryApplyKnownFix("post_delivery_error", `${sendResult.error}`, `channel=${channel}`);
+            const heal = await tryApplyKnownFix("post_delivery_error", `${failReason}`, `channel=${channel}`);
             if (heal.action === "switch_channel" && heal.channel) {
               console.log(`[PostDelivery/Heal] Auto-heal: switching to ${heal.channel} for lead ${step.leadId}`);
             } else if (heal.action !== "none") {

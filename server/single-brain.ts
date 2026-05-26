@@ -457,6 +457,25 @@ You text/email leads to help them order custom printed products.
     If you cannot identify a valid hook, return message: null with reason: "no_legitimate_hook".
     INVALID hooks (these are NOT reasons to send): "It's been a while", "Haven't heard back", "Just wanted to follow up", general product reminders with no specificity, any opening that could apply to any lead in the database.
 17. SIGN-OFFS — SMS and Instagram messages NEVER include a sign-off. Email may include a brief sign-off ONLY with the agent's first name in normal case ("— Mike"). NEVER use ALL CAPS company name as sign-off.
+18. NEVER FABRICATE INFRASTRUCTURE — NEVER reference system capabilities, processes, or artifacts that the customer has not explicitly received or engaged with. This includes:
+    - Calendar invites (Adorb does NOT send calendar invites — never claim one was sent)
+    - Appointment confirmations the customer didn't explicitly book with you
+    - Order numbers, invoice numbers, tracking numbers unless verified in conversation history
+    - Customer portals, account dashboards, login links (these do not exist)
+    - "As discussed in our meeting" / "from our call" unless conversation history shows it happened
+    - "I'll have [person] reach out" unless you have explicit authority to delegate
+    - Any process step the customer did not initiate
+    If you want to schedule a call, ASK if they'd like to schedule one. Do not claim one already exists.
+    If you want to send a quote, ASK what they need quoted. Do not reference quotes that haven't been generated.
+    If you want to follow up on something, REFERENCE the specific message they sent. Do not invent process steps.
+19. TIGHTEN THE FOLLOW-UP HOOK — When the trigger is [FOLLOW-UP TRIGGER] with 3+ consecutive unanswered messages, do NOT invent re-engagement hooks. Valid options at 5+ unanswered:
+    (a) Compose a brief, direct message acknowledging the silence: "Hey [name] — no worries if the timing isn't right, just wanted to check if you still need [specific thing they mentioned]. If not, I'll close the loop on this."
+    (b) Return message: null with reason: "stale_thread_close_loop" if you cannot find anything specific they mentioned in conversation history.
+    NEVER invent process steps to fill the silence. The temptation to manufacture plausibility (a calendar invite, an appointment, a "confirming") is a signal that the message should NOT be sent.
+20. REALITY CHECK BEFORE COMPOSING — Before finalizing any message, verify:
+    - Did this customer actually receive what I'm referencing? Can I point to the specific message where this was established?
+    - If audited, would Adorb's team confirm this artifact exists?
+    If any answer is "no" or "unsure", REWRITE without that reference.
 
 ═══ COLD OUTREACH FORMAT (first contact via SMS) ═══
 When this is FIRST CONTACT via SMS (no prior conversation):
@@ -569,7 +588,7 @@ async function buildAdaptiveLearningContext(aiStateRow: any, lead: any): Promise
 
 async function assembleContext(leadId: number): Promise<LeadContext> {
   const [history, memory, aiStateRow, lead] = await Promise.all([
-    getConversationHistory(leadId, 20),
+    getConversationHistory(leadId, 20, { excludeNonReal: true }), // Foundation C.2: brain context only
     getLeadMemory(leadId),
     getAiState(leadId),
     getLeadById(leadId),
@@ -784,6 +803,8 @@ export interface SingleBrainInput {
   inboundMessage?: string;
   channel?: string;
   draftMessage?: string; // Pre-composed message (skip brain, just send)
+  /** Optional AbortSignal propagated from the outbox-worker — aborts LLM calls if fired. */
+  signal?: AbortSignal;
 }
 
 export interface SingleBrainOutput {
@@ -869,6 +890,7 @@ export async function runSingleBrain(input: SingleBrainInput): Promise<SingleBra
       toolChoice: "auto",
       model,
       response_format: toolRounds === 0 ? undefined : undefined, // Can't use response_format with tools
+      signal: input.signal,
     });
     llmCalls++;
 
@@ -898,6 +920,7 @@ export async function runSingleBrain(input: SingleBrainInput): Promise<SingleBra
           messages,
           model,
           response_format: DECISION_SCHEMA,
+          signal: input.signal,
         });
         llmCalls++;
         if (structuredResponse?.choices?.[0]?.message?.content) {
@@ -1006,6 +1029,7 @@ export async function runSingleBrain(input: SingleBrainInput): Promise<SingleBra
     messages,
     model,
     response_format: DECISION_SCHEMA,
+    signal: input.signal,
   });
   llmCalls++;
 
@@ -1063,3 +1087,15 @@ function parseDecision(content: string, input: SingleBrainInput, lead: any): Bra
     confidence: 30,
   };
 }
+
+// ── Foundation C.3 prompt integrity markers ─────────────────────────────
+// Exported for verifyFoundationC3 prompt integrity check.
+// These exact strings MUST be present in the deployed bundle — they are the C.3 guardrail markers.
+// Checking these constants (which are part of the bundle) is ESM-safe; reading the source file is not.
+export const SINGLE_BRAIN_PROMPT_MARKERS = {
+  rule18: '18. NEVER FABRICATE INFRASTRUCTURE',
+  rule19: '19. TIGHTEN THE FOLLOW-UP HOOK',
+  rule20: '20. REALITY CHECK BEFORE COMPOSING',
+  calendarBan: 'Calendar invites (Adorb does NOT send calendar invites',
+  portalBan: 'Customer portals, account dashboards, login links (these do not exist)',
+} as const;

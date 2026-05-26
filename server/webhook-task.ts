@@ -10,7 +10,8 @@
 import { Response } from "express";
 import { getLeadByGhlContactId, updateLeadFields, addConversation, isAiOffline } from "./db";
 import { addNote } from "./ghl";
-import { DESIGNER, PRODUCTION_MANAGER, STAGES, sendMessageWithRetry } from "./webhook-helpers";
+import { DESIGNER, PRODUCTION_MANAGER, STAGES } from "./webhook-helpers";
+import { attemptSend, isDelivered } from "./attempt-send";
 import { handleStageAutomation } from "./webhook-pipeline";
 
 // --- STAGE NOTIFICATION (inline for task handler) ---
@@ -53,12 +54,14 @@ export async function handleTaskWebhook(payload: Record<string, unknown>, res: R
     const notification = getStageNotification(STAGES.PROOF_SENT, lead.name || "");
     if (notification && lead.phone && !aiOffline) {
       try {
-        const proofResult = await sendMessageWithRetry(contactId, { type: "SMS", message: notification.message }, { email: lead.email, phone: lead.phone, id: lead.id });
-        if (proofResult.success) {
-          if (proofResult.isPhantom) console.warn(`[Task] PR#3.12: Phantom proof notification for lead ${lead.id}`);
-          await addConversation({ leadId: lead.id, direction: 'outbound', senderType: 'ai', messageBody: notification.message, senderName: notification.fromName, outcome: { kind: 'delivered', messageId: proofResult.ghlMessageId ?? '', channel: 'SMS', deliveredAt: new Date(), resolvedContactId: proofResult.resolvedContactId, correctionTaken: proofResult.correctionTaken } });
+        // Foundation A.5: typed attemptSend
+        const proofOutcome = await attemptSend({ leadId: lead.id, ghlContactId: contactId, channel: 'SMS', message: notification.message, trigger: 'task_proof_sent' });
+        if (isDelivered(proofOutcome) || proofOutcome.kind === 'phantom') {
+          if (proofOutcome.kind === 'phantom') console.warn(`[Task] PR#3.12: Phantom proof notification for lead ${lead.id}`);
+          await addConversation({ leadId: lead.id, direction: 'outbound', senderType: 'ai', messageBody: notification.message, senderName: notification.fromName, outcome: { kind: 'delivered', messageId: isDelivered(proofOutcome) ? proofOutcome.messageId : '', channel: 'SMS', deliveredAt: new Date(), resolvedContactId: proofOutcome.resolvedContactId } });
         } else {
-          console.error(`[Task] Proof notification send FAILED for lead ${lead.id}: ${proofResult.error}`);
+          const failReason = proofOutcome.kind === 'failed' ? (proofOutcome as any).reason : proofOutcome.kind;
+          console.error(`[Task] Proof notification send FAILED for lead ${lead.id}: ${failReason}`);
         }
       } catch { /* best effort */ }
     } else if (aiOffline) {
@@ -77,12 +80,14 @@ export async function handleTaskWebhook(payload: Record<string, unknown>, res: R
     const notification = getStageNotification(STAGES.READY, lead.name || "");
     if (notification && lead.phone && !aiOffline) {
       try {
-        const readyResult = await sendMessageWithRetry(contactId, { type: "SMS", message: notification.message }, { email: lead.email, phone: lead.phone, id: lead.id });
-        if (readyResult.success) {
-          if (readyResult.isPhantom) console.warn(`[Task] PR#3.12: Phantom ready notification for lead ${lead.id}`);
-          await addConversation({ leadId: lead.id, direction: 'outbound', senderType: 'ai', messageBody: notification.message, senderName: notification.fromName, outcome: { kind: 'delivered', messageId: readyResult.ghlMessageId ?? '', channel: 'SMS', deliveredAt: new Date(), resolvedContactId: readyResult.resolvedContactId, correctionTaken: readyResult.correctionTaken } });
+        // Foundation A.5: typed attemptSend
+        const readyOutcome = await attemptSend({ leadId: lead.id, ghlContactId: contactId, channel: 'SMS', message: notification.message, trigger: 'task_ready' });
+        if (isDelivered(readyOutcome) || readyOutcome.kind === 'phantom') {
+          if (readyOutcome.kind === 'phantom') console.warn(`[Task] PR#3.12: Phantom ready notification for lead ${lead.id}`);
+          await addConversation({ leadId: lead.id, direction: 'outbound', senderType: 'ai', messageBody: notification.message, senderName: notification.fromName, outcome: { kind: 'delivered', messageId: isDelivered(readyOutcome) ? readyOutcome.messageId : '', channel: 'SMS', deliveredAt: new Date(), resolvedContactId: readyOutcome.resolvedContactId } });
         } else {
-          console.error(`[Task] Ready notification send FAILED for lead ${lead.id}: ${readyResult.error}`);
+          const failReason = readyOutcome.kind === 'failed' ? (readyOutcome as any).reason : readyOutcome.kind;
+          console.error(`[Task] Ready notification send FAILED for lead ${lead.id}: ${failReason}`);
         }
       } catch { /* best effort */ }
     } else if (aiOffline) {

@@ -192,3 +192,97 @@ All other hits are staged for Foundation B receive-side hardening. Do not fix in
 6. **Foundation F** — Working memory
 
 Content distillation runs parallel to all foundations.
+
+---
+
+## Section 8: Foundation D Ratification + New Inventory Items (2026-05-20)
+
+**Last Updated:** 2026-05-20 15:50 UTC
+
+---
+
+### Foundation Status
+
+| Foundation | Status | Ratified | Verification Chain |
+|------------|--------|----------|--------------------|
+| **Foundation A** | Shipped | ✓ 2026-05-19 | Step A + Step B sentinels confirmed live |
+| **Foundation D** | Shipped | ✓ 2026-05-20 | Three live `verifyFoundationD` calls: `2026-05-20T15:44:20Z`, `2026-05-20T15:44:38Z` (both on `7479a728`). Root bug found during verification: `affectedRows` was read from wrong nesting level of Drizzle/MySQL result (`result.affectedRows` instead of `result[0].affectedRows`), causing `acquireComposeLock()` to silently return `false` on every call in production. Fixed in `7479a728`. Two-checkpoint sentinel chain: `9bb15a81` (initial deploy) → `7479a728` (idempotent fix). |
+| **Foundation C** | Pending | — | Next in sequence (Option A roadmap) |
+| **Foundation B** | Pending | — | After Foundation C |
+
+---
+
+### New Inventory Items
+
+| # | Item | Severity | Foundation | Notes |
+|---|------|----------|------------|-------|
+| 23 | **Business-hours human-priority gating missing from fast_scan path.** `shouldDeferResponse()` (15-minute agent-first window, Mon-Fri 9am-5pm ET) is wired in `webhook-message.ts` and `webhook-contact.ts` but is **not called** in `brain-council-review.ts` (fast_scan path) or `outbox-worker.ts`. Any inbound that arrives during the 2-minute fast_scan window is picked up by fast_scan and bypasses the deferral entirely. **Scope (last 7 days):** 27 fast_scan decisions during business hours across 3 business days (avg 9/day; Wed May 20 = 20, Tue May 19 = 3, Mon May 18 = 4). Dmitriy Grechukha (lead 1319) is the confirmed customer-visible incident: inbound at 15:03:50 UTC, AI reply at 15:04:56 UTC (~66 seconds), no human window given. | **HIGH** — Produces customer-visible policy violation any time fast_scan picks up the inbound before webhook-message. fast_scan is the dominant inbound-reply path (268 decisions in 7 days vs 6 deferred). | **Foundation B** | Do not patch in isolation. Wire `shouldDeferResponse()` into the fast_scan compose path as part of Foundation B's centralized send-policy engine. Band-aid option (30-min Manus job): gate fast_scan behind `process.env.FAST_SCAN_BUSINESS_HOURS_DEFER=true` — PO to decide if needed before Foundation C ships. |
+| 24 | **AI commits to physical-world capabilities it cannot fulfill.** Confirmed: Dmitriy Grechukha conversation (2026-05-20) — AI said "Come on by whenever you're free to check out our polo t-shirts" (15:04:56 UTC) and "We'll be ready for you when you get here" (15:06:25 UTC). Customer arrived at the physical location; no one was prepared to greet him (he texted "I'm here. Can someone open the door please" at 15:11:03 UTC). The AI is making implicit promises about physical-world readiness (door open, staff present, items ready) that it has no ability to verify or fulfill. | **MEDIUM** — Causes customer-facing trust damage when the AI's implied promises don't match physical reality. Lower urgency than crash/silence bugs but directly degrades conversion quality for walk-in leads. | **Content distillation (Stage 3)** | Band-aid option: add system prompt rule prohibiting "we'll be ready for you" / "come on by" / "someone will be there" phrasing. Full fix requires the AI to understand it cannot make physical-world commitments. |
+
+---
+
+### Updated Foundation B Scope (Post-Item #23)
+
+Foundation B now includes the following items:
+- Patch #1 — channelHint field unification at enqueue time
+- Patch #2 — TCPA rules centralized (SMS/WhatsApp strict, IG/FB human-feel, inbound-reply exemption)
+- Item #17a — Appointment-webhook humanTakeover false positive
+- Item #18 — humanTakeover NOT set on real human sends (depends on Item #16 fix in Foundation C)
+- Item #19 — IG channel detection race (channel lock at enqueue time)
+- Item #23 — Business-hours human-priority gating for fast_scan path ← **NEW**
+
+---
+
+### Scope Query Results (2026-05-20)
+
+**Query:** fast_scan decisions during business hours (9am-5pm ET, Mon-Fri), last 7 days.
+
+| Date | fast_scan biz-hours count |
+|------|--------------------------|
+| 2026-05-20 (Wed) | 20 |
+| 2026-05-19 (Tue) | 3 |
+| 2026-05-18 (Mon) | 4 |
+| **7-day total** | **27** |
+| **Avg/business day** | **9.0** |
+
+Total fast_scan decisions (all hours, 7d): 268. Trigger breakdown: `follow_up` 6,959 · `fast_scan` 268 · `deferred` 6.
+
+**Decision:** Option X confirmed (D → C → B). 9/day is below the 30/day threshold for sequencing swap. Foundation C ships next.
+
+---
+
+## Section 9 — Foundation C.1.1 Patch + Verification Discipline (2026-05-20)
+
+**Last Updated:** 2026-05-20 17:55 UTC
+
+### Foundation C.1.1 — Outbound Branch Hole Closed
+
+**Root cause:** The empty-body guard in `handleMessageWebhook` was placed AFTER the `direction === 'outbound'` branch that writes to `conversations`. GHL outbound webhooks with `body: {}` bypassed the guard and wrote `{}` rows. The C.1 Step A synthetic tests only exercised the inbound path — they did not cover the outbound branch.
+
+**Fix:** Moved the empty-body guard to immediately after `effectiveMessageBody` is finalized (after attachment handling), before any conversation-write branch. Added `__synth__` contactId short-circuit at top of handler so future verification tests cannot pollute leads/conversations tables.
+
+**Evidence of hole:** 6 rows in `conversations` with `body_hex=7B7D` (literal `{}`) written during C.1 verification window, all from real-time outbound GHL webhooks for Ron Castellon (leadId=4980121).
+
+---
+
+### Item #25 — Synthetic Verification Endpoint Design (MEDIUM)
+
+**Category:** Verification infrastructure  
+**Foundation:** C.1.1 (shipped)
+
+Synthetic verification webhooks must use a `__synth__` contactId prefix that short-circuits all real processing (no lead creation, no conversation writes, no GHL calls) while still exercising the coercion logic under test. This prevents test pollution of the leads/conversations tables and makes verification results unambiguous.
+
+**Shipped in C.1.1:** `__synth__` short-circuit added to top of `handleMessageWebhook`. All C.1/C.1.1 tests updated to use `__synth__` prefix.
+
+---
+
+### Item #26 — Verification Branch Coverage Discipline (HIGH)
+
+**Category:** Process / verification quality  
+**Scope:** All future foundation verification specs
+
+Every foundation verification spec must enumerate the code branches it tests and explicitly state which branches are NOT covered. The C.1 Step A tests covered only the inbound empty-body path — they missed the outbound branch, which produced 6 real production `{}` rows.
+
+**Rule going forward:** Before marking a foundation as "verified," list every `addConversation` call site in the patched file and confirm each one is covered by at least one synthetic test. If a branch is not covered, it must be documented as a known gap with a follow-up item.
+
+This is the second time in this session (and third or fourth overall) that a fix shipped as "verified" but missed a code path. The discipline is mandatory, not optional.

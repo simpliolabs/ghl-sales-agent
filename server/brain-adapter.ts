@@ -343,6 +343,7 @@ export async function runBrainAdapter(input: BrainCouncilInput): Promise<BrainCo
       trigger: input.isInboundReply ? "inbound_reply" : (input.overrideReason || "follow_up"),
       inboundMessage: input.incomingMessage || undefined,
       channel: input.channel,
+      signal: input.signal,
     };
 
     const result = await runSingleBrain(singleBrainInput);
@@ -444,10 +445,11 @@ export async function runBrainAdapter(input: BrainCouncilInput): Promise<BrainCo
     }
 
     // ================================================================
-    // Audit log
+    // Audit log — Foundation A.5: write messageSent=0 (pending); caller updates after send
     // ================================================================
+    let auditId: number | undefined;
     try {
-      await addBrainCouncilAudit({
+      auditId = await addBrainCouncilAudit({
         leadId: input.leadId,
         channel: finalChannel,
         incomingMessage: input.incomingMessage?.substring(0, 2000),
@@ -455,7 +457,7 @@ export async function runBrainAdapter(input: BrainCouncilInput): Promise<BrainCo
         finalMessage: result.decision.message,
         qcScore: result.decision.confidence,
         qcApproved: 1,
-        messageSent: 1,
+        messageSent: 0, // A.5: pending — caller sets to 1 after confirmed send
         blocked: 0,
         emailSubject: result.decision.subject || undefined,
         strategyReasoning: `[SingleBrain v3.0] ${result.model} | ${result.llmCalls} LLM calls | ${result.durationMs}ms`,
@@ -500,6 +502,7 @@ export async function runBrainAdapter(input: BrainCouncilInput): Promise<BrainCo
       researchSummary: "",
       blocked: false,
       fallbackUsed: false,
+      auditId, // Foundation A.5: caller updates messageSent/sendOutcomeKind post-send
     };
 
   } finally {

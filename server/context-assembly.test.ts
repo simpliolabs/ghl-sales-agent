@@ -146,7 +146,8 @@ describe("Layer 1.6: Prior Contact Guard — History Lookback Fix", () => {
 
   it("follow-up-trigger.ts fetches 50 messages (not 20) for local history", () => {
     const src = readFile("follow-up-trigger.ts");
-    expect(src).toMatch(/getConversationHistory\(leadId,\s*50\)/);
+    // Foundation C.2 added excludeNonReal option — match the updated call signature
+    expect(src).toMatch(/getConversationHistory\(leadId,\s*50/);
   });
 
 

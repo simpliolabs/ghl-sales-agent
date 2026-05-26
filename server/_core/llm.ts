@@ -67,6 +67,9 @@ export type InvokeParams = {
   responseFormat?: ResponseFormat;
   response_format?: ResponseFormat;
   model?: string; // Override model (e.g. fine-tuned model ID)
+  /** Optional external AbortSignal. If provided, the fetch is aborted when the signal fires.
+   *  The internal 120s timeout guard still applies — whichever fires first wins. */
+  signal?: AbortSignal;
 };
 
 export type ToolCall = {
@@ -321,10 +324,15 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   // Timeout guard: abort the fetch if the LLM takes longer than LLM_CALL_TIMEOUT_MS.
   // Without this, a hung LLM call holds the Brain Council DB lock for the full 5-minute TTL,
   // blocking all subsequent messages to the same lead.
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => {
-    controller.abort();
-  }, LLM_CALL_TIMEOUT_MS);
+  // If an external signal is provided, combine it with the internal timeout via AbortSignal.any().
+  const internalController = new AbortController();
+  const timeoutId = setTimeout(() => { internalController.abort(); }, LLM_CALL_TIMEOUT_MS);
+  const externalSignal = params.signal;
+  const combinedSignal: AbortSignal = externalSignal
+    ? (typeof (AbortSignal as any).any === "function"
+        ? (AbortSignal as any).any([internalController.signal, externalSignal]) // Node 20+
+        : internalController.signal) // Node <20 fallback: internal timeout only
+    : internalController.signal;
 
   let response: Response;
   try {
@@ -335,7 +343,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
         authorization: `Bearer ${ENV.forgeApiKey}`,
       },
       body: JSON.stringify(payload),
-      signal: controller.signal,
+      signal: combinedSignal,
     });
   } catch (fetchErr: unknown) {
     clearTimeout(timeoutId);

@@ -22,7 +22,8 @@ import { outbox, decisionLog } from "../drizzle/schema";
 import type { OutboxRow, InsertOutboxRow } from "../drizzle/schema";
 import { sql, eq } from "drizzle-orm";
 import { sendMessage } from "./ghl";
-import { sendMessageWithRetry, ensureEmailSignature, formatEmailHtml } from "./webhook-helpers";
+import { ensureEmailSignature, formatEmailHtml } from "./webhook-helpers";
+import { attemptSend, isDelivered } from "./attempt-send";
 import type { BrainCouncilInput } from "./brain-types";
 import { promptVersions } from "../drizzle/schema";
 
@@ -33,7 +34,7 @@ const MIN_NEXT_FOLLOW_UP_HOURS = 4;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const INSTANCE_ID = `worker-${process.pid}-${Date.now().toString(36)}`;
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 6;
 const CLAIM_BATCH_SIZE = 5;
 const CLAIM_EXPIRY_MS = 120_000; // 2 min — reclaim if worker dies
 const DRAIN_INTERVAL_MS = 5_000; // 5 seconds between drain cycles
@@ -303,19 +304,24 @@ export async function processOutboxRow(row: OutboxRow): Promise<void> {
       return;
     }
 
-    if (payload.draftMessage) {
+        if (payload.draftMessage) {
       // Path A: Pre-composed content (static nurture, correction sequences)
+      // Foundation A.5: use typed attemptSend wrapper
       const channel = String(payload.channel || lead.preferredChannel || "SMS");
       const sendOpts = buildSendOpts(channel, String(payload.draftMessage), payload);
-      const result = await sendMessageWithRetry(contactId, sendOpts, {
-        id: leadId,
-        email: lead.email,
-        phone: lead.phone,
+      const sendOutcomeA = await attemptSend({
+        leadId,
+        ghlContactId: contactId,
+        channel: channel as import('./send-types').Channel,
+        message: String(payload.draftMessage),
+        emailSubject: sendOpts?.type === 'Email' ? (sendOpts as any).subject : undefined,
+        emailHtmlBody: sendOpts?.type === 'Email' ? (sendOpts as any).html : undefined,
+        fromName: (sendOpts as any)?.fromName,
+        trigger: String(payload.trigger || row.source),
       });
-
-      if (!result.success) {
-        // Dead-contact case: wrapper tried to resolve, failed
-        if (result.errorType === "contact_not_found") {
+      if (sendOutcomeA.kind === 'failed') {
+        // Dead-contact case
+        if (sendOutcomeA.errorType === 'contact_not_found') {
           await updateLeadFields(leadId, {
             pipelineStage: "not_qualified",
             nextFollowUpAt: new Date("2099-01-01"),
@@ -330,21 +336,22 @@ export async function processOutboxRow(row: OutboxRow): Promise<void> {
           });
           return;
         }
-        // Other failure types — wrapper already tried fallbacks
-        await markOutbox(row.id, "failed", result.error || result.errorType || "send_failed");
-        await logDecision({ outboxId: row.id, leadId, trigger: String(payload.trigger || row.source), channel, outputGuardResult: `error:${(result.error || result.errorType || "send_failed").slice(0, 100)}`, durationMs: Date.now() - startTime });
-        console.warn(`[Outbox] Path A send failed for lead ${leadId}: ${result.errorType} - ${result.error}`);
+        // Other failure types
+        await markOutbox(row.id, "failed", sendOutcomeA.reason || sendOutcomeA.errorType || "send_failed");
+        await logDecision({ outboxId: row.id, leadId, trigger: String(payload.trigger || row.source), channel, outputGuardResult: `error:${(sendOutcomeA.reason || sendOutcomeA.errorType || "send_failed").slice(0, 100)}`, durationMs: Date.now() - startTime });
+        console.warn(`[Outbox] Path A send failed for lead ${leadId}: ${sendOutcomeA.errorType} - ${sendOutcomeA.reason}`);
         return;
       }
-
-      // Success path
-      if (result.correctionTaken) {
-        console.log(`[Outbox] Path A send succeeded with correction: ${result.correctionTaken} for lead ${leadId}`);
+      if (sendOutcomeA.kind === 'blocked') {
+        await markOutbox(row.id, "skipped", `blocked:${sendOutcomeA.reason || 'policy'}`);
+        await logDecision({ outboxId: row.id, leadId, trigger: String(payload.trigger || row.source), channel, outputGuardResult: `block:${sendOutcomeA.reason}`, durationMs: Date.now() - startTime });
+        return;
       }
+      // delivered or phantom
       await markOutbox(row.id, "sent");
-      if (result.isPhantom) console.warn(`[Outbox] PR#3.12: Phantom Path A send for lead ${leadId}`);
+      if (sendOutcomeA.kind === 'phantom') console.warn(`[Outbox] PR#3.12: Phantom Path A send for lead ${leadId}`);
       // PR#3.9: Write conversations row so dedup guard can see this send
-      await addConversation({ leadId, direction: 'outbound', senderType: 'ai', messageBody: String(payload.draftMessage), senderName: 'AI', outcome: { kind: 'delivered', messageId: result.ghlMessageId ?? '', channel: channel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: result.resolvedContactId, correctionTaken: result.correctionTaken, emailMessageId: result.emailMessageId } });
+      await addConversation({ leadId, direction: 'outbound', senderType: 'ai', messageBody: String(payload.draftMessage), senderName: 'AI', outcome: { kind: 'delivered', messageId: isDelivered(sendOutcomeA) ? sendOutcomeA.messageId : '', channel: channel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: sendOutcomeA.resolvedContactId, emailMessageId: isDelivered(sendOutcomeA) ? sendOutcomeA.emailMessageId : undefined } });
       // PR#3.9: Update lastMessageAt on lead
       await updateLeadFields(leadId, { lastMessageAt: new Date() });
       await logDecision({
@@ -443,17 +450,21 @@ export async function processOutboxRow(row: OutboxRow): Promise<void> {
         return;
       }
 
-      // ── Send the message via GHL ──────────────────────────────────────
+      // ── Send the message via GHL (Foundation A.5: typed attemptSend) ──────────────────────────────────────────────────────────────────
       const sendOpts = buildSendOpts(finalDecision.channel, finalDecision.message, payload);
-      const result = await sendMessageWithRetry(contactId, sendOpts, {
-        id: leadId,
-        email: lead.email,
-        phone: lead.phone,
+      const sendOutcomeB = await attemptSend({
+        leadId,
+        ghlContactId: contactId,
+        channel: finalDecision.channel as import('./send-types').Channel,
+        message: finalDecision.message,
+        emailSubject: sendOpts?.type === 'Email' ? (sendOpts as any).subject : undefined,
+        emailHtmlBody: sendOpts?.type === 'Email' ? (sendOpts as any).html : undefined,
+        fromName: (sendOpts as any)?.fromName,
+        trigger: String(payload.trigger || row.source),
       });
-
-      if (!result.success) {
-        // Dead-contact case: wrapper tried to resolve, failed
-        if (result.errorType === "contact_not_found") {
+      if (sendOutcomeB.kind === 'failed') {
+        // Dead-contact case
+        if (sendOutcomeB.errorType === 'contact_not_found') {
           await updateLeadFields(leadId, {
             pipelineStage: "not_qualified",
             nextFollowUpAt: new Date("2099-01-01"),
@@ -468,8 +479,8 @@ export async function processOutboxRow(row: OutboxRow): Promise<void> {
           });
           return;
         }
-        // Other failure types — wrapper already tried fallbacks
-        await markOutbox(row.id, "failed", result.error || result.errorType || "send_failed");
+        // Other failure types
+        await markOutbox(row.id, "failed", sendOutcomeB.reason || sendOutcomeB.errorType || "send_failed");
         await logDecision({
           outboxId: row.id, leadId,
           trigger: String(payload.trigger || row.source),
@@ -477,23 +488,27 @@ export async function processOutboxRow(row: OutboxRow): Promise<void> {
           promptVersion,
           channel: finalDecision.channel,
           inputGuardResult: "pass",
-          outputGuardResult: `error:${(result.error || result.errorType || "send_failed").slice(0, 100)}`,
+          outputGuardResult: `error:${(sendOutcomeB.reason || sendOutcomeB.errorType || "send_failed").slice(0, 100)}`,
           durationMs,
         });
-        console.warn(`[Outbox] Path B send failed for lead ${leadId}: ${result.errorType} - ${result.error}`);
+        console.warn(`[Outbox] Path B send failed for lead ${leadId}: ${sendOutcomeB.errorType} - ${sendOutcomeB.reason}`);
         return;
       }
-
-      // ── Success! Update state ─────────────────────────────────────────
-      if (result.correctionTaken) {
-        console.log(`[Outbox] Path B send succeeded with correction: ${result.correctionTaken} for lead ${leadId}`);
+      if (sendOutcomeB.kind === 'blocked') {
+        await markOutbox(row.id, "skipped", `blocked:${sendOutcomeB.reason || 'policy'}`);
+        await logDecision({ outboxId: row.id, leadId, trigger: String(payload.trigger || row.source), channel: finalDecision.channel, outputGuardResult: `block:${sendOutcomeB.reason}`, durationMs });
+        return;
       }
+      // ── Success! Update state ──────────────────────────────────────────────────────────────────
       await markOutbox(row.id, "sent");
-      if (result.isPhantom) console.warn(`[Outbox] PR#3.12: Phantom Path B send for lead ${leadId}`);
+      if (sendOutcomeB.kind === 'phantom') console.warn(`[Outbox] PR#3.12: Phantom Path B send for lead ${leadId}`);
       // PR#3.9: Write conversations row so dedup guard can see this send
-      await addConversation({ leadId, direction: 'outbound', senderType: 'ai', messageBody: finalDecision.message, senderName: 'AI', outcome: { kind: 'delivered', messageId: result.ghlMessageId ?? '', channel: finalDecision.channel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: result.resolvedContactId, correctionTaken: result.correctionTaken, emailMessageId: result.emailMessageId } });
+      await addConversation({ leadId, direction: 'outbound', senderType: 'ai', messageBody: finalDecision.message, senderName: 'AI', outcome: { kind: 'delivered', messageId: isDelivered(sendOutcomeB) ? sendOutcomeB.messageId : '', channel: finalDecision.channel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: sendOutcomeB.resolvedContactId, emailMessageId: isDelivered(sendOutcomeB) ? sendOutcomeB.emailMessageId : undefined } });
       // PR#3.9: Update lastMessageAt on lead
       await updateLeadFields(lead.id, { lastMessageAt: new Date() });
+      // Foundation A.5 note: Single Brain path does NOT write to brain_council_audit
+      // (that table is written by brain-adapter.ts / brain-council.ts in the Brain Council path).
+      // No audit update needed here.
 
       // Schedule next follow-up if brain suggested one (PR#3.9: floor at MIN_NEXT_FOLLOW_UP_HOURS)
       if (finalDecision.nextFollowUpHours > 0) {

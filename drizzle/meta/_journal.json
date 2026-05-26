@@ -246,6 +246,27 @@
       "when": 1779019435618,
       "tag": "0034_amusing_korvac",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "5",
+      "when": 1779287327329,
+      "tag": "0035_flashy_anthem",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "5",
+      "when": 1779303300822,
+      "tag": "0036_normal_nightcrawler",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "5",
+      "when": 1779311231705,
+      "tag": "0037_nifty_stryfe",
+      "breakpoints": true
     }
   ]
 }

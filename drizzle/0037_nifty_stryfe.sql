@@ -1,0 +1,1 @@
+ALTER TABLE `brain_council_audit` ADD `sendOutcomeKind` varchar(16);

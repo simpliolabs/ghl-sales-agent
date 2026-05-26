@@ -25,6 +25,7 @@ import { sendMessage, fetchGhlConversationHistory } from "./ghl";
 import { addConversation, updateLeadFields, getConversationHistory } from "./db";
 import { notifyOwner } from "./_core/notification";
 import { enqueueOutbox, makeIdemKey } from "./outbox-worker";
+import { acquireComposeLock } from "./compose-lock";
 
 const REVIEW_WINDOW_HOURS = 24; // Look back 24 hours for issues
 const MAX_REVIEWS_PER_CYCLE = 5; // Max leads to review per cycle (LLM credit guard)
@@ -231,7 +232,7 @@ export async function runBrainCouncilSelfReview(): Promise<{
         // Fetch GHL external history so Brain Council has full conversation context
         let externalHistory = "";
         try {
-          const localHistory = await getConversationHistory(issue.leadId, 20);
+          const localHistory = await getConversationHistory(issue.leadId, 20, { excludeNonReal: true }); // Foundation C.2
           externalHistory = localHistory.map((c: any) => `[${c.senderType}/${c.channel}] ${c.messageBody}`).join("\n");
           if (issue.contactId) {
             const ghlHistory = await fetchGhlConversationHistory(issue.contactId);
@@ -246,6 +247,24 @@ export async function runBrainCouncilSelfReview(): Promise<{
         }
 
         // PHASE 1: Enqueue recovery into outbox instead of direct Brain Council + send
+        // Foundation D: Check for a pending fast_scan row — if one exists, the inbound
+        // message is already being handled; skip self_review to avoid multi-fire.
+        const db = await getDb();
+        if (db) {
+          const pendingFastScan = await db.execute(sql`
+            SELECT id FROM outbox
+            WHERE leadId = ${issue.leadId}
+              AND source = 'fast_scan'
+              AND outbox_status IN ('pending', 'claimed')
+              AND createdAt > NOW() - INTERVAL 10 MINUTE
+            LIMIT 1
+          `);
+          if (((pendingFastScan as any[])[0] as any[])?.length > 0) {
+            console.log(`[CouncilReview] Skipping self_review for lead ${issue.leadId} — fast_scan row already pending`);
+            stats.skipped++;
+            continue;
+          }
+        }
         const idemKey = makeIdemKey(issue.leadId, `recovery:${issue.issueType}`);
         const { enqueued } = await enqueueOutbox({
           leadId: issue.leadId,
@@ -378,7 +397,7 @@ export async function runFastMissedReplyScanner(): Promise<number> {
       // Fetch GHL external history so Brain Council has full conversation context
       let externalHistory = "";
       try {
-        const localHistory = await getConversationHistory(row.leadId, 20);
+        const localHistory = await getConversationHistory(row.leadId, 20, { excludeNonReal: true }); // Foundation C.2
         externalHistory = localHistory.map((c: any) => `[${c.senderType}/${c.channel}] ${c.messageBody}`).join("\n");
         if (row.ghlContactId) {
           const ghlHistory = await fetchGhlConversationHistory(row.ghlContactId);
@@ -393,6 +412,13 @@ export async function runFastMissedReplyScanner(): Promise<number> {
       }
 
       // PHASE 1: Enqueue fast-scan reply into outbox instead of direct Brain Council + send
+      // Foundation D: Compose lock prevents multi-fire when concurrent webhook deliveries
+      // trigger more than one fast_scan enqueue for the same inbound message.
+      const lockAcquired = await acquireComposeLock(row.leadId, row.lastInbound ?? "", "fast_scan");
+      if (!lockAcquired) {
+        console.log(`[FastScan] Skipping duplicate enqueue for lead ${row.leadId} — compose lock already held`);
+        continue;
+      }
       const idemKey = makeIdemKey(row.leadId, `fastscan:${row.lastInbound?.substring(0, 30)}`);
       const { enqueued } = await enqueueOutbox({
         leadId: row.leadId,

@@ -123,6 +123,8 @@ export async function sendMessage(contactId: string, opts: {
   fromName?: string;
   threadId?: string;
   replyMessageId?: string;
+  /** Optional AbortSignal — if fired, the GHL HTTP request is cancelled immediately. */
+  signal?: AbortSignal;
 }) {
   // ========== GATE 1: AI Offline check ==========
   // This is the LAST LINE OF DEFENSE. Even if all caller-level checks
@@ -328,7 +330,7 @@ export async function sendMessage(contactId: string, opts: {
   // Log the outbound attempt for debugging
   console.log(`[GHL] Sending ${opts.type} to contact ${contactId}: ${(opts.message || "").substring(0, 80)}...`);
   try {
-    const { data } = await ghlClient.post(`/conversations/messages`, payload);
+    const { data } = await ghlClient.post(`/conversations/messages`, payload, opts.signal ? { signal: opts.signal } : undefined);
     console.log(`[GHL] Message sent successfully: ${data.messageId || "no-id"}`);
     // Normalize: GHL returns messageId but our threading code expects emailMessageId.
     // Attach it explicitly so downstream callers can use it for email threading.

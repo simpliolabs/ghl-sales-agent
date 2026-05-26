@@ -1,4 +1,5 @@
-import { int, bigint, mysqlEnum, mysqlTable, text, timestamp, varchar, json, tinyint, uniqueIndex, decimal } from "drizzle-orm/mysql-core";
+import { int, bigint, mysqlEnum, mysqlTable, text, timestamp, varchar, json, tinyint, uniqueIndex, index, decimal, datetime } from "drizzle-orm/mysql-core";
+import { sql } from "drizzle-orm";
 
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
@@ -100,6 +101,11 @@ export const leads = mysqlTable("leads", {
   convState: varchar("convState", { length: 20 }).default("new_lead"),
   convStateUpdatedAt: bigint("convStateUpdatedAt", { mode: "number" }),
   intentHistory: json("intentHistory"), // last 10 classified intents [{intent, confidence, timestamp}]
+  // v1.9 Phase 1.B columns
+  firstContactSentAt: timestamp("firstContactSentAt"),
+  ownershipState: varchar("ownershipState", { length: 32 }).notNull().default("ai"),
+  consecutiveNullCount: int("consecutiveNullCount").notNull().default(0),
+  bannedPhraseBlockCount: int("bannedPhraseBlockCount").notNull().default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -111,6 +117,8 @@ export const conversations = mysqlTable("conversations", {
   direction: mysqlEnum("direction", ["inbound", "outbound"]).notNull(),
   messageBody: text("messageBody"),
   senderType: mysqlEnum("senderType", ["ai", "human", "lead"]).notNull(),
+  // Foundation C.2: Content classification. NULL = pre-migration row (treated as real_message).
+  contentKind: varchar("contentKind", { length: 32 }),
   senderName: varchar("senderName", { length: 128 }),
   ghlMessageId: varchar("ghlMessageId", { length: 128 }),
   emailMessageId: varchar("emailMessageId", { length: 128 }), // GHL email thread ID for reply threading
@@ -238,6 +246,7 @@ export const brainCouncilAudit = mysqlTable("brain_council_audit", {
   finalMessage: text("finalMessage"), // the message that was actually sent
   // Outcome
   messageSent: tinyint("messageSent").default(0),
+  sendOutcomeKind: varchar("sendOutcomeKind", { length: 16 }), // 'delivered' | 'phantom' | 'failed' | 'blocked' — mirrors SendOutcome.kind, written AFTER actual send
   sendError: text("sendError"),
   // Accountability
   blocked: tinyint("blocked").default(0), // 1 = message was blocked, never sent
@@ -695,10 +704,10 @@ export type InsertFineTuningJob = typeof fineTuningJobs.$inferInsert;
 export const outbox = mysqlTable("outbox", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
   leadId: int("leadId").notNull(),
-  idemKey: varchar("idemKey", { length: 64 }).notNull(),
+  idemKey: varchar("idemKey", { length: 128 }).notNull(),
   source: mysqlEnum("source", ["webhook", "responder", "follow_up", "manual", "nurture", "correction", "first_contact", "self_review", "fast_scan", "deferred"]).notNull(),
   payload: json("payload").notNull(), // { trigger, channelHint, draftMessage?, systemLeakRetry?, ... }
-  status: mysqlEnum("outbox_status", ["pending", "claimed", "sent", "failed", "skipped"]).default("pending").notNull(),
+  status: mysqlEnum("outbox_status", ["pending", "claimed", "sent", "failed", "skipped", "pending_retry", "lock_timeout", "compose_crash", "send_failed_retryable", "failed_terminal", "send_failed_terminal"]).default("pending").notNull(),
   claimedBy: varchar("claimedBy", { length: 64 }),
   claimedAt: timestamp("claimedAt"),
   scheduledAt: timestamp("scheduledAt").notNull(),
@@ -805,3 +814,50 @@ export const sendAttempts = mysqlTable("send_attempts", {
 });
 export type SendAttemptRow = typeof sendAttempts.$inferSelect;
 export type InsertSendAttemptRow = typeof sendAttempts.$inferInsert;
+
+// Foundation D: compose lock table for multi-fire deduplication
+export const composeLocks = mysqlTable("compose_locks", {
+  id:        bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
+  leadId:    int("leadId").notNull(),
+  eventKey:  varchar("eventKey", { length: 64 }).notNull(),
+  source:    varchar("source", { length: 50 }).notNull(),
+  lockedAt:  datetime("lockedAt", { fsp: 3 }).notNull().default(sql`CURRENT_TIMESTAMP(3)`),
+  expiresAt: datetime("expiresAt", { fsp: 3 }).notNull(),
+}, (t) => ({
+  uqLock:    uniqueIndex("uq_compose_lock").on(t.leadId, t.eventKey),
+  idxExpiry: index("idx_compose_expires").on(t.expiresAt),
+}));
+
+export type ComposeLock = typeof composeLocks.$inferSelect;
+
+// v1.9 Phase 1.B: sent_messages — idempotency + GHL reconciliation tracking
+export const sentMessages = mysqlTable("sent_messages", {
+  id: int("id").autoincrement().primaryKey(),
+  leadId: int("leadId").notNull(),
+  idemKey: varchar("idemKey", { length: 128 }).notNull(),
+  channel: varchar("channel", { length: 32 }).notNull(),
+  ghlMessageId: varchar("ghlMessageId", { length: 128 }),
+  sentAt: timestamp("sentAt").notNull().defaultNow(),
+  reconciledAt: timestamp("reconciledAt"),
+  reconciliationStatus: varchar("reconciliationStatus", { length: 32 }),
+}, (t) => ({
+  uqLeadIdemChannel: uniqueIndex("unique_lead_idem_channel").on(t.leadId, t.idemKey, t.channel),
+  idxReconciliation: index("idx_reconciliation").on(t.reconciliationStatus, t.sentAt),
+  idxGhlMessageId: index("idx_ghl_message_id").on(t.ghlMessageId),
+}));
+export type SentMessageRow = typeof sentMessages.$inferSelect;
+export type InsertSentMessageRow = typeof sentMessages.$inferInsert;
+
+// v1.9 Phase 1.B: lead_active_compose — per-lead compose lock with heartbeat
+export const leadActiveCompose = mysqlTable("lead_active_compose", {
+  leadId: int("leadId").primaryKey(),
+  heldBy: varchar("heldBy", { length: 128 }).notNull(),
+  acquiredAt: timestamp("acquiredAt").notNull().defaultNow(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  heartbeatAt: timestamp("heartbeatAt").notNull().defaultNow(),
+}, (t) => ({
+  idxExpires: index("idx_expires").on(t.expiresAt),
+  idxHeartbeat: index("idx_heartbeat").on(t.heartbeatAt),
+}));
+export type LeadActiveComposeRow = typeof leadActiveCompose.$inferSelect;
+export type InsertLeadActiveComposeRow = typeof leadActiveCompose.$inferInsert;
