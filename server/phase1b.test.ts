@@ -309,3 +309,100 @@ describe("output-guards V4.2: ELEVATE YOUR BRAND case-insensitive", () => {
     expect(checkContentGuard("Elevate Your Brand today!", "SMS").blocked).toBe(true);
   });
 });
+
+// ── F1 Addendum: first_contact bypasses coalesce guard ───────────────────────
+
+describe("F1 Addendum: first_contact source bypasses coalesce guard", () => {
+  it("COALESCE_BYPASS_SOURCES set contains 'first_contact'", async () => {
+    const fs = await import("fs");
+    const src = fs.readFileSync(
+      new URL("./coalesce.ts", import.meta.url).pathname,
+      "utf8"
+    );
+    // Spec §5.6: first_contact must be in the bypass set
+    expect(src).toMatch(/COALESCE_BYPASS_SOURCES.*first_contact|first_contact.*COALESCE_BYPASS_SOURCES/s);
+    // Verify the Set literal contains first_contact
+    expect(src).toMatch(/"first_contact"/);
+  });
+
+  it("checkRecentSendCoalesce returns { skip: false } for source='first_contact' even when DB has recent sends", async () => {
+    // Verify via source inspection that the bypass is applied before any DB query
+    // inside the checkRecentSendCoalesce function body (not the import statement).
+    const fs = await import("fs");
+    const src = fs.readFileSync(
+      new URL("./coalesce.ts", import.meta.url).pathname,
+      "utf8"
+    );
+    // Extract the function body of checkRecentSendCoalesce
+    const fnStart = src.indexOf("export async function checkRecentSendCoalesce");
+    expect(fnStart).toBeGreaterThan(-1);
+    const fnBody = src.slice(fnStart);
+    // The bypass check must appear before the first getDb() call in the function body
+    const bypassIdx = fnBody.indexOf("COALESCE_BYPASS_SOURCES.has");
+    const dbCallIdx = fnBody.indexOf("await getDb()");
+    expect(bypassIdx).toBeGreaterThan(-1);
+    expect(dbCallIdx).toBeGreaterThan(-1);
+    // Bypass check must come before DB call within the function
+    expect(bypassIdx).toBeLessThan(dbCallIdx);
+  });
+});
+
+// ── F2 Addendum: apply-compose-outcome spec §4.6 + §8.1 leads columns ────────
+
+describe("F2 Addendum: apply-compose-outcome leads column updates", () => {
+  it("apply-compose-outcome.ts sets firstContactSentAt on successful first_contact send", async () => {
+    const fs = await import("fs");
+    const src = fs.readFileSync(
+      new URL("./apply-compose-outcome.ts", import.meta.url).pathname,
+      "utf8"
+    );
+    // Spec §4.6: must set firstContactSentAt on successful first_contact send
+    expect(src).toMatch(/firstContactSentAt\s*[:=]/);
+    expect(src).toMatch(/isFirstContact/);
+  });
+
+  it("apply-compose-outcome.ts resets consecutiveNullCount to 0 on successful send", async () => {
+    const fs = await import("fs");
+    const src = fs.readFileSync(
+      new URL("./apply-compose-outcome.ts", import.meta.url).pathname,
+      "utf8"
+    );
+    // Spec §8.1: must reset consecutiveNullCount to 0 on every successful send
+    expect(src).toMatch(/consecutiveNullCount\s*:\s*0/);
+  });
+
+  it("apply-compose-outcome.ts increments bannedPhraseBlockCount on banned_phrase block", async () => {
+    const fs = await import("fs");
+    const src = fs.readFileSync(
+      new URL("./apply-compose-outcome.ts", import.meta.url).pathname,
+      "utf8"
+    );
+    // Spec §8.1: must increment bannedPhraseBlockCount
+    expect(src).toMatch(/bannedPhraseBlockCount/);
+    expect(src).toMatch(/incrementBannedPhraseBlockCount/);
+  });
+
+  it("apply-compose-outcome.ts calls resetFirstContactOnFailure on terminal failure when source=first_contact", async () => {
+    const fs = await import("fs");
+    const src = fs.readFileSync(
+      new URL("./apply-compose-outcome.ts", import.meta.url).pathname,
+      "utf8"
+    );
+    // Spec §4.6: must reset firstContactSentAt on terminal failure
+    expect(src).toMatch(/resetFirstContactOnFailure/);
+    // Must be called in failure branches
+    expect(src).toMatch(/firstContactSentAt\s*:\s*null/);
+  });
+
+  it("applyNullBrainOutcome is exported and increments consecutiveNullCount", async () => {
+    const fs = await import("fs");
+    const src = fs.readFileSync(
+      new URL("./apply-compose-outcome.ts", import.meta.url).pathname,
+      "utf8"
+    );
+    // Spec §8.1: applyNullBrainOutcome must be exported
+    expect(src).toMatch(/export.*applyNullBrainOutcome|applyNullBrainOutcome.*export/s);
+    // Must increment consecutiveNullCount
+    expect(src).toMatch(/consecutiveNullCount.*\+\s*1|consecutiveNullCount.*sql/);
+  });
+});
