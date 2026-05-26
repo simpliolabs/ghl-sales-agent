@@ -107,17 +107,37 @@ export function _resetPipelineLockForTests(): void {
   PIPELINE_DEDUP_LOCK.clear();
 }
 
-function acquireMessageLock(contactId: string, messageBody: string): boolean {
-  // Defensive: ensure messageBody is a string (GHL sometimes sends objects/arrays)
-  const safeMessageBody = typeof messageBody === 'string' ? messageBody : String(messageBody ?? '');
-  
+/**
+ * Extract a useful string from a GHL messageBody payload.
+ * GHL sometimes sends the message body as an object instead of a plain string.
+ * Payload inspection (2026-05-26) confirmed: real content is at obj.body, then obj.text, then obj.content.
+ * Fallback to JSON.stringify so the dedup key is unique per payload (not "[object Object]").
+ */
+function extractMessageBody(messageBody: unknown): string {
+  if (typeof messageBody === 'string') return messageBody;
+  if (messageBody == null) return '';
+  if (typeof messageBody === 'object') {
+    const obj = messageBody as Record<string, unknown>;
+    for (const field of ['body', 'text', 'content', 'message']) {
+      if (typeof obj[field] === 'string' && (obj[field] as string).length > 0) {
+        return obj[field] as string;
+      }
+    }
+    return JSON.stringify(messageBody);
+  }
+  return String(messageBody);
+}
+
+function acquireMessageLock(contactId: string, messageBody: unknown): boolean {
+  const safeMessageBody = extractMessageBody(messageBody);
+
   // Clean expired locks
   const now = Date.now();
   Array.from(MESSAGE_DEDUP_LOCK.entries()).forEach(([key, ts]) => {
     if (now - ts > DEDUP_LOCK_TTL_MS) MESSAGE_DEDUP_LOCK.delete(key);
   });
   // Create a simple hash key from contactId + first 100 chars of message body
-  const lockKey = `${contactId}:${(safeMessageBody || "").substring(0, 100)}`;
+  const lockKey = `${contactId}:${safeMessageBody.substring(0, 100)}`;
   if (MESSAGE_DEDUP_LOCK.has(lockKey)) {
     console.log(`[Webhook/Dedup] Duplicate message webhook blocked: ${lockKey.substring(0, 60)}...`);
     return false; // Lock already held — this is a duplicate
@@ -126,10 +146,9 @@ function acquireMessageLock(contactId: string, messageBody: string): boolean {
   return true; // Lock acquired
 }
 
-function releaseMessageLock(contactId: string, messageBody: string): void {
-  // Defensive: ensure messageBody is a string
-  const safeMessageBody = typeof messageBody === 'string' ? messageBody : String(messageBody ?? '');
-  const lockKey = `${contactId}:${(safeMessageBody || "").substring(0, 100)}`;
+function releaseMessageLock(contactId: string, messageBody: unknown): void {
+  const safeMessageBody = extractMessageBody(messageBody);
+  const lockKey = `${contactId}:${safeMessageBody.substring(0, 100)}`;
   MESSAGE_DEDUP_LOCK.delete(lockKey);
 }
 
