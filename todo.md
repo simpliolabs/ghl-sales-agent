@@ -1763,3 +1763,5 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [ ] Patch 1 Step B (+30 min post-publish): Query decision_log for rows with outputGuardResult LIKE 'block:output_guard:content:%' to confirm guard is firing on real traffic
 - [ ] Patch 2: Fix timeout-but-sent ghost send path — 30 rows in 30 days, zero audit trail. outbox-worker.ts timeout path must write brain_council_audit row even on 60s timeout
 - [ ] Patch 3: Compose-lock for follow-up-only events (no inbound ID) — use leadId + scheduledAt bucket as event key
+
+- [ ] Deploy 2dadaf4 to Cloud Run via Publish (Patch 2 Revised — extractMessageBody)
