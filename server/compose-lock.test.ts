@@ -5,7 +5,7 @@ import { randomUUID } from "crypto";
  * COMPOSE LOCK TESTS — Foundation D
  *
  * Tests the compose lock primitives:
- * 1. makeEventKey — deterministic, time-bucketed, truncates message to 100 chars
+ * 1. makeEventKey — deterministic, time-bucketed, hashes FULL message (spec §5A v1.9.2 R1)
  * 2. makeEventKey — different keys across 5-min buckets
  * 3. makeEventKey — same key within same 5-min bucket
  * 4. acquireComposeLock — second call for same leadId+message returns false (dedup)
@@ -72,16 +72,16 @@ describe("makeEventKey", () => {
     vi.restoreAllMocks();
   });
 
-  it("truncates inbound message to 100 chars for key generation", () => {
+  it("hashes FULL message — messages sharing first 100 chars but differing in tail produce different keys (spec §5A v1.9.2 R1)", () => {
     vi.spyOn(Date, "now").mockReturnValue(1_000_000);
     // Both strings share the same first 100 characters; only the tail differs.
     const base100 = "A".repeat(100);
-    const withTail = base100 + "EXTRA_SUFFIX_THAT_SHOULD_BE_IGNORED";
+    const withTail = base100 + "EXTRA_SUFFIX_THAT_MUST_NOT_BE_IGNORED";
 
-    // Both should produce the same key because the first 100 chars are identical
+    // Full-message hashing: different tails MUST produce different keys.
     const key1 = makeEventKey(123, base100);    // exactly 100 A's
-    const key2 = makeEventKey(123, withTail);   // 100 A's + extra (truncated)
-    expect(key1).toBe(key2);
+    const key2 = makeEventKey(123, withTail);   // 100 A's + extra (must differ)
+    expect(key1).not.toBe(key2);
     vi.restoreAllMocks();
   });
 });

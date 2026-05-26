@@ -34,7 +34,7 @@ const MIN_NEXT_FOLLOW_UP_HOURS = 4;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const INSTANCE_ID = `worker-${process.pid}-${Date.now().toString(36)}`;
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 6;
 const CLAIM_BATCH_SIZE = 5;
 const CLAIM_EXPIRY_MS = 120_000; // 2 min — reclaim if worker dies
 const DRAIN_INTERVAL_MS = 5_000; // 5 seconds between drain cycles

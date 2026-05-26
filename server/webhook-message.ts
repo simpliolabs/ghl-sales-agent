@@ -43,6 +43,7 @@ import { processInboundState, type ConversationState } from "./conversation-stat
 import { dispatchStateActions, buildDispatchContext } from "./action-dispatcher";
 import { shouldDeferResponse, getDeferredSendAt } from "./deferred-response-processor";
 import { insertDeferredResponse, hasPendingDeferredResponse } from "./db";
+import { acquireComposeLock } from "./compose-lock";
 
 /**
  * Foundation C.1: Coerce a GHL payload body field to a meaningful string.
@@ -287,6 +288,29 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   } catch (dedupErr) {
     // Non-fatal — if dedup fails, continue with the current lead
     console.error(`[Webhook/Msg] Dedup check failed (non-fatal):`, dedupErr);
+  }
+
+  // Foundation D extension: acquire compose lock at webhook entry.
+  // Prevents duplicate webhook deliveries from both producing a reply.
+  // Only applied to inbound messages (direction === 'inbound') with real content.
+  if (direction === "inbound" && contentClass.kind === "real_message") {
+    const lockAcquired = await acquireComposeLock(
+      lead!.id,
+      effectiveMessageBody,   // FULL message (per §5A v1.9.2 R1)
+      "inbound_message",      // source string (NOT outbox.source enum)
+    );
+    if (!lockAcquired) {
+      console.log(JSON.stringify({
+        event: "compose_lock_decline",
+        source: "inbound_message",
+        leadId: lead!.id,
+        messageBodyPrefix: effectiveMessageBody.substring(0, 50),
+        messageBodyLength: effectiveMessageBody.length,
+        timestamp: new Date().toISOString(),
+      }));
+      res.json({ success: true, action: "compose_lock_declined" });
+      return;
+    }
   }
 
   // --- POST-ENRICHMENT SEGMENT CLASSIFICATION ---

@@ -803,6 +803,8 @@ export interface SingleBrainInput {
   inboundMessage?: string;
   channel?: string;
   draftMessage?: string; // Pre-composed message (skip brain, just send)
+  /** Optional AbortSignal propagated from the outbox-worker — aborts LLM calls if fired. */
+  signal?: AbortSignal;
 }
 
 export interface SingleBrainOutput {
@@ -888,6 +890,7 @@ export async function runSingleBrain(input: SingleBrainInput): Promise<SingleBra
       toolChoice: "auto",
       model,
       response_format: toolRounds === 0 ? undefined : undefined, // Can't use response_format with tools
+      signal: input.signal,
     });
     llmCalls++;
 
@@ -917,6 +920,7 @@ export async function runSingleBrain(input: SingleBrainInput): Promise<SingleBra
           messages,
           model,
           response_format: DECISION_SCHEMA,
+          signal: input.signal,
         });
         llmCalls++;
         if (structuredResponse?.choices?.[0]?.message?.content) {
@@ -1025,6 +1029,7 @@ export async function runSingleBrain(input: SingleBrainInput): Promise<SingleBra
     messages,
     model,
     response_format: DECISION_SCHEMA,
+    signal: input.signal,
   });
   llmCalls++;
 

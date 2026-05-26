@@ -30,7 +30,7 @@ vi.mock("./db", () => ({
   getLastEmailThreadInfo: vi.fn().mockResolvedValue(null),
   findExistingLeadByIdentity: vi.fn().mockResolvedValue(null),
   acquireAppointmentLock: vi.fn().mockResolvedValue(true),
-  getDb: vi.fn().mockResolvedValue({ select: vi.fn().mockReturnValue({ from: vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue({ orderBy: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue([]) }) }) }) }), execute: vi.fn().mockResolvedValue([[]]) }),
+  getDb: vi.fn().mockResolvedValue({ select: vi.fn().mockReturnValue({ from: vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue({ orderBy: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue([]) }) }) }) }), execute: vi.fn().mockResolvedValue([{ affectedRows: 1 }]) }),
   getBrainCouncilAuditForLead: vi.fn().mockResolvedValue([]),
 }));
 

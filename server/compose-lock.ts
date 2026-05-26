@@ -30,7 +30,7 @@ export function makeEventKey(leadId: number, inboundMessage: string): string {
   const bucket = Math.floor(Date.now() / BUCKET_MS);
   return crypto
     .createHash("sha256")
-    .update(`compose:${leadId}:${inboundMessage.substring(0, 100)}:${bucket}`)
+    .update(`compose:${leadId}:${inboundMessage}:${bucket}`)  // FULL message — spec §5A v1.9.2 R1
     .digest("hex")
     .slice(0, 64);
 }

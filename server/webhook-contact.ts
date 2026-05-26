@@ -37,6 +37,7 @@ import { handleStageAutomation } from "./webhook-pipeline";
 import { runBrainCouncil } from "./brain-adapter";
 import { shouldDeferResponse, getDeferredSendAt } from "./deferred-response-processor";
 import { notifyOwner } from "./_core/notification";
+import { acquireComposeLock } from "./compose-lock";
 
 /** Delay before sending first-contact template (ms). Gives GHL time to index conversation data. */
 let FIRST_CONTACT_DELAY_MS = 45_000; // 45 seconds
@@ -839,6 +840,26 @@ export async function sendDelayedFirstContact(
       subject: contextSubject,
       fromName,
     });
+
+    // Foundation D extension: acquire compose lock before first-contact send.
+    // Prevents duplicate contact webhooks from both producing a first-contact message.
+    // Additive to the existing in-memory firstContactLocks guard.
+    if (composedMessage) {
+      const lockAcquired = await acquireComposeLock(
+        leadId,
+        composedMessage,      // FULL message (per §5A v1.9.2 R1)
+        "first_contact",      // source string (matches outbox.source enum value)
+      );
+      if (!lockAcquired) {
+        console.log(JSON.stringify({
+          event: "compose_lock_decline",
+          source: "first_contact",
+          leadId,
+          timestamp: new Date().toISOString(),
+        }));
+        return;
+      }
+    }
 
     let messageSent = false;
     let sendGhlMessageId: string | undefined;

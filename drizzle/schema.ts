@@ -101,6 +101,11 @@ export const leads = mysqlTable("leads", {
   convState: varchar("convState", { length: 20 }).default("new_lead"),
   convStateUpdatedAt: bigint("convStateUpdatedAt", { mode: "number" }),
   intentHistory: json("intentHistory"), // last 10 classified intents [{intent, confidence, timestamp}]
+  // v1.9 Phase 1.B columns
+  firstContactSentAt: timestamp("firstContactSentAt"),
+  ownershipState: varchar("ownershipState", { length: 32 }).notNull().default("ai"),
+  consecutiveNullCount: int("consecutiveNullCount").notNull().default(0),
+  bannedPhraseBlockCount: int("bannedPhraseBlockCount").notNull().default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -699,10 +704,10 @@ export type InsertFineTuningJob = typeof fineTuningJobs.$inferInsert;
 export const outbox = mysqlTable("outbox", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
   leadId: int("leadId").notNull(),
-  idemKey: varchar("idemKey", { length: 64 }).notNull(),
+  idemKey: varchar("idemKey", { length: 128 }).notNull(),
   source: mysqlEnum("source", ["webhook", "responder", "follow_up", "manual", "nurture", "correction", "first_contact", "self_review", "fast_scan", "deferred"]).notNull(),
   payload: json("payload").notNull(), // { trigger, channelHint, draftMessage?, systemLeakRetry?, ... }
-  status: mysqlEnum("outbox_status", ["pending", "claimed", "sent", "failed", "skipped"]).default("pending").notNull(),
+  status: mysqlEnum("outbox_status", ["pending", "claimed", "sent", "failed", "skipped", "pending_retry", "lock_timeout", "compose_crash", "send_failed_retryable", "failed_terminal", "send_failed_terminal"]).default("pending").notNull(),
   claimedBy: varchar("claimedBy", { length: 64 }),
   claimedAt: timestamp("claimedAt"),
   scheduledAt: timestamp("scheduledAt").notNull(),
@@ -824,3 +829,35 @@ export const composeLocks = mysqlTable("compose_locks", {
 }));
 
 export type ComposeLock = typeof composeLocks.$inferSelect;
+
+// v1.9 Phase 1.B: sent_messages — idempotency + GHL reconciliation tracking
+export const sentMessages = mysqlTable("sent_messages", {
+  id: int("id").autoincrement().primaryKey(),
+  leadId: int("leadId").notNull(),
+  idemKey: varchar("idemKey", { length: 128 }).notNull(),
+  channel: varchar("channel", { length: 32 }).notNull(),
+  ghlMessageId: varchar("ghlMessageId", { length: 128 }),
+  sentAt: timestamp("sentAt").notNull().defaultNow(),
+  reconciledAt: timestamp("reconciledAt"),
+  reconciliationStatus: varchar("reconciliationStatus", { length: 32 }),
+}, (t) => ({
+  uqLeadIdemChannel: uniqueIndex("unique_lead_idem_channel").on(t.leadId, t.idemKey, t.channel),
+  idxReconciliation: index("idx_reconciliation").on(t.reconciliationStatus, t.sentAt),
+  idxGhlMessageId: index("idx_ghl_message_id").on(t.ghlMessageId),
+}));
+export type SentMessageRow = typeof sentMessages.$inferSelect;
+export type InsertSentMessageRow = typeof sentMessages.$inferInsert;
+
+// v1.9 Phase 1.B: lead_active_compose — per-lead compose lock with heartbeat
+export const leadActiveCompose = mysqlTable("lead_active_compose", {
+  leadId: int("leadId").primaryKey(),
+  heldBy: varchar("heldBy", { length: 128 }).notNull(),
+  acquiredAt: timestamp("acquiredAt").notNull().defaultNow(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  heartbeatAt: timestamp("heartbeatAt").notNull().defaultNow(),
+}, (t) => ({
+  idxExpires: index("idx_expires").on(t.expiresAt),
+  idxHeartbeat: index("idx_heartbeat").on(t.heartbeatAt),
+}));
+export type LeadActiveComposeRow = typeof leadActiveCompose.$inferSelect;
+export type InsertLeadActiveComposeRow = typeof leadActiveCompose.$inferInsert;

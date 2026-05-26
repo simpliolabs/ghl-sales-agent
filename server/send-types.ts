@@ -124,4 +124,6 @@ export interface SendRequest {
   replyMessageId?: string;
   // Trigger context for audit logging:
   trigger: string; // e.g. "first_contact", "inbound_reply", "follow_up"
+  // AbortSignal for cooperative cancellation (MOV-A)
+  signal?: AbortSignal;
 }

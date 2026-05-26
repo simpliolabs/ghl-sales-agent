@@ -343,6 +343,7 @@ export async function runBrainAdapter(input: BrainCouncilInput): Promise<BrainCo
       trigger: input.isInboundReply ? "inbound_reply" : (input.overrideReason || "follow_up"),
       inboundMessage: input.incomingMessage || undefined,
       channel: input.channel,
+      signal: input.signal,
     };
 
     const result = await runSingleBrain(singleBrainInput);

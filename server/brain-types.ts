@@ -12,6 +12,9 @@ export interface BrainCouncilInput {
   /** When true, this is a response to an inbound message from the lead.
    *  Bypasses cadence backoff and relaxes dedup cooldown in the orchestrator. */
   isInboundReply?: boolean;
+  /** Optional AbortSignal — propagated to LLM and GHL HTTP calls.
+   *  If fired (e.g. outbox-worker heartbeat timeout), all in-flight requests abort. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -146,6 +149,8 @@ export interface BrainCouncilOutput {
   deliberationNote?: string;
   // Foundation A.5: audit row ID so callers can update messageSent/sendOutcomeKind post-send
   auditId?: number;
+  // v1.9: pipeline action from brain decision (advance, mark_won, mark_lost, dnc, null)
+  pipelineAction?: string | null;
 }
 
 export type ViolationCategory = "irrelevant_research" | "form_data_ignored" | "wrong_business" | "generic_opener" | "missing_framework" | "safety_violation" | "unanswered_question" | "info_not_acknowledged" | "repeated_question" | "repeated_opener" | "ignored_request" | "channel_mismatch" | "unverified_claim" | "context_free_subject" | "passive_reactivation" | "email_formatting" | "channel_switch_unacknowledged" | "referral_ask_in_inquiry" | "fresh_outreach_on_aged_lead" | "wrong_hours" | "sms_too_long";
