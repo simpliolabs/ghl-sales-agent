@@ -25,8 +25,8 @@ import { and, eq, gte, desc } from "drizzle-orm";
 /** Window within which a recent send causes coalesce skip (60 seconds). */
 export const COALESCE_WINDOW_MS = 60_000;
 
-/** Sources that bypass the coalesce guard entirely. */
-const COALESCE_BYPASS_SOURCES = new Set(["inbound", "reactivation"]);
+/** Sources that bypass the coalesce guard entirely (spec §5.6). */
+const COALESCE_BYPASS_SOURCES = new Set(["inbound", "first_contact", "reactivation"]);
 
 export interface CoalesceResult {
   skip: boolean;
@@ -46,7 +46,7 @@ export async function checkRecentSendCoalesce(
   leadId: number,
   source: string,
 ): Promise<CoalesceResult> {
-  // Bypass: inbound and reactivation always proceed regardless of recent sends
+  // Bypass: inbound, first_contact, and reactivation always proceed regardless of recent sends
   if (COALESCE_BYPASS_SOURCES.has(source)) {
     return { skip: false };
   }
