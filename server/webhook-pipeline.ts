@@ -14,9 +14,9 @@ import {
   DESIGNER,
   PRODUCTION_MANAGER,
   STAGES,
-  sendMessageWithRetry,
   formatEmailHtml,
 } from "./webhook-helpers";
+import { attemptSend, isDelivered } from "./attempt-send";
 
 // --- CUSTOMER NOTIFICATION MESSAGES ---
 function getStageNotification(stage: string, leadName: string, extras?: Record<string, string>): { message: string; fromName: string } | null {
@@ -267,23 +267,32 @@ export async function handlePipelineWebhook(payload: Record<string, unknown>, re
   const notification = getStageNotification(toStage, lead.name || "");
   if (notification && !aiOffline) {
     try {
-      const notifOpts: Parameters<typeof import("./ghl").sendMessage>[1] = lead.phone
-        ? { type: "SMS", message: notification.message }
-        : { type: "Email", subject: notification.fromName, html: formatEmailHtml(notification.message), fromName: notification.fromName };
+      // Foundation A.5: use typed attemptSend wrapper
+      const notifChannel: import('./send-types').Channel = lead.phone ? 'SMS' : 'Email';
       if (lead.phone || lead.email) {
-        const notifResult = await sendMessageWithRetry(contactId, notifOpts, { email: lead.email, phone: lead.phone, id: lead.id });
-        if (notifResult.success) {
-          if (notifResult.isPhantom) console.warn(`[Pipeline] PR#3.12: Phantom stage notification for lead ${lead.id}`);
+        const notifOutcome = await attemptSend({
+          leadId: lead.id,
+          ghlContactId: contactId,
+          channel: notifChannel,
+          message: notification.message,
+          emailSubject: !lead.phone ? notification.fromName : undefined,
+          emailHtmlBody: !lead.phone ? formatEmailHtml(notification.message) : undefined,
+          fromName: notification.fromName,
+          trigger: `pipeline_stage_${toStage.toLowerCase().replace(/\s+/g, '_')}`,
+        });
+        if (isDelivered(notifOutcome) || notifOutcome.kind === 'phantom') {
+          if (notifOutcome.kind === 'phantom') console.warn(`[Pipeline] PR#3.12: Phantom stage notification for lead ${lead.id}`);
           await addConversation({
             leadId: lead.id,
             direction: 'outbound',
             senderType: 'ai',
             messageBody: notification.message,
             senderName: notification.fromName,
-            outcome: { kind: 'delivered', messageId: notifResult.ghlMessageId ?? '', channel: (lead.phone ? 'SMS' : 'Email') as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: notifResult.resolvedContactId, correctionTaken: notifResult.correctionTaken },
+            outcome: { kind: 'delivered', messageId: isDelivered(notifOutcome) ? notifOutcome.messageId : '', channel: notifChannel, deliveredAt: new Date(), resolvedContactId: notifOutcome.resolvedContactId },
           });
         } else {
-          console.error(`[Pipeline] Stage notification send FAILED for lead ${lead.id}: ${notifResult.error} — conversation NOT stored`);
+          const failReason = notifOutcome.kind === 'failed' ? (notifOutcome as any).reason : notifOutcome.kind;
+          console.error(`[Pipeline] Stage notification send FAILED for lead ${lead.id}: ${failReason} — conversation NOT stored`);
         }
       }
     } catch (err) { console.error("[Webhook] Failed to send stage notification:", err); }

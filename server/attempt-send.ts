@@ -5,14 +5,16 @@
  * It returns a typed SendOutcome that callers must discriminate on before
  * deciding whether to write a `conversations` row.
  *
- * Internally (for now) it delegates to the existing sendMessageWithRetry.
- * Once all 9 callers are migrated, sendMessageWithRetry will be deleted
- * and attemptSend will call sendMessage directly.
+ * Internally it delegates to sendMessageWithRetry (the GHL transport layer).
+ * Foundation A.5: all 10 production callsites have been migrated to attemptSend.
+ * sendMessageWithRetry is now internal-only to this module and webhook-helpers.ts.
  */
 
 import { sendMessageWithRetry } from "./webhook-helpers";
 import type { SendOutcome, SendRequest, Channel, SendErrorType } from "./send-types";
 import { recordSendAttempt } from "./db";
+// Re-export type guards so callers can import from a single module
+export { isDelivered, shouldRecordAttempt } from "./send-types";
 
 /**
  * Attempt to send a message. Returns a SendOutcome that callers MUST
@@ -32,6 +34,8 @@ export async function attemptSend(request: SendRequest): Promise<SendOutcome> {
     emailSubject: request.emailSubject,
     emailHtmlBody: request.emailHtmlBody,
     fromUserId: request.fromUserId,
+    fromName: request.fromName,
+    emailThreadId: request.emailThreadId,
     threadId: request.threadId,
     replyMessageId: request.replyMessageId,
   };
@@ -86,11 +90,25 @@ export async function attemptSend(request: SendRequest): Promise<SendOutcome> {
     }
 
     // result.success === false → failed.
+    // Map GhlSendErrorType → SendErrorType (the two unions overlap but have different names for some values)
+    const mappedErrorType: SendErrorType = (() => {
+      const raw = result.errorType as string | undefined;
+      if (!raw) return "unknown";
+      // GhlSendErrorType values that map directly
+      if (raw === "contact_not_found") return "contact_not_found";
+      if (raw === "dnd") return "lead_dnc";
+      if (raw === "missing_phone") return "no_phone";
+      if (raw === "missing_email") return "no_email";
+      if (raw === "transient") return "ghl_api_error";
+      // Values that exist in both unions with same name
+      const directMap: SendErrorType[] = ["no_phone","no_email","no_messageid_returned","ghl_api_error","ghl_auth_error","ghl_rate_limit","channel_not_configured","lead_dnc","human_takeover_active","timeout","contact_not_found","unknown"];
+      return (directMap.includes(raw as SendErrorType) ? raw : "unknown") as SendErrorType;
+    })();
     const outcome: SendOutcome = {
       kind: "failed",
       reason: result.error || "send failed",
-      errorType: (result.errorType as SendErrorType) || "unknown",
-      retryable: isRetryable((result.errorType as SendErrorType) || "unknown"),
+      errorType: mappedErrorType,
+      retryable: isRetryable(mappedErrorType),
       channel: request.channel,
       attemptedAt,
       resolvedContactId: result.resolvedContactId,
@@ -151,6 +169,7 @@ function isRetryable(errorType: SendErrorType): boolean {
     case "channel_not_configured":
     case "lead_dnc":
     case "human_takeover_active":
+    case "contact_not_found":
     case "unknown":
       return false;
   }

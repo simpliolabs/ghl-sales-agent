@@ -11,7 +11,7 @@
  *   - Respects lead.preferredChannel (SMS for 365+ day leads, Email otherwise)
  *   - TCPA quiet hours enforced in RECIPIENT's timezone (via phone area code)
  *   - Business hours enforcement for SMS sends (Mon-Fri 9am-5pm ET)
- *   - Uses shared buildSendOpts + sendMessageWithRetry (signature, formatting, retry)
+ *   - Uses shared buildSendOpts + attemptSend (Foundation A.5: typed send wrapper)
  *   - Never hardcodes channel — always reads from lead record
  *
  * Design rules:
@@ -39,7 +39,8 @@ import {
 import { fetchGhlConversationHistory } from "./ghl";
 import { runBrainCouncil } from "./brain-adapter";
 import { BRAND } from "../shared/brand-assets";
-import { buildSendOpts, sendMessageWithRetry } from "./webhook-helpers";
+import { buildSendOpts } from "./webhook-helpers";
+import { attemptSend, isDelivered } from "./attempt-send";
 import { isTcpaQuietHoursForRecipient } from "./area-code-timezone";
 
 const MODULE = "[LostNurture]";
@@ -256,7 +257,7 @@ async function processNurtureLead(
       return;
     }
 
-    // ── STEP 6: Send via shared pipeline (buildSendOpts + sendMessageWithRetry) ──
+    // ── STEP 6: Send via shared pipeline (buildSendOpts + attemptSend) ──
     const subject = aiResponse.subject || `Checking in from ${BRAND.companyName}`;
     const sendOpts = buildSendOpts(
       effectiveChannel,
@@ -271,35 +272,42 @@ async function processNurtureLead(
       return;
     }
 
-    const sendResult = await sendMessageWithRetry(ghlContactId, sendOpts, {
-      email: lead.email,
-      phone: lead.phone,
-      id: leadId,
+    // Foundation A.5: typed attemptSend
+    const sendOutcome = await attemptSend({
+      leadId,
+      ghlContactId,
+      channel: effectiveChannel as import('./send-types').Channel,
+      message: aiResponse.message,
+      emailSubject: sendOpts?.type === 'Email' ? (sendOpts as any).subject : undefined,
+      emailHtmlBody: sendOpts?.type === 'Email' ? (sendOpts as any).html : undefined,
+      fromName: (sendOpts as any)?.fromName,
+      trigger: 'lost_lead_nurture',
     });
 
-    if (!sendResult.success) {
-      console.warn(`${moduleLabel} Send failed for lead ${leadId} (${leadName}): ${sendResult.error} (correction: ${sendResult.correctionTaken})`);
+    if (sendOutcome.kind === 'failed' || sendOutcome.kind === 'blocked') {
+      const failReason = sendOutcome.kind === 'failed' ? (sendOutcome as any).reason : `blocked:${(sendOutcome as any).reason}`;
+      console.warn(`${moduleLabel} Send failed for lead ${leadId} (${leadName}): ${failReason}`);
       // Still update lastLostNurtureAt to prevent immediate retry
       await updateLeadFields(leadId, { lastLostNurtureAt: new Date() });
       stats.errors++;
       return;
     }
 
-    // ── STEP 7: Update lead and log conversation ───────────────────────
+    // ── STEP 7: Update lead and log conversation ───────────────────────────────────────────────────────────────────────────────────
     await updateLeadFields(leadId, {
       lastLostNurtureAt: new Date(),
       reactivationCount: ((lead as any).reactivationCount ?? 0) + 1,
       lastOutboundChannel: effectiveChannel,
     });
 
-    if (sendResult.isPhantom) console.warn(`${moduleLabel} PR#3.12: Phantom send for lead ${leadId}`);
+    if (sendOutcome.kind === 'phantom') console.warn(`${moduleLabel} PR#3.12: Phantom send for lead ${leadId}`);
     await addConversation({
       leadId,
       direction: 'outbound',
       senderType: 'ai',
       messageBody: aiResponse.message,
       senderName: BRAND.defaultAgentName,
-      outcome: { kind: 'delivered', messageId: sendResult.ghlMessageId ?? '', channel: effectiveChannel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: sendResult.resolvedContactId, correctionTaken: sendResult.correctionTaken, emailMessageId: sendResult.emailMessageId },
+      outcome: { kind: 'delivered', messageId: isDelivered(sendOutcome) ? sendOutcome.messageId : '', channel: effectiveChannel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: sendOutcome.resolvedContactId, emailMessageId: isDelivered(sendOutcome) ? sendOutcome.emailMessageId : undefined },
     });
 
     console.log(`${moduleLabel} ✅ Sent Brain Council nurture ${effectiveChannel} to lead ${leadId} (${leadName}) — subject: "${subject}"`);

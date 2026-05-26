@@ -26,6 +26,7 @@ export type SendErrorType =
   | "lead_dnc"
   | "human_takeover_active"
   | "timeout"
+  | "contact_not_found"  // Contact ID not found in GHL (mirrors GhlSendErrorType)
   | "unknown";
 
 /**
@@ -117,8 +118,12 @@ export interface SendRequest {
   emailSubject?: string;
   emailHtmlBody?: string;
   fromUserId?: string;
+  fromName?: string;       // Sender display name (passed to GHL opts)
+  emailThreadId?: string; // GHL thread ID for email reply threading
   threadId?: string;
   replyMessageId?: string;
   // Trigger context for audit logging:
   trigger: string; // e.g. "first_contact", "inbound_reply", "follow_up"
+  // AbortSignal for cooperative cancellation (MOV-A)
+  signal?: AbortSignal;
 }

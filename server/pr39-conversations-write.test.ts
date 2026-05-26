@@ -71,6 +71,9 @@ vi.mock("./db", () => ({
   upsertLead: vi.fn().mockResolvedValue({ id: 1 }),
   getUncorrectedViolations: vi.fn().mockResolvedValue([]),
   updateAuditCorrection: vi.fn().mockResolvedValue(undefined),
+  recordSendAttempt: vi.fn().mockResolvedValue(undefined),
+  updateBrainCouncilAuditSendOutcome: vi.fn().mockResolvedValue(undefined),
+  logDecision: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./ghl", () => ({

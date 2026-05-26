@@ -22,7 +22,9 @@ vi.mock("./db", () => ({
   addConversation: vi.fn().mockResolvedValue({ id: 999 }),
   isAiOffline: vi.fn().mockResolvedValue(false),
   getConversationHistory: vi.fn().mockResolvedValue([]),
-  addBrainCouncilAudit: vi.fn().mockResolvedValue(undefined),
+  addBrainCouncilAudit: vi.fn().mockResolvedValue(42),
+  recordSendAttempt: vi.fn().mockResolvedValue(undefined),
+  updateBrainCouncilAuditSendOutcome: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./ghl", () => ({

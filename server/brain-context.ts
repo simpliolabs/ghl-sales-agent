@@ -29,7 +29,8 @@ export async function buildLeadContext(leadId: number): Promise<LeadContext> {
   // Use canonical getConversationHistory from db.ts (cached under convH:${leadId}:30, 2 min TTL)
   // This avoids the previous cache-key mismatch where brain-context used conv:${leadId}
   // and db.ts used convH:${leadId}:${limit} — now both go through the same path.
-  const convHistory = await getConversationHistory(leadId, 30) as ConversationRow[];
+  // Foundation C.2: Exclude non-real-message rows from brain context.
+  const convHistory = await getConversationHistory(leadId, 30, { excludeNonReal: true }) as ConversationRow[];
 
   // Cache AI state per lead (5 min TTL)
   const stateRows: AiStateRow[] = await cached(contextCache, `state:${leadId}`, async () =>

@@ -13,9 +13,10 @@
  *   3. If no agent response → send the AI message
  */
 
-import { getPendingDeferredResponses, updateDeferredResponseStatus, getLeadById, updateLeadFields, addConversation, getConversationHistory } from "./db";
+import { getPendingDeferredResponses, updateDeferredResponseStatus, getLeadById, updateLeadFields, addConversation, getConversationHistory, getDb } from "./db";
+import { sql } from "drizzle-orm";
 import { sendMessage, fetchGhlConversationHistory } from "./ghl";
-import { sendMessageWithRetry, formatEmailHtml, normalizeChannel, buildContextSubject } from "./webhook-helpers";
+import { formatEmailHtml, normalizeChannel, buildContextSubject } from "./webhook-helpers";
 import { calculateNextFollowUp } from "./scheduling-engine";
 import { upsertAiState, getAiState } from "./db";
 import { enqueueOutbox, makeIdemKey } from "./outbox-worker";
@@ -93,6 +94,25 @@ export async function processDeferredResponses(): Promise<{ sent: number; cancel
       // The deferred response already has a pre-composed message from Brain Council.
       // We enqueue it as a "deferred" source with the pre-composed payload so the
       // outbox worker can send it directly without re-running Brain Council.
+      // Foundation D: If a fast_scan row is already pending for this lead (inbound reply
+      // just arrived after the deferred window), skip to avoid multi-fire.
+      const deferredDb = await getDb();
+      if (deferredDb) {
+        const pendingFastScan = await deferredDb.execute(sql`
+          SELECT id FROM outbox
+          WHERE leadId = ${lead.id}
+            AND source = 'fast_scan'
+            AND outbox_status IN ('pending', 'claimed')
+            AND createdAt > NOW() - INTERVAL 10 MINUTE
+          LIMIT 1
+        `);
+        if (((pendingFastScan as any[])[0] as any[])?.length > 0) {
+          console.log(`[DeferredResponse] Skipping deferred enqueue for lead ${lead.id} — fast_scan row already pending`);
+          await updateDeferredResponseStatus(deferred.id, "cancelled", "fast_scan_pending");
+          cancelled++;
+          continue;
+        }
+      }
       const sendChannel = normalizeChannel(deferred.channel);
       const idemKey = makeIdemKey(lead.id, `deferred:${deferred.id}`);
       const { enqueued } = await enqueueOutbox({

@@ -14,12 +14,13 @@
  * - Logs every engagement attempt
  */
 
-import { getLeadsDueForFollowUp, getConversationHistory, updateLeadFields, addConversation, upsertAiState, getAiState, getRecentAiOutboundCount, addBrainCouncilAudit, getBrainCouncilAuditForLead, isAiOffline, getLastEmailThreadId, getLastEmailThreadInfo } from "./db";
+import { getLeadsDueForFollowUp, getConversationHistory, updateLeadFields, addConversation, upsertAiState, getAiState, getRecentAiOutboundCount, addBrainCouncilAudit, getBrainCouncilAuditForLead, isAiOffline, getLastEmailThreadId, getLastEmailThreadInfo, getDb } from "./db";
+import { sql } from "drizzle-orm";
 import { runBrainCouncil } from "./brain-adapter";
 import { enqueueOutbox, makeIdemKey } from "./outbox-worker";
 import { calculateNextFollowUp, checkRateLimits, capDate, checkDnc } from "./scheduling-engine";
 import { sendMessage, addNote, fetchGhlConversationHistory, getContact } from "./ghl";
-import { sendMessageWithRetry, normalizeChannel, extractFormData, isLlmExhausted, LLM_RETRY_DELAY_MS, formatEmailHtml, buildContextSubject, sourceToChannel, ensureEmailSignature } from "./webhook-helpers";
+import { normalizeChannel, extractFormData, isLlmExhausted, LLM_RETRY_DELAY_MS, formatEmailHtml, buildContextSubject, sourceToChannel, ensureEmailSignature } from "./webhook-helpers";
 import { shouldHandoffToAgent, estimateOrderValue, generateContactNotes } from "./ai-brain";
 import { notifyOwner } from "./_core/notification";
 import { handleChannelDnc, detectDncChannel } from "./channel-fallback";
@@ -168,7 +169,8 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
         }
 
         // Build conversation context
-        const convHistory = await getConversationHistory(leadId, 50);
+        // Foundation C.2: Exclude non-real-message rows from brain context.
+        const convHistory = await getConversationHistory(leadId, 50, { excludeNonReal: true });
         let historyStr = convHistory.map((c: any) =>
           `[${c.senderType === "ai" ? "ai" : c.direction === "inbound" ? "lead" : "agent"}/${c.channel}] ${c.messageBody}`
         ).join("\n");
@@ -338,6 +340,24 @@ export async function processOverdueFollowUps(): Promise<{ processed: number; se
         // All pre-send gates above (DNC, cadence backoff, TCPA, rate limits) still run
         // in the follow-up trigger since they're lightweight TypeScript checks.
         // The Brain Council call and actual GHL send now happen in the outbox worker.
+        // Foundation D: If a fast_scan row is already pending for this lead (inbound reply
+        // just arrived), skip the follow-up to avoid multi-fire on the same lead.
+        const followUpDb = await getDb();
+        if (followUpDb) {
+          const pendingFastScan = await followUpDb.execute(sql`
+            SELECT id FROM outbox
+            WHERE leadId = ${leadId}
+              AND source = 'fast_scan'
+              AND outbox_status IN ('pending', 'claimed')
+              AND createdAt > NOW() - INTERVAL 10 MINUTE
+            LIMIT 1
+          `);
+          if (((pendingFastScan as any[])[0] as any[])?.length > 0) {
+            console.log(`[FollowUp] Skipping follow-up for lead ${leadId} — fast_scan row already pending`);
+            stats.skipped++;
+            continue;
+          }
+        }
         const idemKey = makeIdemKey(leadId, `followup:${hintChannel}`);
         const { enqueued } = await enqueueOutbox({
           leadId,

@@ -1692,3 +1692,76 @@ Approach: 100% single brain, rewire webhooks, delete legacy.
 - [x] PR#3.14: Run tests 23/23 pass, TypeScript clean, commit f93f0a9, push to GitHub
 - [x] PR#3.14: Write CLAUDE-HANDOFF-REPORT.md
 - [ ] PR#3.14: Save checkpoint + publish to production
+
+## Foundation D — Compose Lock (Multi-Fire Deduplication) — May 20, 2026
+
+- [x] FD.1: Create compose_locks table (leadId, eventKey, acquiredAt) with UNIQUE(leadId, eventKey) + migration applied
+- [x] FD.2: Build acquireComposeLock(leadId, message, source) in server/compose-lock.ts — INSERT IGNORE + affectedRows check, 5-min TTL purge, result[0].affectedRows fix
+- [x] FD.3: Patch brain-council-review.ts fast_scan enqueue site — acquireComposeLock guard before enqueueOutbox
+- [x] FD.4: Patch brain-council-review.ts self_review enqueue site — pending-fast_scan check before enqueueOutbox
+- [x] FD.5: Patch follow-up-trigger.ts enqueue site — pending-fast_scan check before enqueueOutbox
+- [x] FD.6: Patch deferred-response-processor.ts enqueue site — pending-fast_scan check before enqueueOutbox
+- [x] FD.7: Add verifyFoundationD tRPC endpoint in routers.ts (admin-only, checks compose_locks table + acquireComposeLock round-trip)
+- [x] FD.8: Write server/compose-lock.test.ts — 8 tests: makeEventKey (bucket, stability, uniqueness, truncation), acquireComposeLock (first=true, second=false, different-leads, different-messages), afterEach(vi.restoreAllMocks) guard
+- [x] FD.9: Fix affectedRows extraction bug — result is [resultObj, null] from Drizzle/MySQL, not flat object
+- [x] FD.10: TypeScript check clean (0 errors), full test suite passing
+
+## Foundation A.5 — Complete Foundation A Migration — May 20, 2026
+- [x] FA5.1: Schema — add `sendOutcomeKind` column to `brain_council_audit` in drizzle/schema.ts + apply migration
+- [x] FA5.2: Schema — add `contact_not_found` to `SendErrorType` in send-types.ts + add `updateBrainCouncilAuditSendOutcome()` to db.ts
+- [x] FA5.3: Migrate webhook-contact.ts:846 (first-contact direct send) to attemptSend
+- [x] FA5.4: Migrate webhook-message.ts:1013 (ack send) to attemptSend
+- [x] FA5.5: Migrate webhook-message.ts:1137 (normal Brain Council send) to attemptSend
+- [x] FA5.6: Migrate outbox-worker.ts:310 (Path A pre-composed) to attemptSend
+- [x] FA5.7: Migrate outbox-worker.ts:448 (Path B Brain Council Single Brain) to attemptSend
+- [x] FA5.8: Migrate lost-lead-nurture.ts:274 to attemptSend
+- [x] FA5.9: Migrate post-delivery-executor.ts:123 to attemptSend
+- [x] FA5.10: Migrate webhook-pipeline.ts:274 to attemptSend
+- [x] FA5.11: Migrate webhook-task.ts:56 to attemptSend
+- [x] FA5.12: Migrate webhook-task.ts:80 to attemptSend
+- [x] FA5.13: Fix brain_council_audit semantics — write audit AFTER send in brain-adapter.ts, messageSent reflects sendResult.success
+- [x] FA5.14: Fix brain_council_audit semantics — write audit AFTER send in brain-council.ts
+- [x] FA5.15: sendMessageWithRetry is now internal-only to attempt-send.ts (no longer exported to callers)
+- [x] FA5.16: Add verifyFoundationA5 endpoint (sentinel leadId = -3) in routers.ts
+- [x] FA5.17: Write foundation-a5-audit-semantics.test.ts — 8 tests covering all outcome kinds + audit contract
+- [x] FA5.18: TypeScript clean (0 errors), 1335/1336 tests pass (1 pre-existing openai-key.test.ts credential failure unrelated to A.5)
+
+## Foundation C.3 — Fabricated Infrastructure Guardrail (Rules 18-20)
+
+- [x] FC3.1: Add Rule 18 (NEVER FABRICATE INFRASTRUCTURE) to single-brain.ts HARD CONSTRAINTS after Rule 17
+- [x] FC3.2: Add Rule 19 (TIGHTEN THE FOLLOW-UP HOOK) to single-brain.ts HARD CONSTRAINTS
+- [x] FC3.3: Add Rule 20 (REALITY CHECK BEFORE COMPOSING) to single-brain.ts HARD CONSTRAINTS
+- [x] FC3.4: Add equivalent FABRICATED INFRASTRUCTURE + FOLLOW-UP HOOK DISCIPLINE + REALITY CHECK to brain-council.ts COMPOSER_PROMPT
+- [x] FC3.5: Write foundation-c3-guardrail.test.ts (30 tests verifying all three rules in both files)
+- [x] FC3.6: TypeScript clean (0 errors), 1365/1366 tests pass, commit 86e567d + checkpoint
+- [x] FC3.7: Fix Arlene Jeffers nextFollowUpAt to NULL (do-not-contact sentinel, 1 row touched, commit 62eee6f)
+- [x] FC3.8: Add verifyFoundationC3 endpoint to routers.ts — promptIntegrity + live LLM output check against 9 forbidden tokens
+
+## Architectural Debt Inventory — New Items (2026-05-21)
+
+- [ ] Item #28 (HIGH) — UPGRADED TO TWICE-OBSERVED: First-contact dedup gap (Foundation D not covering first-contact paths). Observed: Terrance (May 20) + Thuy Huynh lead 5100068 (May 19 13:30/13:31 UTC — two identical "Chris here from Adorb" messages 1 min apart). Foundation B scope (compose-lock extension to first-contact paths).
+- [ ] Item #29 (HIGH): Timestamp corruption in pre-C.1 first-contact write path. Conversations rows 5400117/5400118 (Thuy lead 5100068) have timestamp=2612-01-12 (year 2612 — overflow). Source: `{}` body write before C.1 coercion fix. Actions: (a) query for all rows with timestamp > current year+1, (b) confirm C.1 fixed source for new traffic, (c) data hygiene query for legacy rows. Do not backfill — log and move on.
+- [ ] Item #30 (HIGH): humanTakeover NOT auto-set when human engages via GHL UI. Thuy lead 5100068: Abby sent manually at 13:15 UTC May 19. lastAgentActivityAt updated correctly. humanTakeover stayed 0. AI fired multi-fire follow-ups at 13:30+13:31. Inventory item #18 confirmed in production. Foundation B scope.
+- [ ] Item #31 (MEDIUM): Pre-A.5 audit gap larger than estimated. 7 of 9 send callsites had no audit trail before A.5. Estimated hundreds of sends/week with no record. A.5 closes going forward. Historical reconstruction impossible — do not attempt backfill.
+
+## Emergency Lead Fixes Applied (2026-05-21)
+
+- [x] Thuy Huynh (lead 5100068): humanTakeover=1, nextFollowUpAt=NULL — blocked from AI re-queue (was 40min from firing at 16:00 UTC)
+- [x] Arlene Jeffers (lead 360007): humanTakeover=1 (already set), nextFollowUpAt=NULL — do-not-contact sentinel
+- [ ] Item #32 (HIGH): Do-not-contact state is not atomic. humanTakeover=1 and nextFollowUpAt=NULL must always be set together — currently they can drift (Thuy and Arlene both required manual SQL fixes). Foundation B should expose a single setDoNotContact(leadId, reason) function that all paths call atomically. No path should set one without the other.
+
+## Patch 1 — Output Guard Content Scan (2026-05-21)
+
+- [x] Patch 1: Guard 7 (content scan) added to `server/output-guards.ts` — `checkContentGuard()` + `CONTENT_GUARD_TOKENS` (19 tokens: Rule 15 filler, Rule 17 sign-offs SMS/IG-only, Rule 18 fabricated infra)
+- [x] Patch 1: `verifyContentGuard` tRPC endpoint added to `server/routers.ts` — 13 synthetic token tests, token count check
+- [x] Patch 1: "Run verifyContentGuard (Patch 1)" button added to Settings > Foundation Verification panel
+- [x] Patch 1: 12 new vitest tests added to `server/phase2-single-brain.test.ts` — all passing (1377/1378 total, 1 pre-existing OpenAI key test unrelated)
+- [x] Patch 1: TypeScript clean — `pnpm tsc --noEmit` passes with zero errors
+- [x] Lynnette Clark (lead 4230002): humanTakeover=1, nextFollowUpAt=NULL — paused after multi-fire + "circle back" + "just wanted to" violations
+- [x] Tabitha Chambers (lead 1020205): humanTakeover=1, nextFollowUpAt=NULL — paused after Rule 11 generic opener violation
+- [ ] Patch 1 Step A: Run verifyContentGuard post-publish — confirm all 13 tests pass in deployed bundle
+- [ ] Patch 1 Step B (+30 min post-publish): Query decision_log for rows with outputGuardResult LIKE 'block:output_guard:content:%' to confirm guard is firing on real traffic
+- [ ] Patch 2: Fix timeout-but-sent ghost send path — 30 rows in 30 days, zero audit trail. outbox-worker.ts timeout path must write brain_council_audit row even on 60s timeout
+- [ ] Patch 3: Compose-lock for follow-up-only events (no inbound ID) — use leadId + scheduledAt bucket as event key
+
+- [ ] Deploy 2dadaf4 to Cloud Run via Publish (Patch 2 Revised — extractMessageBody)

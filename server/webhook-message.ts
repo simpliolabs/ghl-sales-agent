@@ -27,10 +27,10 @@ import { sendMessage, updateContactCustomField, addNote, fetchGhlConversationHis
 import { detectConfusion, handleConfusionReply, postSendValidation } from "./auto-correction";
 import { attributeReply } from "./outcome-engine";
 import { notifyOwner } from "./_core/notification";
+import { attemptSend, isDelivered } from "./attempt-send";
 import {
   resolveGhlContactId,
   extractContactData,
-  sendMessageWithRetry,
   normalizeChannel,
   extractFormData,
   isLlmExhausted,
@@ -43,12 +43,117 @@ import { processInboundState, type ConversationState } from "./conversation-stat
 import { dispatchStateActions, buildDispatchContext } from "./action-dispatcher";
 import { shouldDeferResponse, getDeferredSendAt } from "./deferred-response-processor";
 import { insertDeferredResponse, hasPendingDeferredResponse } from "./db";
+import { acquireComposeLock } from "./compose-lock";
+
+/**
+ * Foundation C.1: Coerce a GHL payload body field to a meaningful string.
+ * Returns empty string for null/undefined/empty-object/empty-array inputs
+ * so they don't poison the conversations table as literal "{}" rows.
+ */
+export function coerceWebhookBody(raw: unknown): string {
+  if (raw == null) return "";
+  if (typeof raw === "string") return raw;
+  if (typeof raw === "object") {
+    const stringified = JSON.stringify(raw);
+    return (stringified === "{}" || stringified === "[]" || stringified === "null") ? "" : stringified;
+  }
+  return String(raw);
+}
+
+/**
+ * Foundation C.2: Classify the content of an inbound webhook message.
+ * Real customer messages → brain processes them.
+ * System/promo/auto-generated content → stored for audit but excluded from brain context.
+ */
+export type InboundContentKind =
+  | "real_message"        // Genuine customer message — brain processes normally
+  | "channel_promo"       // WhatsApp channel share, group invite, etc.
+  | "form_data"           // FB lead form submission
+  | "link_only"           // Message body is just a URL with no real text
+  | "sticker_or_reaction" // Empty/whitespace body with only attachment
+  | "auto_generated";     // System-generated content from the messaging platform
+
+export function classifyInboundContent(
+  body: string,
+  channel: string,
+  payload: Record<string, unknown>
+): { kind: InboundContentKind; reason: string } {
+  const trimmed = body.trim();
+  const lower = trimmed.toLowerCase();
+
+  // 1. Empty/whitespace + has attachment → sticker/reaction
+  const hasAttachment = Array.isArray(payload.attachments) && (payload.attachments as string[]).length > 0;
+  if (!trimmed && hasAttachment) {
+    return { kind: "sticker_or_reaction", reason: "empty body with attachment" };
+  }
+
+  // 2. WhatsApp channel promo / group invite
+  const WHATSAPP_PROMO_PATTERNS = [
+    /follow the .{1,80} channel on whatsapp\s*:?\s*https:\/\/whatsapp\.com\/channel\//i,
+    /join (my |our |the )?(group|channel)\s*:?\s*https:\/\/chat\.whatsapp\.com\//i,
+    /https:\/\/whatsapp\.com\/channel\/[a-z0-9]+/i,
+  ];
+  if (channel === "WhatsApp" && WHATSAPP_PROMO_PATTERNS.some(p => p.test(trimmed))) {
+    return { kind: "channel_promo", reason: "WhatsApp channel/group share detected" };
+  }
+
+  // 3. FB form data (existing pattern, formalized)
+  const isFormData = (lower.includes("full name:") || lower.includes("company name:")) &&
+    (lower.includes("phone number:") || lower.includes("email:") || lower.includes("what type of products"));
+  if (isFormData) {
+    return { kind: "form_data", reason: "FB lead form structured data" };
+  }
+
+  // 4. Link-only message (URL with no real text around it)
+  const withoutUrls = trimmed.replace(/https?:\/\/\S+/g, "").trim();
+  if (trimmed.match(/https?:\/\//) && withoutUrls.length < 5) {
+    return { kind: "link_only", reason: "URL with no surrounding text" };
+  }
+
+  // 5. Generic auto-generated patterns (extensible)
+  const AUTO_GENERATED_PATTERNS = [
+    /^(joined|left) the (group|channel)$/i,
+    /^.{1,30} (joined|left|added you)$/i,
+    /^missed (call|video call)$/i,
+    /^this message was deleted$/i,
+  ];
+  if (AUTO_GENERATED_PATTERNS.some(p => p.test(trimmed))) {
+    return { kind: "auto_generated", reason: "platform-generated system message" };
+  }
+
+  // Default: real customer message
+  return { kind: "real_message", reason: "passed all classifiers" };
+}
 
 export async function handleMessageWebhook(payload: Record<string, unknown>, res: Response) {
+  // Foundation C.1.1: Synthetic verification short-circuit.
+  // Payloads with contactId starting with "__synth__" bypass all real processing
+  // (no lead creation, no conversation writes, no GHL calls).
+  // They still exercise the coercion logic so synthetic tests can verify guard behavior.
+  if (typeof payload.contactId === "string" && payload.contactId.startsWith("__synth__")) {
+    const synthRaw = payload.body ?? payload.message ?? "";
+    const synthBody = coerceWebhookBody(synthRaw);
+    const synthChannel = (payload.messageType as string) || "SMS";
+    console.log(`[Webhook/Msg] Synthetic test webhook for ${payload.contactId} — short-circuiting`);
+    if (!synthBody.trim()) {
+      res.json({ success: true, action: "empty_body_skipped", synthetic: true });
+    } else {
+      // Foundation C.2: also run classifier in synthetic path so Tests 6+7 can verify it
+      const synthClass = classifyInboundContent(synthBody, synthChannel, payload);
+      if (synthClass.kind !== "real_message") {
+        res.json({ success: true, action: "non_real_message_skipped", contentKind: synthClass.kind, reason: synthClass.reason, synthetic: true });
+      } else {
+        res.json({ success: true, action: "synthetic_real_content_accepted", contentKind: "real_message", synthetic: true, bodyLength: synthBody.length });
+      }
+    }
+    return;
+  }
+
   const contactId = payload.contactId as string;
-  // Safely coerce body to string — GHL sometimes sends objects/arrays for FB form data
+  // Foundation C.1: Safely coerce body to string — GHL sometimes sends objects/arrays.
+  // coerceWebhookBody returns empty string for {}/{}/null so they don't poison conversations.
   const rawBody = payload.body ?? payload.message ?? "";
-  const messageBody = typeof rawBody === "string" ? rawBody : (typeof rawBody === "object" ? JSON.stringify(rawBody) : String(rawBody));
+  const messageBody = coerceWebhookBody(rawBody);
   // Channel detection: check multiple GHL payload fields for the message type.
   // GHL sends messageType (string), messageTypeId (number), or nests it in message.type (workflow webhooks).
   const rawChannel = (
@@ -94,7 +199,27 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     effectiveMessageBody = attachmentDesc;
     console.log(`[Webhook/Attachment] AI in control — routing attachment to Brain Council: ${attachmentDesc}`);
   }
-  if (!effectiveMessageBody) { res.status(400).json({ error: "Missing data" }); return; }
+  // Foundation C.1.1: Empty-body guard moved BEFORE any conversation-write branch.
+  // Covers both inbound and outbound directions — previously this check was AFTER the
+  // outbound addConversation write, allowing {} rows to be written for outbound webhooks.
+  if (!effectiveMessageBody || !effectiveMessageBody.trim()) {
+    // Empty body after coercion typically means GHL sent a metadata/activity webhook
+    // (note, opportunity update, etc.) where meaningful content lives elsewhere.
+    // Don't write a conversation row — silently acknowledge so GHL doesn't retry.
+    console.warn(`[Webhook/Msg] Empty body for contact ${contactId} direction=${direction} (likely GHL metadata/activity webhook). Payload keys: ${Object.keys(payload).join(",")}`);
+    res.json({ success: true, action: "empty_body_skipped" });
+    return;
+  }
+
+  // Foundation C.2: Classify inbound content before lead resolution.
+  // Non-real-message rows are still stored for audit but excluded from brain context.
+  let contentClass: { kind: InboundContentKind; reason: string } = { kind: "real_message", reason: "default" };
+  if (direction === "inbound") {
+    contentClass = classifyInboundContent(effectiveMessageBody, channel, payload);
+    if (contentClass.kind !== "real_message") {
+      console.warn(`[Webhook/Msg] C.2: classified as '${contentClass.kind}' (${contentClass.reason}) for contact ${contactId} — storing for audit, skipping brain`);
+    }
+  }
 
   let lead = await getLeadByGhlContactId(contactId);
   if (!lead) {
@@ -163,6 +288,29 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   } catch (dedupErr) {
     // Non-fatal — if dedup fails, continue with the current lead
     console.error(`[Webhook/Msg] Dedup check failed (non-fatal):`, dedupErr);
+  }
+
+  // Foundation D extension: acquire compose lock at webhook entry.
+  // Prevents duplicate webhook deliveries from both producing a reply.
+  // Only applied to inbound messages (direction === 'inbound') with real content.
+  if (direction === "inbound" && contentClass.kind === "real_message") {
+    const lockAcquired = await acquireComposeLock(
+      lead!.id,
+      effectiveMessageBody,   // FULL message (per §5A v1.9.2 R1)
+      "inbound_message",      // source string (NOT outbox.source enum)
+    );
+    if (!lockAcquired) {
+      console.log(JSON.stringify({
+        event: "compose_lock_decline",
+        source: "inbound_message",
+        leadId: lead!.id,
+        messageBodyPrefix: effectiveMessageBody.substring(0, 50),
+        messageBodyLength: effectiveMessageBody.length,
+        timestamp: new Date().toISOString(),
+      }));
+      res.json({ success: true, action: "compose_lock_declined" });
+      return;
+    }
   }
 
   // --- POST-ENRICHMENT SEGMENT CLASSIFICATION ---
@@ -301,6 +449,7 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
       messageBody: effectiveMessageBody,
       ghlMessageId: payload.messageId as string,
       emailMessageId: inboundEmailMsgId || undefined,
+      contentKind: contentClass.kind, // Foundation C.2: persist classification for brain filter
     });
   }
 
@@ -519,7 +668,9 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     lastAgentHoursAgo = (Date.now() - agentTime) / (1000 * 60 * 60);
   }
 
-  const convHistory = await getConversationHistory(lead!.id, 50);
+  // Foundation C.2: Exclude non-real-message rows from brain context.
+  // NULL contentKind = pre-migration rows, treated as real_message for backward compat.
+  const convHistory = await getConversationHistory(lead!.id, 50, { excludeNonReal: true });
   let historyStr = convHistory.map((c: any) => `[${c.senderType}/${c.channel}] ${c.messageBody}`).join("\n");
 
   // MANDATORY CONTEXT: For contacts older than 3 days, ALWAYS pull GHL history
@@ -533,14 +684,16 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
       if (ghlHistory.length > 0) {
         if (convHistory.length === 0) {
           for (const m of ghlHistory) {
-            if (!m.body?.trim()) continue;
-            const isFormData = m.body.toLowerCase().includes("full name:") && m.body.toLowerCase().includes("phone number:");
+            // Foundation C.1: Coerce m.body using the same logic as the top-of-handler coercion.
+            const histBody = coerceWebhookBody(m.body);
+            if (!histBody.trim()) continue;
+            const isFormData = histBody.toLowerCase().includes("full name:") && histBody.toLowerCase().includes("phone number:");
             if (isFormData) continue;
             if (m.direction === 'outbound') {
               await addConversation({
                 leadId: lead!.id, channel: normalizeChannel(m.type || 'SMS'),
                 direction: 'outbound', senderType: 'human',
-                messageBody: m.body,
+                messageBody: histBody,
                 ghlMessageId: (m as any).id ?? '',
                 recorded_from: 'ghl_history_sync',
                 observedAt: m.dateAdded ? new Date(m.dateAdded) : new Date(),
@@ -549,11 +702,11 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
               await addConversation({
                 leadId: lead!.id, channel: normalizeChannel(m.type || 'SMS'),
                 direction: 'inbound', senderType: 'lead',
-                messageBody: m.body,
+                messageBody: histBody,
               });
             }
           }
-          console.log(`[Webhook] Synced ${ghlHistory.filter(m => m.body?.trim()).length} GHL messages for lead ${lead!.id} (${leadAgeDays.toFixed(0)} days old)`);
+          console.log(`[Webhook] Synced ${ghlHistory.filter(m => coerceWebhookBody(m.body).trim()).length} GHL messages for lead ${lead!.id} (${leadAgeDays.toFixed(0)} days old)`);
         }
 
         // FIX: Detect human agent outbound messages from GHL history (bypasses webhook gap)
@@ -782,6 +935,15 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     return;
   }
 
+  // --- FOUNDATION C.2: NON-REAL-MESSAGE SKIP GATE ---
+  // If the inbound content is not a genuine customer message (promo, sticker, form data, etc.),
+  // skip the brain entirely. The row is already stored for audit (with contentKind set).
+  if (direction === "inbound" && contentClass.kind !== "real_message") {
+    console.log(`[Webhook/C.2] Skipping brain for lead ${lead!.id} — contentKind='${contentClass.kind}' (${contentClass.reason})`);
+    res.json({ success: true, action: "non_real_message_skipped", contentKind: contentClass.kind });
+    return;
+  }
+
   // --- AI RESPONSE via BRAIN COUNCIL ---
   // ALL send/no-send decisions (offline, lock, humanTakeover, dedup) are made INSIDE runBrainCouncil.
   let aiResponse: any;
@@ -869,16 +1031,24 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
 
         if (quickAck) {
           const ackChannel = normalizeChannel(aiResponse.channel || channel);
-          const ackOpts: Parameters<typeof sendMessage>[1] = ackChannel === "Email"
-            ? { type: "Email", subject: `Re: Your inquiry`, html: formatEmailHtml(quickAck), fromName: aiResponse.fromName || lead!.assignedAgent || "Adorb Custom Tees" }
-            : { type: ackChannel as "SMS" | "WhatsApp" | "FB" | "IG", message: quickAck };
-          const ackResult = await sendMessageWithRetry(resolvedContactId, ackOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
-          if (ackResult.success) {
-            if (ackResult.isPhantom) console.warn(`[Webhook/Msg] PR#3.12: Phantom quick-ack for lead ${lead!.id}`);
-            await addConversation({ leadId: lead!.id, direction: 'outbound', senderType: 'ai', messageBody: `[QUICK-ACK] ${quickAck}`, senderName: aiResponse.fromName || lead!.assignedAgent || undefined, outcome: { kind: 'delivered', messageId: ackResult.ghlMessageId ?? '', channel: ackChannel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: ackResult.resolvedContactId, correctionTaken: ackResult.correctionTaken } });
-            console.log(`[Webhook/Msg] \u2705 Quick-ack sent to lead ${lead!.id} after Brain Council block: "${quickAck}"`);
+          // Foundation A.5: use typed attemptSend wrapper
+          const ackOutcome = await attemptSend({
+            leadId: lead!.id,
+            ghlContactId: resolvedContactId,
+            channel: ackChannel as import('./send-types').Channel,
+            message: quickAck,
+            emailSubject: ackChannel === 'Email' ? 'Re: Your inquiry' : undefined,
+            emailHtmlBody: ackChannel === 'Email' ? formatEmailHtml(quickAck) : undefined,
+            fromName: aiResponse.fromName || lead!.assignedAgent || 'Adorb Custom Tees',
+            trigger: 'quick_ack',
+          });
+          if (isDelivered(ackOutcome)) {
+            await addConversation({ leadId: lead!.id, direction: 'outbound', senderType: 'ai', messageBody: `[QUICK-ACK] ${quickAck}`, senderName: aiResponse.fromName || lead!.assignedAgent || undefined, outcome: { kind: 'delivered', messageId: ackOutcome.messageId ?? '', channel: ackChannel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: ackOutcome.resolvedContactId } });
+            console.log(`[Webhook/Msg] ✅ Quick-ack sent to lead ${lead!.id} after Brain Council block: "${quickAck}"`);
+          } else if (ackOutcome.kind === 'phantom') {
+            console.warn(`[Webhook/Msg] PR#3.12: Phantom quick-ack for lead ${lead!.id}`);
           } else {
-            console.warn(`[Webhook/Msg] Quick-ack send FAILED for lead ${lead!.id}: ${ackResult.error}`);
+            console.warn(`[Webhook/Msg] Quick-ack send FAILED for lead ${lead!.id}: ${(ackOutcome as any).reason || ackOutcome.kind}`);
           }
         }
       } catch (ackErr) {
@@ -978,7 +1148,8 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   if (sendChannel !== channel) {
     console.log(`[Webhook/Msg] Channel adjusted for lead ${lead!.id}: inbound=${channel} → send=${sendChannel} (Brain Council recommended: ${aiResponse.channel})`);
   }
-  let normalSendResult: { success: boolean; resolvedContactId: string; emailMessageId?: string; error?: string; ghlMessageId?: string; isPhantom?: boolean; correctionTaken?: string };
+  // Foundation A.5: use typed attemptSend wrapper for normal Brain Council send
+  let normalSendOutcome: import('./send-types').SendOutcome | null = null;
   {
     // Email threading: look up prior email thread ID and subject for reply threading
     let emailThreadId: string | null = null;
@@ -993,19 +1164,41 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     if (emailThreadId && priorEmailSubject) {
       normalSubject = priorEmailSubject.startsWith("Re:") ? priorEmailSubject : `Re: ${priorEmailSubject}`;
     }
-    const normalOpts: Parameters<typeof sendMessage>[1] = sendChannel === "Email"
-      ? { type: "Email", subject: normalSubject, html: formatEmailHtml(aiResponse.message), fromName: aiResponse.fromName, ...(emailThreadId ? { threadId: emailThreadId, replyMessageId: emailThreadId } : {}) }
-      : { type: sendChannel as "SMS" | "WhatsApp" | "FB" | "IG", message: aiResponse.message };
-    normalSendResult = await sendMessageWithRetry(resolvedContactId, normalOpts, { email: lead!.email, phone: lead!.phone, id: lead!.id });
-    if (normalSendResult.resolvedContactId !== resolvedContactId) resolvedContactId = normalSendResult.resolvedContactId;
-    if (!normalSendResult.success) console.error(`[Webhook/Msg] Normal send failed for lead ${lead!.id}: ${normalSendResult.error}`);
+    normalSendOutcome = await attemptSend({
+      leadId: lead!.id,
+      ghlContactId: resolvedContactId,
+      channel: sendChannel as import('./send-types').Channel,
+      message: aiResponse.message,
+      emailSubject: sendChannel === 'Email' ? normalSubject : undefined,
+      emailHtmlBody: sendChannel === 'Email' ? formatEmailHtml(aiResponse.message) : undefined,
+      fromName: aiResponse.fromName,
+      emailThreadId: emailThreadId || undefined,
+      trigger: 'brain_council_response',
+    });
+    if (isDelivered(normalSendOutcome)) {
+      resolvedContactId = normalSendOutcome.resolvedContactId;
+    } else if (normalSendOutcome.kind === 'phantom') {
+      resolvedContactId = normalSendOutcome.resolvedContactId;
+    } else if (normalSendOutcome.kind !== 'blocked') {
+      console.error(`[Webhook/Msg] Normal send failed for lead ${lead!.id}: ${(normalSendOutcome as any).reason || normalSendOutcome.kind}`);
+    }
   }
 
-  if (normalSendResult.success) {
-    if (normalSendResult.isPhantom) console.warn(`[Webhook/Msg] PR#3.12: Phantom normal send for lead ${lead!.id}`);
-    await addConversation({ leadId: lead!.id, direction: 'outbound', senderType: 'ai', messageBody: aiResponse.message, senderName: aiResponse.fromName, outcome: { kind: 'delivered', messageId: normalSendResult.ghlMessageId ?? '', channel: sendChannel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: normalSendResult.resolvedContactId, correctionTaken: normalSendResult.correctionTaken, emailMessageId: normalSendResult.emailMessageId } });
+  if (normalSendOutcome && isDelivered(normalSendOutcome)) {
+    await addConversation({ leadId: lead!.id, direction: 'outbound', senderType: 'ai', messageBody: aiResponse.message, senderName: aiResponse.fromName, outcome: { kind: 'delivered', messageId: normalSendOutcome.messageId ?? '', channel: sendChannel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: normalSendOutcome.resolvedContactId, emailMessageId: normalSendOutcome.emailMessageId } });
+  } else if (normalSendOutcome && normalSendOutcome.kind === 'phantom') {
+    console.warn(`[Webhook/Msg] PR#3.12: Phantom normal send for lead ${lead!.id} — not storing conversation`);
   } else {
-    console.error(`[Webhook/Msg] Normal send FAILED for lead ${lead!.id}: ${normalSendResult.error} — conversation NOT stored`);
+    console.error(`[Webhook/Msg] Normal send FAILED for lead ${lead!.id}: ${normalSendOutcome ? (normalSendOutcome as any).reason : 'null outcome'} — conversation NOT stored`);
+  }
+  // Foundation A.5: update audit row with actual send outcome
+  if (normalSendOutcome && aiResponse.auditId) {
+    const { updateBrainCouncilAuditSendOutcome } = await import('./db');
+    await updateBrainCouncilAuditSendOutcome(aiResponse.auditId, {
+      messageSent: (normalSendOutcome.kind === 'delivered' || normalSendOutcome.kind === 'phantom') ? 1 : 0,
+      sendOutcomeKind: normalSendOutcome.kind,
+      sendError: normalSendOutcome.kind === 'failed' ? (normalSendOutcome as any).reason : undefined,
+    }).catch(() => {});
   }
   // Increment messageCount so cadence backoff works correctly
   const currentAiStateForCount = await getAiState(lead!.id);
