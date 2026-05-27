@@ -58,6 +58,28 @@ describe("MOV-B: retryCountCapAt6Not5", () => {
     expect(src).toMatch(/MAX_RETRIES\s*=\s*6/);
     expect(src).not.toMatch(/MAX_RETRIES\s*=\s*5[^0-9]/);
   });
+
+  it("retry cap fires at exactly 6 attempts per MOV-B — guard uses retryCount+1 >= MAX_RETRIES", async () => {
+    const fs = await import("fs");
+    const src = fs.readFileSync(
+      new URL("./outbox-worker.ts", import.meta.url).pathname,
+      "utf8"
+    );
+    // MOV-B spec §8.1: terminal condition must be (retryCount || 0) + 1 >= MAX_RETRIES
+    // This ensures retry fires for retryCount ∈ {0..4} and terminal fires at retryCount=5
+    expect(src).toMatch(/isTerminal.*=.*retryCount.*\+.*1.*>=.*MAX_RETRIES/s);
+    // Must write 'failed_terminal' (not 'failed') at the cap
+    expect(src).toContain('"failed_terminal"');
+    // The isTerminal branch must NOT call retryOutbox
+    // Extract the if(isTerminal) block and verify retryOutbox is absent
+    const terminalBlockMatch = src.match(/if\s*\(isTerminal\)\s*\{([^}]+)\}/);
+    expect(terminalBlockMatch).not.toBeNull();
+    const terminalBlock = terminalBlockMatch![1];
+    expect(terminalBlock).not.toContain("retryOutbox");
+    expect(terminalBlock).toContain("failed_terminal");
+    // The else branch must call retryOutbox (non-terminal path re-queues)
+    expect(src).toMatch(/}\s*else\s*\{[^}]*retryOutbox/s);
+  });
 });
 
 // ── Q1 Gap 1: signalThreadsToLeafFetch ──────────────────────────────────────

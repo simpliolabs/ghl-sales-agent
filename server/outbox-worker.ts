@@ -185,7 +185,7 @@ async function claimOutboxRows(workerId: string, limit: number): Promise<OutboxR
 }
 
 // ─── Status Updates ──────────────────────────────────────────────────────────
-async function markOutbox(rowId: number | bigint, status: "sent" | "failed" | "skipped", error?: string): Promise<void> {
+async function markOutbox(rowId: number | bigint, status: "sent" | "failed" | "failed_terminal" | "skipped", error?: string): Promise<void> {
   const db = await getDb();
   if (!db) return;
 
@@ -399,9 +399,13 @@ export async function processOutboxRow(row: OutboxRow): Promise<void> {
       } else if (composeResult.status === "skipped" || composeResult.status === "lock_timeout") {
         await markOutbox(row.id, "skipped", composeResult.reason);
       } else {
-        // failed or compose_crash
-        await markOutbox(row.id, "failed", composeResult.reason);
-        if ((row.retryCount || 0) < MAX_RETRIES) {
+        // failed or compose_crash — MOV-B: terminal fires when retryCount + 1 >= MAX_RETRIES
+        const isTerminal = (row.retryCount || 0) + 1 >= MAX_RETRIES;
+        if (isTerminal) {
+          // 6th attempt: write failed_terminal, do NOT re-queue
+          await markOutbox(row.id, "failed_terminal", composeResult.reason);
+        } else {
+          await markOutbox(row.id, "failed", composeResult.reason);
           await retryOutbox(row);
         }
       }
