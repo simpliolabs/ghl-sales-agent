@@ -144,6 +144,22 @@ vi.mock("./lead-active-compose", () => ({
 vi.mock("./coalesce", () => ({
   checkRecentSendCoalesce: (...a: any[]) => mockCheckRecentSendCoalesce(...a),
 }));
+// Phase 1.C: mock attempt-send so applyComposeOutcome gets a delivered outcome
+vi.mock("./attempt-send", () => ({
+  attemptSend: vi.fn().mockResolvedValue({
+    kind: "delivered",
+    messageId: "msg_test_123",
+    channel: "SMS",
+    deliveredAt: new Date(),
+    resolvedContactId: "contact_test_123",
+  }),
+  isDelivered: (o: any) => o?.kind === "delivered",
+  shouldRecordAttempt: (o: any) => o?.kind !== "delivered",
+}));
+// Phase 1.C (PR#8 Blocker 1): mock wrong-biz-check so post-send check is non-fatal
+vi.mock("./wrong-biz-check", () => ({
+  checkWrongBusinessPattern: vi.fn().mockReturnValue({ matched: false }),
+}));
 vi.mock("./sent-messages", () => ({
   isSentMessageDuplicate: (...a: any[]) => mockIsSentMessageDuplicate(...a),
   recordSentMessage: (...a: any[]) => mockRecordSentMessage(...a),

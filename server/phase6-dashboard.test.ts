@@ -119,10 +119,16 @@ describe("Phase 6 — logDecision flagging logic", () => {
 
   it("outbox-worker has post-send wrong-business flag logic", async () => {
     const fs = await import("fs/promises");
+    // Blocker 1 (PR#8): WRONG_BIZ_PATTERNS extracted to wrong-biz-check.ts;
+    // outbox-worker.ts calls checkWrongBusinessPattern() from that module.
     const workerFile = await fs.readFile("server/outbox-worker.ts", "utf8");
-    expect(workerFile).toContain("WRONG_BIZ_PATTERNS");
-    expect(workerFile).toContain("Wrong business reference");
-    expect(workerFile).toContain("flaggedForReview: 1");
+    const wrongBizFile = await fs.readFile("server/wrong-biz-check.ts", "utf8");
+    // The constant lives in the extracted module
+    expect(wrongBizFile).toContain("WRONG_BIZ_PATTERNS");
+    // The call site and owner notification are in outbox-worker.ts
+    expect(workerFile).toContain("checkWrongBusinessPattern");
+    expect(workerFile).toContain("Wrong Business Reference");
+    expect(workerFile).toContain("flaggedForReview: isBlocked ? 1 : 0");
   });
 });
 
