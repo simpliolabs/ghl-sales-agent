@@ -17,6 +17,7 @@ import { warmSlotPointersFromCalendar } from "../ghl";
 import { ENV } from "./env";
 import { startOutboxWorker } from "../outbox-worker";
 import { startPR3Monitor } from "../pr3-verification-monitor";
+import { startCleanupCrons } from "../crons";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -76,6 +77,8 @@ async function startServer() {
     // The outbox worker polls every 5s and processes pending outbound messages.
     // This is the ONLY path through which outbound messages should be sent.
     startOutboxWorker();
+    // --- Phase 1.C/D: Start v1.9 cleanup crons (orphaned claims, expired locks, reconciliation) ---
+    startCleanupCrons();
 
     // --- STARTUP: Warm slot pointers from GHL calendar (prevent double-booking after restart) ---
     setTimeout(async () => {
