@@ -382,9 +382,20 @@ export async function processOutboxRow(row: OutboxRow): Promise<void> {
         payload,
       });
 
-      // Map compose result to outbox status
+      // Map compose result to outbox status.
+      // NOTE: applyComposeOutcome already writes outbox_status for policy-block skips
+      // (sets 'pending_retry' or 'failed_terminal' directly). Do NOT overwrite those
+      // with 'skipped' here — that would lose the retry state. Only call markOutbox
+      // for non-policy-block skips (coalesce, lock_timeout, no_ghl_contact_id).
+      const isPolicyBlockSkip =
+        composeResult.status === "skipped" &&
+        typeof composeResult.reason === "string" &&
+        composeResult.reason.startsWith("send_blocked:");
       if (composeResult.status === "sent") {
         await markOutbox(row.id, "sent");
+      } else if (isPolicyBlockSkip) {
+        // applyComposeOutcome already wrote pending_retry or failed_terminal — no-op here
+        console.log(`[Outbox] Policy-block skip for lead ${leadId}: outbox status already written by applyComposeOutcome (reason: ${composeResult.reason})`);
       } else if (composeResult.status === "skipped" || composeResult.status === "lock_timeout") {
         await markOutbox(row.id, "skipped", composeResult.reason);
       } else {
