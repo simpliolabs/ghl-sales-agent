@@ -28,6 +28,8 @@ import type { BrainCouncilInput } from "./brain-types";
 import { promptVersions } from "../drizzle/schema";
 // Phase 1.C: v1.9 compose pipeline entry point
 import { composeAndSend } from "./compose-and-send";
+// Phase 5: wrong-business reference detection (commit 60c810cb, restored in PR #8 addendum)
+import { checkWrongBusinessPattern } from "./wrong-biz-check";
 
 // ─── PR#3.9: Minimum hours between AI outbound sends per lead ─────────────────
 // Prevents the brain from scheduling a follow-up so soon that the dedup guard
@@ -402,6 +404,26 @@ export async function processOutboxRow(row: OutboxRow): Promise<void> {
         outputGuardResult: composeResult.status === "sent" ? "pass" : `${composeResult.status}:${composeResult.reason || "unknown"}`,
         durationMs: composeResult.durationMs,
       });
+      // Phase 5 wrong-business check — post-send detection per commit 60c810cb
+      if (composeResult.status === "sent" && composeResult.message) {
+        try {
+          const wrongBizCheck = checkWrongBusinessPattern(composeResult.message);
+          if (wrongBizCheck.matched) {
+            const matchStr = composeResult.message.match(new RegExp(wrongBizCheck.pattern!, "i"))?.[0] || "unknown";
+            console.warn(`[Outbox] ⚠️ POST-SEND wrong-business detected in message to lead ${leadId}: "${matchStr}"`);
+            try {
+              const { notifyOwner } = await import("./_core/notification");
+              await notifyOwner({
+                title: `⚠️ Wrong Business Reference: Lead #${leadId}`,
+                content: `A sent message to lead #${leadId} references "${matchStr}" which is not Adorb Custom Tees.\n\nMessage excerpt: ${composeResult.message.substring(0, 200)}...\n\nThis was detected post-send. Please review and manually correct if needed.`,
+                priority: "standard",
+              });
+            } catch { /* notification non-fatal */ }
+          }
+        } catch (wbErr) {
+          console.error("[Outbox] Post-send wrong-business check error (non-fatal):", wbErr);
+        }
+      }
       return;
     }
 

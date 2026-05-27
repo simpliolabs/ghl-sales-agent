@@ -32,6 +32,7 @@ export interface ComposePipelineResult {
   reason?: string;
   channel?: string;
   messageId?: string;
+  message?: string; // populated when status === "sent", for post-send checks
   durationMs: number;
 }
 
@@ -165,6 +166,7 @@ export async function runComposePipeline(input: ComposePipelineInput): Promise<C
       reason: outcomeResult.reason,
       channel: brainResult.channel || input.channel,
       messageId: outcomeResult.messageId,
+      message: outcomeResult.sent ? brainResult.message : undefined,
       durationMs: Date.now() - startTime,
     };
 

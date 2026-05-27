@@ -36,6 +36,7 @@ export interface ComposeAndSendResult {
   reason?: string;
   channel?: string;
   messageId?: string;
+  message?: string; // populated when status === "sent", for post-send checks (e.g. wrong-biz)
   durationMs: number;
 }
 
@@ -101,6 +102,7 @@ export async function composeAndSend(input: ComposeAndSendInput): Promise<Compos
     reason: pipelineResult.reason,
     channel: pipelineResult.channel,
     messageId: pipelineResult.messageId,
+    message: pipelineResult.message,
     durationMs: Date.now() - startTime,
   };
 }
