@@ -15,6 +15,14 @@ const {
   mockDbSelect,
   mockSendMessageWithRetry,
   mockRunSingleBrain,
+  mockRunBrainCouncil,
+  mockAcquireLeadComposeLock,
+  mockReleaseLeadComposeLock,
+  mockHeartbeatLeadComposeLock,
+  mockCheckRecentSendCoalesce,
+  mockIsSentMessageDuplicate,
+  mockRecordSentMessage,
+  mockUpdateGhlMessageId,
 } = vi.hoisted(() => ({
   mockIsAiOffline: vi.fn(),
   mockGetLeadById: vi.fn(),
@@ -29,6 +37,14 @@ const {
   mockDbSelect: vi.fn(),
   mockSendMessageWithRetry: vi.fn(),
   mockRunSingleBrain: vi.fn(),
+  mockRunBrainCouncil: vi.fn(),
+  mockAcquireLeadComposeLock: vi.fn(),
+  mockReleaseLeadComposeLock: vi.fn(),
+  mockHeartbeatLeadComposeLock: vi.fn(),
+  mockCheckRecentSendCoalesce: vi.fn(),
+  mockIsSentMessageDuplicate: vi.fn(),
+  mockRecordSentMessage: vi.fn(),
+  mockUpdateGhlMessageId: vi.fn(),
 }));
 
 const mockDb = {
@@ -116,7 +132,24 @@ vi.mock("./single-brain", () => ({
   runSingleBrain: (...a: any[]) => mockRunSingleBrain(...a),
 }));
 vi.mock("./brain-adapter", () => ({
-  runBrainCouncil: vi.fn().mockResolvedValue({ blocked: true, blockReason: "test_mock" }),
+  runBrainCouncil: (...a: any[]) => mockRunBrainCouncil(...a),
+}));
+// Phase 1.C: mock new compose pipeline modules so processOutboxRow Path B works in tests
+vi.mock("./lead-active-compose", () => ({
+  acquireLeadComposeLock: (...a: any[]) => mockAcquireLeadComposeLock(...a),
+  releaseLeadComposeLock: (...a: any[]) => mockReleaseLeadComposeLock(...a),
+  heartbeatLeadComposeLock: (...a: any[]) => mockHeartbeatLeadComposeLock(...a),
+  sweepExpiredLeadComposeLocks: vi.fn().mockResolvedValue(0),
+}));
+vi.mock("./coalesce", () => ({
+  checkRecentSendCoalesce: (...a: any[]) => mockCheckRecentSendCoalesce(...a),
+}));
+vi.mock("./sent-messages", () => ({
+  isSentMessageDuplicate: (...a: any[]) => mockIsSentMessageDuplicate(...a),
+  recordSentMessage: (...a: any[]) => mockRecordSentMessage(...a),
+  updateGhlMessageId: (...a: any[]) => mockUpdateGhlMessageId(...a),
+  getPendingReconciliation: vi.fn().mockResolvedValue([]),
+  markReconciled: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("./scheduling-engine", () => ({
   calculateNextFollowUp: vi.fn().mockResolvedValue({ nextFollowUpAt: new Date(), cadencePosition: 0, reason: "test", channel: "SMS" }),
@@ -224,6 +257,15 @@ describe("PR#3.9 — Conversations Write + lastMessageAt + Dedup", () => {
     mockAddConversation.mockResolvedValue({ id: 999 });
     mockUpdateLeadFields.mockResolvedValue(undefined);
     mockSendMessageWithRetry.mockResolvedValue({ success: true, resolvedContactId: "contact_test_123" });
+    // Phase 1.C: default compose pipeline mocks
+    mockRunBrainCouncil.mockResolvedValue({ blocked: true, blockReason: "test_mock" });
+    mockAcquireLeadComposeLock.mockResolvedValue(true);
+    mockReleaseLeadComposeLock.mockResolvedValue(undefined);
+    mockHeartbeatLeadComposeLock.mockResolvedValue(undefined);
+    mockCheckRecentSendCoalesce.mockResolvedValue({ bypass: false, reason: null });
+    mockIsSentMessageDuplicate.mockResolvedValue(false);
+    mockRecordSentMessage.mockResolvedValue(undefined);
+    mockUpdateGhlMessageId.mockResolvedValue(undefined);
     mockGetDb.mockResolvedValue(mockDb);
     mockDbExecute.mockResolvedValue([[]]);
     mockDbInsert.mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) });
@@ -263,23 +305,24 @@ describe("PR#3.9 — Conversations Write + lastMessageAt + Dedup", () => {
   // ── Test 2: Path B Single Brain ────────────────────────────────────────────
   it("Path B Single Brain: addConversation is called with brain message + lastMessageAt updated", async () => {
     mockGetLeadById.mockResolvedValue(makeLead());
-    mockRunSingleBrain.mockResolvedValue({
-      decision: {
-        action: "send",
-        message: "Hi! Following up on your bulk tee order.",
-        channel: "SMS",
-        nextFollowUpHours: 24,
-        confidence: 90,
-        subject: null,
-        routeToHuman: false,
-        pipelineAction: null,
-      },
-      guardResult: { passed: true, action: "pass", reason: null, correctedDecision: null },
-      model: "gpt-4o",
-      promptVersion: "v3.0",
-      llmCalls: 2,
-      durationMs: 1200,
-      toolLog: [],
+    // Phase 1.C: Path B now goes through composeAndSend → runBrainCouncil (not runSingleBrain)
+    mockRunBrainCouncil.mockResolvedValue({
+      message: "Hi! Following up on your bulk tee order.",
+      fromName: "Abby Bouwer",
+      subject: undefined,
+      framework: "SINGLE_BRAIN",
+      angle: "single_brain",
+      channel: "SMS",
+      extractedDates: [],
+      score: 50,
+      segment: "other",
+      nextEngagementHours: 24,
+      qcScore: 90,
+      strategyReasoning: "[SingleBrain v3.0] confidence=90",
+      researchSummary: "",
+      blocked: false,
+      fallbackUsed: false,
+      auditId: undefined,
     });
     const row = makeOutboxRow();
     await processOutboxRow(row as any);
@@ -300,23 +343,24 @@ describe("PR#3.9 — Conversations Write + lastMessageAt + Dedup", () => {
   // ── Test 3: nextFollowUpHours floor (1h → clamped to 4h) ──────────────────
   it("nextFollowUpHours floor: brain suggests 1h => clamped to 4h (MIN_NEXT_FOLLOW_UP_HOURS)", async () => {
     mockGetLeadById.mockResolvedValue(makeLead());
-    mockRunSingleBrain.mockResolvedValue({
-      decision: {
-        action: "send",
-        message: "Quick follow-up!",
-        channel: "SMS",
-        nextFollowUpHours: 1,
-        confidence: 80,
-        subject: null,
-        routeToHuman: false,
-        pipelineAction: null,
-      },
-      guardResult: { passed: true, action: "pass", reason: null, correctedDecision: null },
-      model: "gpt-4o",
-      promptVersion: "v3.0",
-      llmCalls: 1,
-      durationMs: 800,
-      toolLog: [],
+    // Phase 1.C: Path B now goes through composeAndSend → runBrainCouncil
+    mockRunBrainCouncil.mockResolvedValue({
+      message: "Quick follow-up!",
+      fromName: "Abby Bouwer",
+      subject: undefined,
+      framework: "SINGLE_BRAIN",
+      angle: "single_brain",
+      channel: "SMS",
+      extractedDates: [],
+      score: 50,
+      segment: "other",
+      nextEngagementHours: 1,
+      qcScore: 80,
+      strategyReasoning: "[SingleBrain v3.0] confidence=80",
+      researchSummary: "",
+      blocked: false,
+      fallbackUsed: false,
+      auditId: undefined,
     });
     const row = makeOutboxRow();
     const before = Date.now();
@@ -332,23 +376,24 @@ describe("PR#3.9 — Conversations Write + lastMessageAt + Dedup", () => {
   // ── Test 4: nextFollowUpHours floor (24h → NOT clamped) ───────────────────
   it("nextFollowUpHours floor: brain suggests 24h => NOT clamped (value respected)", async () => {
     mockGetLeadById.mockResolvedValue(makeLead());
-    mockRunSingleBrain.mockResolvedValue({
-      decision: {
-        action: "send",
-        message: "Check back tomorrow!",
-        channel: "SMS",
-        nextFollowUpHours: 24,
-        confidence: 85,
-        subject: null,
-        routeToHuman: false,
-        pipelineAction: null,
-      },
-      guardResult: { passed: true, action: "pass", reason: null, correctedDecision: null },
-      model: "gpt-4o",
-      promptVersion: "v3.0",
-      llmCalls: 2,
-      durationMs: 1000,
-      toolLog: [],
+    // Phase 1.C: Path B now goes through composeAndSend → runBrainCouncil
+    mockRunBrainCouncil.mockResolvedValue({
+      message: "Check back tomorrow!",
+      fromName: "Abby Bouwer",
+      subject: undefined,
+      framework: "SINGLE_BRAIN",
+      angle: "single_brain",
+      channel: "SMS",
+      extractedDates: [],
+      score: 50,
+      segment: "other",
+      nextEngagementHours: 24,
+      qcScore: 85,
+      strategyReasoning: "[SingleBrain v3.0] confidence=85",
+      researchSummary: "",
+      blocked: false,
+      fallbackUsed: false,
+      auditId: undefined,
     });
     const row = makeOutboxRow();
     const before = Date.now();

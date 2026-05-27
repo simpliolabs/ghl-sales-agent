@@ -20,7 +20,7 @@
 import { eq, sql } from "drizzle-orm";
 import { attemptSend, isDelivered } from "./attempt-send";
 import { recordSentMessage, isSentMessageDuplicate, updateGhlMessageId } from "./sent-messages";
-import { updateLeadFields, getDb } from "./db";
+import { updateLeadFields, getDb, addConversation } from "./db";
 import { leads, outbox } from "../drizzle/schema";
 import type { Channel } from "./send-types";
 
@@ -221,7 +221,6 @@ export async function applyComposeOutcome(
   }
 
   // ── Step 4: Write conversations row ────────────────────────────────────
-  const { addConversation } = await import("./db");
   if (isDelivered(sendOutcome)) {
     await addConversation({
       leadId: input.leadId,

@@ -26,6 +26,8 @@ import { ensureEmailSignature, formatEmailHtml } from "./webhook-helpers";
 import { attemptSend, isDelivered } from "./attempt-send";
 import type { BrainCouncilInput } from "./brain-types";
 import { promptVersions } from "../drizzle/schema";
+// Phase 1.C: v1.9 compose pipeline entry point
+import { composeAndSend } from "./compose-and-send";
 
 // ─── PR#3.9: Minimum hours between AI outbound sends per lead ─────────────────
 // Prevents the brain from scheduling a follow-up so soon that the dedup guard
@@ -259,15 +261,15 @@ export async function logDecision(opts: {
 
 // ─── Process Single Row ──────────────────────────────────────────────────────
 /**
- * Process a single outbox row:
- * 1. Load the lead
- * 2. Run input guards (AI offline, DNC, humanTakeover, quiet hours)
- * 3. Call Brain Council (or use pre-composed message)
- * 4. Send via GHL
- * 5. Log the decision
- * 
- * NOTE: For Phase 1, we still call the existing runBrainCouncil pipeline.
- * Phase 2 will replace this with the single brain.
+ * Process a single outbox row.
+ *
+ * Phase 1.C architecture:
+ *   - Path A (pre-composed draftMessage): handled inline via attemptSend (unchanged)
+ *   - Path B (LLM-generated): delegated to composeAndSend() which runs the full
+ *     v1.9 compose pipeline (lock → coalesce → brain → applyComposeOutcome)
+ *
+ * composeAndSend handles all outbox state transitions for Path B.
+ * Path A retains direct markOutbox calls because it bypasses the compose pipeline.
  */
 export async function processOutboxRow(row: OutboxRow): Promise<void> {
   const startTime = Date.now();
@@ -366,10 +368,45 @@ export async function processOutboxRow(row: OutboxRow): Promise<void> {
       return;
     }
 
-        // Path B: LLM-generated — Single Brain (Phase 2) with A/B fallback to Brain Council
-    const useSingleBrain = await shouldUseSingleBrain();
+        // Path B: LLM-generated — v1.9 compose pipeline
+    // Phase 1.C: delegate to composeAndSend which runs:
+    //   acquireLeadComposeLock → checkRecentSendCoalesce → runBrainCouncil → applyComposeOutcome
+    // All outbox state transitions (sent/skipped/failed) are handled inside composeAndSend.
+    {
+      const composeResult = await composeAndSend({
+        outboxRowId: Number(row.id),
+        leadId,
+        source: row.source,
+        payload,
+      });
 
-    if (useSingleBrain) {
+      // Map compose result to outbox status
+      if (composeResult.status === "sent") {
+        await markOutbox(row.id, "sent");
+      } else if (composeResult.status === "skipped" || composeResult.status === "lock_timeout") {
+        await markOutbox(row.id, "skipped", composeResult.reason);
+      } else {
+        // failed or compose_crash
+        await markOutbox(row.id, "failed", composeResult.reason);
+        if ((row.retryCount || 0) < MAX_RETRIES) {
+          await retryOutbox(row);
+        }
+      }
+
+      await logDecision({
+        outboxId: row.id,
+        leadId,
+        trigger: String(payload.trigger || row.source),
+        channel: composeResult.channel,
+        inputGuardResult: "pass",
+        outputGuardResult: composeResult.status === "sent" ? "pass" : `${composeResult.status}:${composeResult.reason || "unknown"}`,
+        durationMs: composeResult.durationMs,
+      });
+      return;
+    }
+
+    if (false) {
+    if (false) {
       // ── Phase 2: Single Brain path ──────────────────────────────────────
       const { runSingleBrain } = await import("./single-brain");
       const brainOutput = await runSingleBrain({
@@ -616,6 +653,7 @@ export async function processOutboxRow(row: OutboxRow): Promise<void> {
         durationMs: Date.now() - startTime,
       });
     }
+    } // end if(false) dead-code block
 
   } catch (err: any) {
     // ── Dead-contact guard: GHL says contact no longer exists ─────────────
