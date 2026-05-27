@@ -44,6 +44,8 @@ import { dispatchStateActions, buildDispatchContext } from "./action-dispatcher"
 import { shouldDeferResponse, getDeferredSendAt } from "./deferred-response-processor";
 import { insertDeferredResponse, hasPendingDeferredResponse } from "./db";
 import { acquireComposeLock } from "./compose-lock";
+// Phase 1.C: v1.9 outcome handler for post-brain sends
+import { applyComposeOutcome } from "./apply-compose-outcome";
 
 /**
  * Foundation C.1: Coerce a GHL payload body field to a meaningful string.
@@ -1148,8 +1150,12 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
   if (sendChannel !== channel) {
     console.log(`[Webhook/Msg] Channel adjusted for lead ${lead!.id}: inbound=${channel} → send=${sendChannel} (Brain Council recommended: ${aiResponse.channel})`);
   }
-  // Foundation A.5: use typed attemptSend wrapper for normal Brain Council send
-  let normalSendOutcome: import('./send-types').SendOutcome | null = null;
+  // Phase 1.C: use applyComposeOutcome for the inbound reply send path.
+  // Brain has already run (aiResponse is the composed message); applyComposeOutcome
+  // handles: idempotency guard, GHL send, sent_messages record, conversations row,
+  // and lead field updates (lastMessageAt, consecutiveNullCount, firstContactSentAt).
+  // outboxRowId is undefined here because inbound replies are NOT outbox-mediated.
+  let normalSendMessageId: string | undefined;
   {
     // Email threading: look up prior email thread ID and subject for reply threading
     let emailThreadId: string | null = null;
@@ -1164,41 +1170,40 @@ export async function handleMessageWebhook(payload: Record<string, unknown>, res
     if (emailThreadId && priorEmailSubject) {
       normalSubject = priorEmailSubject.startsWith("Re:") ? priorEmailSubject : `Re: ${priorEmailSubject}`;
     }
-    normalSendOutcome = await attemptSend({
-      leadId: lead!.id,
-      ghlContactId: resolvedContactId,
-      channel: sendChannel as import('./send-types').Channel,
-      message: aiResponse.message,
-      emailSubject: sendChannel === 'Email' ? normalSubject : undefined,
-      emailHtmlBody: sendChannel === 'Email' ? formatEmailHtml(aiResponse.message) : undefined,
-      fromName: aiResponse.fromName,
-      emailThreadId: emailThreadId || undefined,
-      trigger: 'brain_council_response',
-    });
-    if (isDelivered(normalSendOutcome)) {
-      resolvedContactId = normalSendOutcome.resolvedContactId;
-    } else if (normalSendOutcome.kind === 'phantom') {
-      resolvedContactId = normalSendOutcome.resolvedContactId;
-    } else if (normalSendOutcome.kind !== 'blocked') {
-      console.error(`[Webhook/Msg] Normal send failed for lead ${lead!.id}: ${(normalSendOutcome as any).reason || normalSendOutcome.kind}`);
-    }
-  }
 
-  if (normalSendOutcome && isDelivered(normalSendOutcome)) {
-    await addConversation({ leadId: lead!.id, direction: 'outbound', senderType: 'ai', messageBody: aiResponse.message, senderName: aiResponse.fromName, outcome: { kind: 'delivered', messageId: normalSendOutcome.messageId ?? '', channel: sendChannel as import('./send-types').Channel, deliveredAt: new Date(), resolvedContactId: normalSendOutcome.resolvedContactId, emailMessageId: normalSendOutcome.emailMessageId } });
-  } else if (normalSendOutcome && normalSendOutcome.kind === 'phantom') {
-    console.warn(`[Webhook/Msg] PR#3.12: Phantom normal send for lead ${lead!.id} — not storing conversation`);
-  } else {
-    console.error(`[Webhook/Msg] Normal send FAILED for lead ${lead!.id}: ${normalSendOutcome ? (normalSendOutcome as any).reason : 'null outcome'} — conversation NOT stored`);
-  }
-  // Foundation A.5: update audit row with actual send outcome
-  if (normalSendOutcome && aiResponse.auditId) {
-    const { updateBrainCouncilAuditSendOutcome } = await import('./db');
-    await updateBrainCouncilAuditSendOutcome(aiResponse.auditId, {
-      messageSent: (normalSendOutcome.kind === 'delivered' || normalSendOutcome.kind === 'phantom') ? 1 : 0,
-      sendOutcomeKind: normalSendOutcome.kind,
-      sendError: normalSendOutcome.kind === 'failed' ? (normalSendOutcome as any).reason : undefined,
-    }).catch(() => {});
+    const outcomeResult = await applyComposeOutcome({
+      leadId: lead!.id,
+      outboxRowId: undefined, // direct path — no outbox row
+      contactId: resolvedContactId,
+      channel: sendChannel,
+      message: aiResponse.message,
+      fromName: aiResponse.fromName,
+      subject: sendChannel === 'Email' ? normalSubject : undefined,
+      trigger: 'brain_council_response',
+      source: 'inbound',
+      nextEngagementHours: aiResponse.nextEngagementHours,
+      pipelineAction: aiResponse.pipelineAction,
+      auditId: aiResponse.auditId,
+    });
+
+    if (outcomeResult.sent) {
+      normalSendMessageId = outcomeResult.messageId;
+      console.log(`[Webhook/Msg] ✅ inbound reply sent via applyComposeOutcome for lead ${lead!.id} (messageId: ${normalSendMessageId || 'none'})`);
+    } else if (outcomeResult.blocked) {
+      console.warn(`[Webhook/Msg] inbound reply blocked for lead ${lead!.id}: ${outcomeResult.reason}`);
+    } else {
+      console.error(`[Webhook/Msg] inbound reply FAILED for lead ${lead!.id}: ${outcomeResult.reason}`);
+    }
+
+    // Foundation A.5: update audit row with actual send outcome
+    if (aiResponse.auditId) {
+      const { updateBrainCouncilAuditSendOutcome } = await import('./db');
+      await updateBrainCouncilAuditSendOutcome(aiResponse.auditId, {
+        messageSent: outcomeResult.sent ? 1 : 0,
+        sendOutcomeKind: outcomeResult.sent ? 'delivered' : (outcomeResult.blocked ? 'blocked' : 'failed'),
+        sendError: outcomeResult.failed ? outcomeResult.reason : undefined,
+      }).catch(() => {});
+    }
   }
   // Increment messageCount so cadence backoff works correctly
   const currentAiStateForCount = await getAiState(lead!.id);
